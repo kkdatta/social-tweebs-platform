@@ -1,0 +1,38 @@
+import { Repository, DataSource } from 'typeorm';
+import { Campaign, CampaignInfluencer, CampaignDeliverable, CampaignMetric, CampaignShare } from './entities/campaign.entity';
+import { User } from '../users/entities/user.entity';
+import { CreditsService } from '../credits/credits.service';
+import { CreateCampaignDto, UpdateCampaignDto, AddInfluencerDto, UpdateInfluencerDto, CreateDeliverableDto, UpdateDeliverableDto, RecordMetricsDto, ShareCampaignDto, CampaignFilterDto, CampaignDetailDto, CampaignMetricsSummary, CampaignListResponseDto } from './dto/campaign.dto';
+export declare class CampaignsService {
+    private campaignRepo;
+    private influencerRepo;
+    private deliverableRepo;
+    private metricRepo;
+    private shareRepo;
+    private userRepo;
+    private creditsService;
+    private dataSource;
+    private readonly logger;
+    constructor(campaignRepo: Repository<Campaign>, influencerRepo: Repository<CampaignInfluencer>, deliverableRepo: Repository<CampaignDeliverable>, metricRepo: Repository<CampaignMetric>, shareRepo: Repository<CampaignShare>, userRepo: Repository<User>, creditsService: CreditsService, dataSource: DataSource);
+    createCampaign(userId: string, dto: CreateCampaignDto): Promise<Campaign>;
+    getCampaigns(userId: string, filters: CampaignFilterDto): Promise<CampaignListResponseDto>;
+    getCampaignById(userId: string, campaignId: string): Promise<CampaignDetailDto>;
+    updateCampaign(userId: string, campaignId: string, dto: UpdateCampaignDto): Promise<Campaign>;
+    deleteCampaign(userId: string, campaignId: string): Promise<void>;
+    addInfluencer(userId: string, campaignId: string, dto: AddInfluencerDto): Promise<CampaignInfluencer>;
+    getInfluencers(userId: string, campaignId: string): Promise<CampaignInfluencer[]>;
+    updateInfluencer(userId: string, campaignId: string, influencerId: string, dto: UpdateInfluencerDto): Promise<CampaignInfluencer>;
+    removeInfluencer(userId: string, campaignId: string, influencerId: string): Promise<void>;
+    createDeliverable(userId: string, campaignId: string, dto: CreateDeliverableDto): Promise<CampaignDeliverable>;
+    getDeliverables(userId: string, campaignId: string): Promise<CampaignDeliverable[]>;
+    updateDeliverable(userId: string, campaignId: string, deliverableId: string, dto: UpdateDeliverableDto): Promise<CampaignDeliverable>;
+    deleteDeliverable(userId: string, campaignId: string, deliverableId: string): Promise<void>;
+    recordMetrics(userId: string, campaignId: string, dto: RecordMetricsDto): Promise<CampaignMetric>;
+    getCampaignMetrics(campaignId: string): Promise<CampaignMetricsSummary>;
+    shareCampaign(userId: string, campaignId: string, dto: ShareCampaignDto): Promise<CampaignShare>;
+    removeCampaignShare(userId: string, campaignId: string, shareId: string): Promise<void>;
+    getDashboardStats(userId: string): Promise<any>;
+    private checkCampaignAccess;
+    private getTeamUserIds;
+    private getAccessibleCampaignIds;
+}

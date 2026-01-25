@@ -1,0 +1,36 @@
+import { Repository } from 'typeorm';
+import { InfluencerInsight, SystemConfig, InsightAccessLog } from './entities';
+import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
+import { CreditsService } from '../credits/credits.service';
+import { ModashService } from '../discovery/services/modash.service';
+import { SearchInsightDto, ListInsightsQueryDto, InsightListResponseDto, SearchInsightResponseDto, RefreshInsightResponseDto, FullInsightResponseDto } from './dto';
+export declare class InsightsService {
+    private insightsRepo;
+    private configRepo;
+    private accessLogRepo;
+    private profilesRepo;
+    private creditsService;
+    private modashService;
+    private readonly logger;
+    private readonly DEFAULT_CACHE_TTL_DAYS;
+    constructor(insightsRepo: Repository<InfluencerInsight>, configRepo: Repository<SystemConfig>, accessLogRepo: Repository<InsightAccessLog>, profilesRepo: Repository<InfluencerProfile>, creditsService: CreditsService, modashService: ModashService);
+    listInsights(userId: string, query: ListInsightsQueryDto): Promise<InsightListResponseDto>;
+    searchAndUnlock(userId: string, dto: SearchInsightDto): Promise<SearchInsightResponseDto>;
+    getInsight(userId: string, insightId: string): Promise<FullInsightResponseDto>;
+    forceRefresh(userId: string, insightId: string): Promise<RefreshInsightResponseDto>;
+    getCacheTTLDays(): Promise<number>;
+    private isDataFresh;
+    private daysBetween;
+    private refreshFromModash;
+    private createInsightFromModash;
+    private createInsightFromLocalProfile;
+    private generateMockAudienceData;
+    private generateMockEngagementData;
+    private generateMockGrowthData;
+    private generateMockBrandAffinity;
+    private generateMockInterests;
+    private generateMockHashtags;
+    private updateInsightFromModash;
+    private mapToFullResponse;
+    private logAccess;
+}

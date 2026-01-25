@@ -1,0 +1,35 @@
+import { PlatformType } from '../../../common/enums';
+import { AudienceData } from './audience-data.entity';
+export declare class InfluencerProfile {
+    id: string;
+    platform: PlatformType;
+    platformUserId: string;
+    username: string | null;
+    fullName: string | null;
+    profilePictureUrl: string | null;
+    biography: string | null;
+    followerCount: number;
+    followingCount: number;
+    postCount: number;
+    engagementRate: number | null;
+    avgLikes: number;
+    avgComments: number;
+    avgViews: number;
+    isVerified: boolean;
+    isBusinessAccount: boolean;
+    accountType: string | null;
+    locationCountry: string | null;
+    locationCity: string | null;
+    category: string | null;
+    audienceCredibility: number | null;
+    contactEmail: string | null;
+    contactPhone: string | null;
+    websiteUrl: string | null;
+    rawModashData: Record<string, any>;
+    modashFetchedAt: Date;
+    dataTtlExpiresAt: Date;
+    audienceData: AudienceData[];
+    createdAt: Date;
+    lastUpdatedAt: Date;
+    isDataStale(): boolean;
+}
