@@ -28,6 +28,8 @@ import {
 } from './dto';
 
 const CREDIT_PER_INFLUENCER = 1;
+/** Flat credit cost for retry (does not scale with influencer count) */
+const RETRY_CREDIT_FLAT = 1;
 
 @Injectable()
 export class CollabCheckService {
@@ -176,7 +178,7 @@ export class CollabCheckService {
         totalViews += infViews;
         totalComments += infComments;
         totalShares += infShares;
-        totalFollowers += influencer.followerCount;
+        totalFollowers += Number(influencer.followerCount) || 0;
       }
 
       // Update report metrics
@@ -381,13 +383,13 @@ export class CollabCheckService {
 
     await this.checkReportAccess(userId, report, 'edit');
 
-    if (report.status !== CollabReportStatus.FAILED) {
-      throw new BadRequestException('Only failed reports can be retried');
+    if (report.status !== CollabReportStatus.FAILED && report.status !== CollabReportStatus.COMPLETED) {
+      throw new BadRequestException('Only completed or failed reports can be retried');
     }
 
-    const totalCredits = report.influencers.length * CREDIT_PER_INFLUENCER;
+    const totalCredits = RETRY_CREDIT_FLAT;
 
-    // Deduct credits for retry
+    // Deduct credits for retry (flat 1 credit)
     await this.creditsService.deductCredits(userId, {
       actionType: ActionType.REPORT_REFRESH,
       quantity: totalCredits,
@@ -493,17 +495,17 @@ export class CollabCheckService {
 
     const posts = await this.postRepo.find({ where: { reportId } });
 
-    // Group posts by date
-    const grouped: Record<string, { posts: number; likes: number; views: number }> = {};
+    const grouped: Record<string, { posts: number; likes: number; views: number; comments: number }> = {};
     
     posts.forEach(post => {
       const dateStr = post.postDate ? new Date(post.postDate).toISOString().split('T')[0] : 'Unknown';
       if (!grouped[dateStr]) {
-        grouped[dateStr] = { posts: 0, likes: 0, views: 0 };
+        grouped[dateStr] = { posts: 0, likes: 0, views: 0, comments: 0 };
       }
       grouped[dateStr].posts += 1;
       grouped[dateStr].likes += post.likesCount || 0;
       grouped[dateStr].views += post.viewsCount || 0;
+      grouped[dateStr].comments += post.commentsCount || 0;
     });
 
     return Object.entries(grouped)
@@ -512,6 +514,7 @@ export class CollabCheckService {
         postsCount: data.posts,
         likesCount: data.likes,
         viewsCount: data.views,
+        commentsCount: data.comments,
       }))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }

@@ -38,13 +38,14 @@ import {
 
 // Credit calculation rules
 const CREDIT_RULES: Partial<Record<ActionType, number>> = {
-  [ActionType.INFLUENCER_SEARCH]: 0.01, // per search result
-  [ActionType.INFLUENCER_UNBLUR]: 0.04, // per profile
-  [ActionType.INFLUENCER_INSIGHT]: 1, // per profile
-  [ActionType.INFLUENCER_EXPORT]: 0.04, // per profile (1 credit = 25 profiles)
-  [ActionType.REPORT_GENERATION]: 1, // per report
-  [ActionType.REPORT_REFRESH]: 1, // per refresh
-  [ActionType.MANUAL_ALLOCATION]: 0, // admin operation, no auto-deduction
+  [ActionType.INFLUENCER_SEARCH]: 0,
+  [ActionType.INFLUENCER_UNBLUR]: 0.04,
+  [ActionType.INFLUENCER_INSIGHT]: 1,
+  [ActionType.INFLUENCER_EXPORT]: 0.04,
+  [ActionType.PROFILE_UNLOCK]: 1,
+  [ActionType.REPORT_GENERATION]: 1,
+  [ActionType.REPORT_REFRESH]: 1,
+  [ActionType.MANUAL_ALLOCATION]: 0,
   [ActionType.ACCOUNT_EXPIRY]: 0,
   [ActionType.ADMIN_ADJUSTMENT]: 0,
 };
@@ -275,11 +276,7 @@ export class CreditsService {
       throw new NotFoundException('User not found');
     }
 
-    // Check which influencers are already unlocked by this user or their admin
-    const userIdsToCheck = [userId];
-    if (user.parentId) {
-      userIdsToCheck.push(user.parentId);
-    }
+    const userIdsToCheck = await this.getUserIdsForUnlockVisibility(userId, user);
 
     const alreadyUnlocked = await this.unlockedInfluencerRepository.find({
       where: {
@@ -353,10 +350,7 @@ export class CreditsService {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) return false;
 
-    const userIdsToCheck = [userId];
-    if (user.parentId) {
-      userIdsToCheck.push(user.parentId);
-    }
+    const userIdsToCheck = await this.getUserIdsForUnlockVisibility(userId, user);
 
     const unlocked = await this.unlockedInfluencerRepository.findOne({
       where: {
@@ -844,6 +838,28 @@ export class CreditsService {
         reportInfo: 'No refresh concept in other reports. Create a new report for updated data.',
       },
     };
+  }
+
+  /**
+   * Unlocks are visible to the user, their parent admin, and (when viewer is admin)
+   * all sub-users under that admin.
+   */
+  private async getUserIdsForUnlockVisibility(
+    userId: string,
+    user: User,
+  ): Promise<string[]> {
+    const userIdsToCheck = [userId];
+    if (user.parentId) {
+      userIdsToCheck.push(user.parentId);
+    }
+    if (user.role === UserRole.ADMIN) {
+      const children = await this.userRepository.find({
+        where: { parentId: userId },
+        select: ['id'],
+      });
+      userIdsToCheck.push(...children.map((c) => c.id));
+    }
+    return userIdsToCheck;
   }
 
   async getAnalyticsSummary(adminUserId: string): Promise<{

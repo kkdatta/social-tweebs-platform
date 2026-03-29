@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
+import { Search, HelpCircle, X } from 'lucide-react';
 import { contentApi } from '../../services/api';
 
 interface Faq {
@@ -17,6 +17,125 @@ interface FaqCategory {
   faqs: Faq[];
 }
 
+/** Shown when the API fails or returns no categories (PRD-aligned structure). */
+const FALLBACK_FAQ_CATEGORIES: FaqCategory[] = [
+  {
+    id: 'fallback-general',
+    name: 'General',
+    slug: 'general',
+    description: 'Credits, data, and how SocialTweebs fits your workflow.',
+    faqs: [
+      {
+        id: 'fg1',
+        displayOrder: 1,
+        question: 'What products do you offer?',
+        answer:
+          'SocialTweebs is an analytics platform for influencer marketing. Core areas include influencer discovery and search, influencer insights (demographics and performance), paid collaboration tracking, audience overlap, sentiment analysis, and campaign tools — with exports and reporting across supported platforms.',
+      },
+      {
+        id: 'fg2',
+        displayOrder: 2,
+        question: 'Can I try the platform for free?',
+        answer:
+          'Many teams start with a trial or starter allocation of credits after signup and verification. Exact trial terms depend on your workspace — check your dashboard or contact support for current offers. No credit card is required for basic signup where applicable.',
+      },
+      {
+        id: 'fg3',
+        displayOrder: 3,
+        question: 'How is this data obtained?',
+        answer:
+          'We respect user privacy and rely on public, aggregated signals available from social platforms. Metrics are derived using our models and partner data; we do not sell private messages or non-public personal data.',
+      },
+      {
+        id: 'fg4',
+        displayOrder: 4,
+        question: 'Do you support multiple social platforms?',
+        answer:
+          'Yes. Coverage depends on the module (e.g. Instagram, TikTok, YouTube) — each feature page shows which platforms apply.',
+      },
+      {
+        id: 'fg5',
+        displayOrder: 5,
+        question: 'Can I download reports as PDF?',
+        answer:
+          'Yes. Where a report type supports export, you can download or share from the report detail or list actions.',
+      },
+    ],
+  },
+  {
+    id: 'fallback-discovery',
+    name: 'Influencer Discovery',
+    slug: 'influencer-discovery',
+    description: 'Finding and exporting the right creators.',
+    faqs: [
+      {
+        id: 'fd1',
+        displayOrder: 1,
+        question: 'What is Influencer Discovery?',
+        answer:
+          'Influencer Discovery lets you search and filter creators by audience, content, and performance signals, then shortlist and export lists for your campaigns.',
+      },
+      {
+        id: 'fd2',
+        displayOrder: 2,
+        question: 'How do I export an influencer list?',
+        answer:
+          'Run a search, refine with filters, then use the export action from discovery or open Generated Reports after export completes.',
+      },
+      {
+        id: 'fd3',
+        displayOrder: 3,
+        question: 'How do I find influencers by topic?',
+        answer:
+          'Use keywords and relevance-style filters so results match the themes and niches you care about; combine with audience filters to narrow further.',
+      },
+      {
+        id: 'fd4',
+        displayOrder: 4,
+        question: 'What are lookalikes?',
+        answer:
+          'Lookalikes help you find creators similar to a seed profile — by content similarity or overlapping audience — so you can scale what already works.',
+      },
+    ],
+  },
+  {
+    id: 'fallback-insights',
+    name: 'Influencer Insights',
+    slug: 'influencer-insights',
+    description: 'Deep profiles and performance context.',
+    faqs: [
+      {
+        id: 'fi1',
+        displayOrder: 1,
+        question: 'What is Influencer Insights?',
+        answer:
+          'Influencer Insights surfaces demographics, engagement, and content signals for a profile so you can validate fit before you commit budget.',
+      },
+      {
+        id: 'fi2',
+        displayOrder: 2,
+        question: 'How do credits work for insights?',
+        answer:
+          'Viewing or refreshing deep insight data typically consumes credits per profile or action; your balance and pricing are shown in-app before you confirm.',
+      },
+      {
+        id: 'fi3',
+        displayOrder: 3,
+        question: 'Can I revisit a profile without paying again?',
+        answer:
+          'Once an influencer is saved to your insights for your account, revisiting that saved record usually does not charge the same “first view” fee again — see in-app copy for your workspace rules.',
+      },
+    ],
+  },
+];
+
+type SelectedFaq = {
+  id: string;
+  question: string;
+  answer: string;
+  categoryName?: string;
+};
+
 export const FaqPage = () => {
   const [categories, setCategories] = useState<FaqCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,22 +143,41 @@ export const FaqPage = () => {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [expandedFaqs, setExpandedFaqs] = useState<Set<string>>(new Set());
+  const [selectedFaq, setSelectedFaq] = useState<SelectedFaq | null>(null);
 
   useEffect(() => {
     loadFaqs();
   }, []);
 
+  useEffect(() => {
+    if (!selectedFaq) {
+      document.body.style.overflow = '';
+      return;
+    }
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedFaq(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
+  }, [selectedFaq]);
+
   const loadFaqs = async () => {
     try {
       setLoading(true);
       const data = await contentApi.getAllFaqs();
-      setCategories(data.categories);
-      if (data.categories.length > 0) {
-        setActiveCategory(data.categories[0].slug);
+      const list = data.categories?.length ? data.categories : FALLBACK_FAQ_CATEGORIES;
+      setCategories(list);
+      if (list.length > 0) {
+        setActiveCategory(list[0].slug);
       }
     } catch (err) {
       console.error('Failed to load FAQs:', err);
+      setCategories(FALLBACK_FAQ_CATEGORIES);
+      setActiveCategory(FALLBACK_FAQ_CATEGORIES[0].slug);
     } finally {
       setLoading(false);
     }
@@ -62,16 +200,6 @@ export const FaqPage = () => {
     }
   };
 
-  const toggleFaq = (faqId: string) => {
-    const newExpanded = new Set(expandedFaqs);
-    if (newExpanded.has(faqId)) {
-      newExpanded.delete(faqId);
-    } else {
-      newExpanded.add(faqId);
-    }
-    setExpandedFaqs(newExpanded);
-  };
-
   const activeData = categories.find(c => c.slug === activeCategory);
 
   if (loading) {
@@ -84,6 +212,45 @@ export const FaqPage = () => {
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-0">
+      {selectedFaq && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="faq-modal-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45 backdrop-blur-sm transition-opacity"
+            onClick={() => setSelectedFaq(null)}
+            aria-label="Close dialog"
+          />
+          <div className="relative z-10 w-full max-w-lg rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 max-h-[min(85vh,640px)] flex flex-col">
+            <div className="flex items-start justify-between gap-4 p-5 sm:p-6 pb-0 shrink-0">
+              <div className="min-w-0 flex-1 pt-0.5">
+                {selectedFaq.categoryName && (
+                  <p className="text-xs font-medium text-purple-600 mb-2">{selectedFaq.categoryName}</p>
+                )}
+                <h2 id="faq-modal-title" className="text-lg sm:text-xl font-semibold text-gray-900 leading-snug">
+                  {selectedFaq.question}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedFaq(null)}
+                className="shrink-0 rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 sm:p-6 pt-4 overflow-y-auto text-sm sm:text-base text-gray-600 leading-relaxed whitespace-pre-wrap">
+              {selectedFaq.answer}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-6 sm:mb-8">
         <div className="flex items-center gap-2 sm:gap-3 mb-2">
@@ -123,29 +290,24 @@ export const FaqPage = () => {
           <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">
             Search Results ({searchResults.length})
           </h2>
-          <div className="space-y-3 sm:space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
             {searchResults.map((result: any) => (
-              <div key={result.id} className="border border-gray-200 rounded-lg overflow-hidden">
-                <button
-                  onClick={() => toggleFaq(result.id)}
-                  className="w-full flex items-center justify-between p-3 sm:p-4 text-left bg-gray-50 hover:bg-gray-100 transition-colors"
-                >
-                  <div className="min-w-0 flex-1 pr-2">
-                    <span className="text-xs text-purple-600 font-medium">{result.category.name}</span>
-                    <h3 className="font-medium text-gray-900 text-sm sm:text-base">{result.question}</h3>
-                  </div>
-                  {expandedFaqs.has(result.id) ? (
-                    <ChevronUp className="w-5 h-5 text-gray-500 shrink-0" />
-                  ) : (
-                    <ChevronDown className="w-5 h-5 text-gray-500 shrink-0" />
-                  )}
-                </button>
-                {expandedFaqs.has(result.id) && (
-                  <div className="p-3 sm:p-4 text-gray-600 border-t border-gray-200 text-sm">
-                    {result.answer}
-                  </div>
-                )}
-              </div>
+              <button
+                key={result.id}
+                type="button"
+                onClick={() =>
+                  setSelectedFaq({
+                    id: result.id,
+                    question: result.question,
+                    answer: result.answer,
+                    categoryName: result.category?.name,
+                  })
+                }
+                className="text-left border border-gray-200 rounded-xl p-4 sm:p-5 hover:bg-gray-50 hover:border-purple-200 hover:shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+              >
+                <span className="text-xs text-purple-600 font-medium block mb-1.5">{result.category.name}</span>
+                <h3 className="font-medium text-gray-900 text-sm sm:text-base leading-snug">{result.question}</h3>
+              </button>
             ))}
           </div>
           <button
@@ -180,33 +342,29 @@ export const FaqPage = () => {
           </div>
         </div>
 
-        {/* FAQ List */}
+        {/* FAQ cards */}
         <div className="p-4 sm:p-6">
           {activeData && (
             <>
               {activeData.description && (
                 <p className="text-sm sm:text-base text-gray-600 mb-4 sm:mb-6">{activeData.description}</p>
               )}
-              <div className="space-y-2 sm:space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 {activeData.faqs.map((faq) => (
-                  <div key={faq.id} className="border border-gray-200 rounded-lg overflow-hidden">
-                    <button
-                      onClick={() => toggleFaq(faq.id)}
-                      className="w-full flex items-center justify-between p-3 sm:p-4 text-left hover:bg-gray-50 transition-colors"
-                    >
-                      <h3 className="font-medium text-gray-900 pr-3 sm:pr-4 text-sm sm:text-base">{faq.question}</h3>
-                      {expandedFaqs.has(faq.id) ? (
-                        <ChevronUp className="w-5 h-5 text-gray-500 shrink-0" />
-                      ) : (
-                        <ChevronDown className="w-5 h-5 text-gray-500 shrink-0" />
-                      )}
-                    </button>
-                    {expandedFaqs.has(faq.id) && (
-                      <div className="p-3 sm:p-4 text-gray-600 bg-gray-50 border-t border-gray-200 text-sm">
-                        {faq.answer}
-                      </div>
-                    )}
-                  </div>
+                  <button
+                    key={faq.id}
+                    type="button"
+                    onClick={() =>
+                      setSelectedFaq({
+                        id: faq.id,
+                        question: faq.question,
+                        answer: faq.answer,
+                      })
+                    }
+                    className="text-left border border-gray-200 rounded-xl p-4 sm:p-5 hover:bg-gray-50 hover:border-purple-200 hover:shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+                  >
+                    <h3 className="font-medium text-gray-900 text-sm sm:text-base leading-snug">{faq.question}</h3>
+                  </button>
                 ))}
               </div>
             </>

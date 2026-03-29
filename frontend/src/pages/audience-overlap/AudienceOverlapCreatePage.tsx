@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Search, Plus, X, Instagram, Youtube, Users, AlertCircle } from 'lucide-react';
 import { audienceOverlapApi, discoveryApi } from '../../services/api';
 
@@ -11,8 +11,14 @@ interface SelectedInfluencer {
   followerCount: number;
 }
 
+type OverlapNavState = {
+  overlapMembers?: { username: string; platform: string }[];
+};
+
 export const AudienceOverlapCreatePage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const overlapPrefillApplied = useRef(false);
   const [platform, setPlatform] = useState<'INSTAGRAM' | 'YOUTUBE'>('INSTAGRAM');
   const [title, setTitle] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -26,6 +32,67 @@ export const AudienceOverlapCreatePage = () => {
   useEffect(() => {
     loadQuota();
   }, []);
+
+  useEffect(() => {
+    if (overlapPrefillApplied.current) return;
+    const state = location.state as OverlapNavState | null;
+    const members = state?.overlapMembers;
+    if (!members?.length) return;
+    overlapPrefillApplied.current = true;
+
+    let cancelled = false;
+    (async () => {
+      const resolved: SelectedInfluencer[] = [];
+      try {
+        for (const m of members.slice(0, 10)) {
+          const username = (m.username || '').replace(/^@/, '').trim().split(/[/?#]/)[0];
+          if (!username) continue;
+          const plat = (m.platform || 'INSTAGRAM').toUpperCase();
+          const searchPlatform = plat === 'YOUTUBE' ? 'YOUTUBE' : 'INSTAGRAM';
+          try {
+            const result = await discoveryApi.search({
+              platform: searchPlatform,
+              influencer: { keywords: username },
+            });
+            const list = result.influencers || [];
+            const match =
+              list.find((i: { username?: string }) => i.username?.toLowerCase() === username.toLowerCase()) ||
+              list[0];
+            if (match && !resolved.find((r) => r.id === match.id)) {
+              resolved.push({
+                id: match.id,
+                username: match.username,
+                fullName: match.fullName || match.username,
+                profilePictureUrl: match.profilePictureUrl,
+                followerCount: match.followerCount,
+              });
+            }
+          } catch {
+            /* skip failed lookups */
+          }
+          if (cancelled) return;
+        }
+        if (!cancelled) {
+          if (resolved.length > 0) {
+            const firstPlat =
+              (members[0].platform || 'INSTAGRAM').toUpperCase() === 'YOUTUBE' ? 'YOUTUBE' : 'INSTAGRAM';
+            setPlatform(firstPlat);
+            setSelectedInfluencers(resolved);
+          } else {
+            setError('Could not resolve selected influencers from search. Add them manually below.');
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          navigate(location.pathname, { replace: true, state: {} });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname, location.state, navigate]);
 
   const loadQuota = async () => {
     try {

@@ -10,6 +10,7 @@ import {
   Min,
   Max,
   IsBoolean,
+  IsUrl,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -22,7 +23,10 @@ import {
   DeliverableType,
   DeliverableStatus,
   SharePermission,
+  PostType,
 } from '../entities/campaign.entity';
+
+export const MIN_CREDITS_FOR_CAMPAIGN = 5;
 
 // ============ CREATE CAMPAIGN ============
 export class CreateCampaignDto {
@@ -34,6 +38,11 @@ export class CreateCampaignDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({ description: 'Campaign logo URL' })
+  @IsOptional()
+  @IsString()
+  logoUrl?: string;
 
   @ApiProperty({ description: 'Platform: INSTAGRAM, YOUTUBE, TIKTOK, MULTI' })
   @IsString()
@@ -336,6 +345,147 @@ export class RecordMetricsDto {
   clicks?: number;
 }
 
+// ============ CAMPAIGN POSTS ============
+export class AddPostDto {
+  @ApiProperty({ description: 'Post URL' })
+  @IsString()
+  postUrl: string;
+
+  @ApiPropertyOptional({ enum: PostType, default: PostType.POST })
+  @IsOptional()
+  @IsEnum(PostType)
+  postType?: PostType;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  campaignInfluencerId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  platform?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  influencerName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  influencerUsername?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  postImageUrl?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  postedDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  followerCount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  likesCount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  viewsCount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  commentsCount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  sharesCount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  engagementRate?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  audienceCredibility?: number;
+}
+
+export class PostFilterDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  platform?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ enum: PostType })
+  @IsOptional()
+  @IsEnum(PostType)
+  postType?: PostType;
+
+  @ApiPropertyOptional({ description: 'published / unpublished / all' })
+  @IsOptional()
+  @IsString()
+  publishStatus?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  sortBy?: string;
+
+  @ApiPropertyOptional({ enum: ['asc', 'desc'] })
+  @IsOptional()
+  @IsString()
+  sortOrder?: 'asc' | 'desc';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  page?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  limit?: number;
+}
+
+export class InfluencerFilterDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  platform?: string;
+
+  @ApiPropertyOptional({ description: 'published / unpublished / all' })
+  @IsOptional()
+  @IsString()
+  publishStatus?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+
 // ============ SHARING ============
 export class ShareCampaignDto {
   @ApiProperty({ description: 'User ID to share with' })
@@ -403,6 +553,12 @@ export class CampaignFilterDto {
 
 export class CampaignMetricsSummary {
   @ApiProperty()
+  totalInfluencers: number;
+
+  @ApiProperty()
+  totalPosts: number;
+
+  @ApiProperty()
   totalImpressions: number;
 
   @ApiProperty()
@@ -427,10 +583,36 @@ export class CampaignMetricsSummary {
   avgEngagementRate: number;
 
   @ApiProperty()
+  engagementToViewsRatio: number;
+
+  @ApiProperty()
   totalSpent: number;
 
   @ApiProperty()
   budgetUtilization: number;
+}
+
+export class TimelineDataPoint {
+  @ApiProperty()
+  date: string;
+
+  @ApiProperty()
+  posts: number;
+
+  @ApiProperty()
+  likes: number;
+
+  @ApiProperty()
+  views: number;
+
+  @ApiProperty()
+  comments: number;
+
+  @ApiProperty()
+  shares: number;
+
+  @ApiProperty()
+  engagement: number;
 }
 
 export class CampaignSummaryDto {
@@ -439,6 +621,9 @@ export class CampaignSummaryDto {
 
   @ApiProperty()
   name: string;
+
+  @ApiPropertyOptional()
+  logoUrl?: string;
 
   @ApiProperty()
   platform: string;
@@ -461,8 +646,14 @@ export class CampaignSummaryDto {
   @ApiProperty()
   currency: string;
 
+  @ApiPropertyOptional()
+  hashtags?: string[];
+
   @ApiProperty()
   influencerCount: number;
+
+  @ApiProperty()
+  postsCount: number;
 
   @ApiProperty()
   deliverableCount: number;
@@ -479,9 +670,6 @@ export class CampaignDetailDto extends CampaignSummaryDto {
   description?: string;
 
   @ApiPropertyOptional()
-  hashtags?: string[];
-
-  @ApiPropertyOptional()
   mentions?: string[];
 
   @ApiPropertyOptional()
@@ -494,7 +682,13 @@ export class CampaignDetailDto extends CampaignSummaryDto {
   deliverables: any[];
 
   @ApiProperty()
+  posts: any[];
+
+  @ApiProperty()
   metrics: CampaignMetricsSummary;
+
+  @ApiProperty()
+  timeline: TimelineDataPoint[];
 }
 
 export class CampaignListResponseDto {

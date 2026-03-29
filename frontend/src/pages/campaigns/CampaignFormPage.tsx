@@ -1,9 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Loader } from 'lucide-react';
+import { ArrowLeft, Save, Loader, AlertTriangle, Upload, Image } from 'lucide-react';
 import { campaignsApi } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 
-const PLATFORMS = ['INSTAGRAM', 'YOUTUBE', 'TIKTOK', 'MULTI'];
+const PLATFORMS = [
+  { value: 'INSTAGRAM', label: 'Instagram' },
+  { value: 'YOUTUBE', label: 'YouTube' },
+  { value: 'TIKTOK', label: 'TikTok' },
+  { value: 'MULTI', label: 'Multi-Platform' },
+];
 const OBJECTIVES = [
   { value: 'BRAND_AWARENESS', label: 'Brand Awareness' },
   { value: 'ENGAGEMENT', label: 'Engagement' },
@@ -13,19 +19,27 @@ const OBJECTIVES = [
   { value: 'SALES', label: 'Sales' },
 ];
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'SGD', 'AED'];
+const MIN_CREDITS_REQUIRED = 5;
 
 export const CampaignFormPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const isEditing = !!id;
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [creditWarning, setCreditWarning] = useState<string | null>(null);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(['INSTAGRAM']);
+  const [logoMode, setLogoMode] = useState<'url' | 'upload'>('url');
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [localLogoPreview, setLocalLogoPreview] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
     description: '',
+    logoUrl: '',
     platform: 'INSTAGRAM',
     objective: '',
     startDate: '',
@@ -39,8 +53,30 @@ export const CampaignFormPage: React.FC = () => {
   useEffect(() => {
     if (isEditing) {
       loadCampaign();
+    } else {
+      checkCredits();
     }
   }, [id]);
+
+  const checkCredits = async () => {
+    try {
+      const notification = await campaignsApi.getCreditNotification();
+      if (notification.balance < MIN_CREDITS_REQUIRED) {
+        setCreditWarning(`You need at least ${MIN_CREDITS_REQUIRED} credits to create a campaign. Current balance: ${notification.balance} credits.`);
+      }
+    } catch (err) {
+      // Silently handle
+    }
+  };
+
+  const handlePlatformToggle = (platform: string) => {
+    setSelectedPlatforms(prev => {
+      const next = prev.includes(platform) ? prev.filter(p => p !== platform) : [...prev, platform];
+      if (next.length === 0) return prev;
+      setFormData(f => ({ ...f, platform: next.length > 1 ? 'MULTI' : next[0] }));
+      return next;
+    });
+  };
 
   const loadCampaign = async () => {
     try {
@@ -49,6 +85,7 @@ export const CampaignFormPage: React.FC = () => {
       setFormData({
         name: data.name || '',
         description: data.description || '',
+        logoUrl: data.logoUrl || '',
         platform: data.platform || 'INSTAGRAM',
         objective: data.objective || '',
         startDate: data.startDate ? new Date(data.startDate).toISOString().split('T')[0] : '',
@@ -71,11 +108,49 @@ export const CampaignFormPage: React.FC = () => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please choose an image file (JPEG, PNG, GIF, or WebP)');
+      e.target.value = '';
+      return;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    setLocalLogoPreview(previewUrl);
+    try {
+      setUploadingLogo(true);
+      setError(null);
+      const result = await campaignsApi.uploadLogo(file);
+      const url = result.logoUrl || result.path;
+      setFormData(prev => ({ ...prev, logoUrl: url }));
+      URL.revokeObjectURL(previewUrl);
+      setLocalLogoPreview(null);
+    } catch (err: any) {
+      URL.revokeObjectURL(previewUrl);
+      setLocalLogoPreview(null);
+      setError(err.response?.data?.message || 'Failed to upload logo');
+    } finally {
+      setUploadingLogo(false);
+      e.target.value = '';
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.name.trim()) {
       setError('Campaign name is required');
+      return;
+    }
+
+    if (!formData.hashtags?.trim()) {
+      setError('At least one hashtag is required to track the campaign');
+      return;
+    }
+
+    if (!formData.startDate || !formData.endDate) {
+      setError('Start date and end date are required');
       return;
     }
 
@@ -86,6 +161,7 @@ export const CampaignFormPage: React.FC = () => {
       const payload = {
         name: formData.name.trim(),
         description: formData.description.trim() || undefined,
+        logoUrl: formData.logoUrl || undefined,
         platform: formData.platform,
         objective: formData.objective || undefined,
         startDate: formData.startDate || undefined,
@@ -147,14 +223,104 @@ export const CampaignFormPage: React.FC = () => {
       {/* Form */}
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <form onSubmit={handleSubmit} className="space-y-6">
+          {creditWarning && !isEditing && (
+            <div className="bg-orange-50 border border-orange-200 text-orange-700 px-4 py-3 rounded-lg flex items-center gap-3">
+              <AlertTriangle size={20} className="shrink-0" />
+              <div>
+                <p className="font-medium">Insufficient Credits</p>
+                <p className="text-sm">{creditWarning}</p>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg">
               {error}
             </div>
           )}
 
+          {!isEditing && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-lg text-sm">
+              Creating a campaign requires <strong>1 credit</strong>. You must have at least <strong>{MIN_CREDITS_REQUIRED} credits</strong> in your account.
+              {user && <span className="ml-1">Current balance: <strong>{(user as any)?.credits || 0}</strong> credits.</span>}
+            </div>
+          )}
+
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
             <h2 className="text-lg font-semibold text-gray-900">Basic Information</h2>
+
+            {/* Campaign Logo */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Campaign Logo</label>
+              <div className="flex rounded-lg border border-gray-200 p-0.5 bg-gray-50 w-fit mb-3">
+                <button
+                  type="button"
+                  onClick={() => setLogoMode('url')}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    logoMode === 'url' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  URL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLogoMode('upload')}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors flex items-center gap-1.5 ${
+                    logoMode === 'upload' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <Upload size={14} />
+                  Upload
+                </button>
+              </div>
+              <div className="flex items-start gap-4">
+                {(localLogoPreview || formData.logoUrl) ? (
+                  <img
+                    src={localLogoPreview || formData.logoUrl}
+                    alt="Logo"
+                    className="w-20 h-20 rounded-lg object-cover border shrink-0"
+                  />
+                ) : (
+                  <div className="w-20 h-20 rounded-lg bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center shrink-0">
+                    <Image size={28} className="text-gray-400" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0 space-y-2">
+                  {logoMode === 'url' ? (
+                    <>
+                      <input
+                        type="url"
+                        name="logoUrl"
+                        value={formData.logoUrl}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                        placeholder="https://example.com/logo.png"
+                      />
+                      <p className="text-xs text-gray-500">Paste a public image URL for the campaign logo</p>
+                    </>
+                  ) : (
+                    <>
+                      <label className="flex flex-col items-start gap-2">
+                        <span className="text-xs text-gray-600">Choose an image from your device</span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/gif,image/webp"
+                          onChange={handleLogoFileChange}
+                          disabled={uploadingLogo}
+                          className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                        />
+                      </label>
+                      {uploadingLogo && (
+                        <p className="text-xs text-purple-600 flex items-center gap-2">
+                          <Loader className="animate-spin w-4 h-4" /> Uploading…
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-500">JPEG, PNG, GIF, or WebP, up to 5 MB</p>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
 
             {/* Campaign Name */}
             <div>
@@ -189,41 +355,47 @@ export const CampaignFormPage: React.FC = () => {
               />
             </div>
 
-            {/* Platform & Objective */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="platform" className="block text-sm font-medium text-gray-700 mb-1">
-                  Platform <span className="text-red-500">*</span>
-                </label>
-                <select
-                  id="platform"
-                  name="platform"
-                  value={formData.platform}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                >
-                  {PLATFORMS.map(platform => (
-                    <option key={platform} value={platform}>{platform}</option>
-                  ))}
-                </select>
+            {/* Platform Selection (Multi-select) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Platform (Social Networks) <span className="text-red-500">*</span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {PLATFORMS.filter(p => p.value !== 'MULTI').map(platform => (
+                  <button
+                    key={platform.value}
+                    type="button"
+                    onClick={() => handlePlatformToggle(platform.value)}
+                    className={`px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                      selectedPlatforms.includes(platform.value)
+                        ? 'bg-purple-100 border-purple-300 text-purple-700'
+                        : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {platform.label}
+                  </button>
+                ))}
               </div>
-              <div>
-                <label htmlFor="objective" className="block text-sm font-medium text-gray-700 mb-1">
-                  Objective
-                </label>
-                <select
-                  id="objective"
-                  name="objective"
-                  value={formData.objective}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                >
-                  <option value="">Select objective...</option>
-                  {OBJECTIVES.map(obj => (
-                    <option key={obj.value} value={obj.value}>{obj.label}</option>
-                  ))}
-                </select>
-              </div>
+              <p className="text-xs text-gray-500 mt-1">Select one or multiple platforms for this campaign</p>
+            </div>
+
+            {/* Objective */}
+            <div>
+              <label htmlFor="objective" className="block text-sm font-medium text-gray-700 mb-1">
+                Objective
+              </label>
+              <select
+                id="objective"
+                name="objective"
+                value={formData.objective}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              >
+                <option value="">Select objective...</option>
+                {OBJECTIVES.map(obj => (
+                  <option key={obj.value} value={obj.value}>{obj.label}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -234,7 +406,7 @@ export const CampaignFormPage: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-1">
-                  Start Date
+                  Start Date <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="date"
@@ -247,7 +419,7 @@ export const CampaignFormPage: React.FC = () => {
               </div>
               <div>
                 <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-1">
-                  End Date
+                  End Date <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="date"
@@ -303,7 +475,7 @@ export const CampaignFormPage: React.FC = () => {
             {/* Hashtags */}
             <div>
               <label htmlFor="hashtags" className="block text-sm font-medium text-gray-700 mb-1">
-                Hashtags
+                Hashtags <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -346,8 +518,8 @@ export const CampaignFormPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={saving}
-              className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+              disabled={saving || (!!creditWarning && !isEditing)}
+              className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? (
                 <>

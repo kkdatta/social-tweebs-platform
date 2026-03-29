@@ -4,8 +4,13 @@ import {
   ArrowLeft, Share2, Download, RefreshCw, Hash, AtSign,
   Users, FileText, Heart, Eye, MessageCircle, Share,
   Calendar, Clock, CheckCircle, AlertCircle, Loader,
-  TrendingUp, Filter, ChevronDown
+  TrendingUp, ChevronDown, Instagram, Youtube, ChevronLeft, ChevronRight
 } from 'lucide-react';
+import {
+  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip, Legend
+} from 'recharts';
+import * as XLSX from 'xlsx';
 import { mentionTrackingApi } from '../../services/api';
 
 interface Report {
@@ -48,6 +53,8 @@ interface ChartData {
   viewsCount: number;
 }
 
+const POSTS_PER_PAGE = 12;
+
 export const MentionTrackingDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -55,15 +62,23 @@ export const MentionTrackingDetailPage = () => {
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'influencers' | 'posts'>('overview');
-  const [sponsoredFilter, setSponsoredFilter] = useState(false);
-  const [categoryFilter, setCategoryFilter] = useState('ALL');
-  const [sortBy, setSortBy] = useState('likes');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Header-level sponsored toggle (only when report was NOT created with sponsoredOnly)
+  const [headerSponsoredToggle, setHeaderSponsoredToggle] = useState(false);
+
+  // Influencer tab state
+  const [infCategoryFilter, setInfCategoryFilter] = useState('ALL');
+  const [infSortBy, setInfSortBy] = useState('likes');
+  const [infSortOrder, setInfSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Posts tab state
+  const [postCategoryFilter, setPostCategoryFilter] = useState('ALL');
+  const [postSortBy, setPostSortBy] = useState('likes');
+  const [postSortOrder, setPostSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [postPage, setPostPage] = useState(1);
 
   useEffect(() => {
-    if (id) {
-      loadReport();
-    }
+    if (id) loadReport();
   }, [id]);
 
   const loadReport = async () => {
@@ -104,6 +119,94 @@ export const MentionTrackingDetailPage = () => {
     }
   };
 
+  const handleExportPdf = () => {
+    window.print();
+  };
+
+  const handleExportExcel = () => {
+    if (!report) return;
+
+    const wb = XLSX.utils.book_new();
+
+    const summarySheet = XLSX.utils.json_to_sheet([
+      {
+        Title: report.title,
+        Status: report.status,
+        DateRangeStart: report.dateRangeStart,
+        DateRangeEnd: report.dateRangeEnd,
+        Platforms: (report.platforms || []).join(', '),
+        Hashtags: (report.hashtags || []).join(', '),
+        Usernames: (report.usernames || []).join(', '),
+        Keywords: (report.keywords || []).join(', '),
+        SponsoredOnly: report.sponsoredOnly,
+        TotalInfluencers: report.totalInfluencers,
+        TotalPosts: report.totalPosts,
+        TotalLikes: report.totalLikes,
+        TotalViews: report.totalViews,
+        TotalComments: report.totalComments,
+        TotalShares: report.totalShares,
+        AvgEngagementRate: report.avgEngagementRate,
+        EngagementViewsRate: report.engagementViewsRate,
+        TotalFollowers: report.totalFollowers,
+        CreditsUsed: report.creditsUsed,
+        CreatedAt: report.createdAt,
+      },
+    ]);
+    XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary');
+
+    if (chartData.length > 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(chartData), 'Trend');
+    }
+
+    if (report.categorization?.length) {
+      const catRows = report.categorization.map((c: any) => ({
+        Category: c.category,
+        Label: c.label,
+        Accounts: c.accountsCount,
+        Followers: c.followersCount,
+        Posts: c.postsCount,
+        Likes: c.likesCount,
+        Views: c.viewsCount,
+        Comments: c.commentsCount,
+        Shares: c.sharesCount ?? 0,
+        ERPercent: c.engagementRate,
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(catRows), 'Categorization');
+    }
+
+    const infRows = (report.influencers || []).map((inf: any) => ({
+      Platform: inf.platform,
+      Name: inf.influencerName,
+      Username: inf.influencerUsername,
+      Category: inf.category,
+      Followers: inf.followerCount,
+      Posts: inf.postsCount,
+      Likes: inf.likesCount,
+      Views: inf.viewsCount,
+      Comments: inf.commentsCount,
+      Shares: inf.sharesCount ?? 0,
+      Credibility: inf.audienceCredibility,
+      ERPercent: inf.avgEngagementRate,
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(infRows), 'Influencers');
+
+    const postRows = (report.posts || []).map((p: any) => ({
+      Influencer: p.influencerUsername,
+      PostDate: p.postDate,
+      Likes: p.likesCount,
+      Views: p.viewsCount,
+      Comments: p.commentsCount,
+      Shares: p.sharesCount ?? 0,
+      Sponsored: p.isSponsored,
+      Description: p.description,
+      MatchedHashtags: (p.matchedHashtags || []).join('; '),
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(postRows), 'Posts');
+
+    const safeTitle = (report.title || 'report').replace(/[/\\?%*:|"<>]/g, '-').slice(0, 80);
+    XLSX.writeFile(wb, `mention-tracking-${safeTitle}-${report.id.slice(0, 8)}.xlsx`);
+  };
+
   const formatNumber = (num: number) => {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
@@ -116,8 +219,24 @@ export const MentionTrackingDetailPage = () => {
       MICRO: 'bg-blue-100 text-blue-700',
       MACRO: 'bg-purple-100 text-purple-700',
       MEGA: 'bg-orange-100 text-orange-700',
+      ALL: 'bg-gray-100 text-gray-700',
     };
     return styles[category] || 'bg-gray-100 text-gray-700';
+  };
+
+  const getPlatformIcon = (platform: string) => {
+    switch (platform?.toUpperCase()) {
+      case 'INSTAGRAM':
+        return <Instagram className="w-4 h-4 text-pink-600" />;
+      case 'YOUTUBE':
+        return <Youtube className="w-4 h-4 text-red-600" />;
+      case 'TIKTOK':
+        return (
+          <span className="inline-flex items-center justify-center w-4 h-4 text-xs font-bold text-gray-800">T</span>
+        );
+      default:
+        return <span className="w-4 h-4 text-gray-400">?</span>;
+    }
   };
 
   if (loading) {
@@ -137,32 +256,60 @@ export const MentionTrackingDetailPage = () => {
     );
   }
 
+  // Apply header-level sponsored toggle to ALL data views
+  const applyGlobalSponsoredFilter = (posts: any[]) => {
+    if (headerSponsoredToggle) return posts.filter((p: any) => p.isSponsored);
+    return posts;
+  };
+
+  // Build influencer-to-category mapping from the report's posts for filtering
+  const influencerCategoryMap = new Map<string, string>();
+  report.influencers.forEach((inf: any) => {
+    influencerCategoryMap.set(inf.id, inf.category);
+  });
+
+  // --- Influencer list: filter + sort ---
   const filteredInfluencers = report.influencers
-    .filter(inf => categoryFilter === 'ALL' || inf.category === categoryFilter)
-    .sort((a, b) => {
-      const multiplier = sortOrder === 'desc' ? -1 : 1;
-      switch (sortBy) {
-        case 'likes': return multiplier * (a.likesCount - b.likesCount);
-        case 'followers': return multiplier * (a.followerCount - b.followerCount);
-        case 'comments': return multiplier * (a.commentsCount - b.commentsCount);
-        case 'credibility': return multiplier * ((a.audienceCredibility || 0) - (b.audienceCredibility || 0));
-        case 'engagement': return multiplier * ((a.avgEngagementRate || 0) - (b.avgEngagementRate || 0));
+    .filter((inf: any) => infCategoryFilter === 'ALL' || inf.category === infCategoryFilter)
+    .sort((a: any, b: any) => {
+      const m = infSortOrder === 'desc' ? -1 : 1;
+      switch (infSortBy) {
+        case 'recent': return m * (new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+        case 'likes': return m * (a.likesCount - b.likesCount);
+        case 'followers': return m * (a.followerCount - b.followerCount);
+        case 'comments': return m * (a.commentsCount - b.commentsCount);
+        case 'shares': return m * ((a.sharesCount || 0) - (b.sharesCount || 0));
+        case 'credibility': return m * ((a.audienceCredibility || 0) - (b.audienceCredibility || 0));
+        case 'engagement': return m * ((a.avgEngagementRate || 0) - (b.avgEngagementRate || 0));
         default: return 0;
       }
     });
 
-  const filteredPosts = report.posts
-    .filter(post => !sponsoredFilter || post.isSponsored)
-    .sort((a, b) => {
-      const multiplier = sortOrder === 'desc' ? -1 : 1;
-      switch (sortBy) {
-        case 'likes': return multiplier * (a.likesCount - b.likesCount);
-        case 'views': return multiplier * (a.viewsCount - b.viewsCount);
-        case 'comments': return multiplier * (a.commentsCount - b.commentsCount);
-        case 'recent': return multiplier * (new Date(a.postDate || 0).getTime() - new Date(b.postDate || 0).getTime());
+  // --- Posts list: filter + sort + pagination ---
+  const postsAfterGlobalFilter = applyGlobalSponsoredFilter(report.posts);
+  const filteredPosts = postsAfterGlobalFilter
+    .filter((post: any) => {
+      if (postCategoryFilter === 'ALL') return true;
+      const infId = post.influencerId || post.influencer?.id;
+      return influencerCategoryMap.get(infId) === postCategoryFilter;
+    })
+    .sort((a: any, b: any) => {
+      const m = postSortOrder === 'desc' ? -1 : 1;
+      switch (postSortBy) {
+        case 'likes': return m * (a.likesCount - b.likesCount);
+        case 'views': return m * (a.viewsCount - b.viewsCount);
+        case 'comments': return m * (a.commentsCount - b.commentsCount);
+        case 'shares': return m * ((a.sharesCount || 0) - (b.sharesCount || 0));
+        case 'recent': return m * (new Date(a.postDate || 0).getTime() - new Date(b.postDate || 0).getTime());
         default: return 0;
       }
     });
+
+  const postTotalPages = Math.ceil(filteredPosts.length / POSTS_PER_PAGE);
+  const paginatedPosts = filteredPosts.slice(
+    (postPage - 1) * POSTS_PER_PAGE,
+    postPage * POSTS_PER_PAGE,
+  );
 
   return (
     <div className="space-y-6">
@@ -200,7 +347,7 @@ export const MentionTrackingDetailPage = () => {
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 print:hidden">
           {report.status === 'FAILED' && (
             <button onClick={handleRetry} className="px-4 py-2 bg-yellow-100 text-yellow-700 rounded-lg hover:bg-yellow-200 flex items-center gap-2">
               <RefreshCw className="w-4 h-4" />
@@ -211,16 +358,35 @@ export const MentionTrackingDetailPage = () => {
             <Share2 className="w-4 h-4" />
             Share
           </button>
-          <button className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2">
-            <Download className="w-4 h-4" />
-            Export
-          </button>
+          <div className="relative group">
+            <button type="button" className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2">
+              <Download className="w-4 h-4" />
+              Export
+              <ChevronDown className="w-3 h-3" />
+            </button>
+            <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10 hidden group-hover:block">
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Export as PDF
+              </button>
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Export as Excel
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Search Criteria Tags */}
+      {/* Search Criteria Tags + Sponsored Toggle */}
       <div className="bg-white rounded-xl shadow-sm p-4">
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           {report.hashtags.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-medium text-gray-600">Hashtags:</span>
@@ -257,6 +423,25 @@ export const MentionTrackingDetailPage = () => {
             <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-sm">
               Sponsored Only
             </span>
+          )}
+
+          {/* Sponsored-only toggle: only visible if report was NOT created with sponsoredOnly */}
+          {!report.sponsoredOnly && report.status === 'COMPLETED' && (
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-sm text-gray-600">Sponsored Posts Only</span>
+              <button
+                onClick={() => setHeaderSponsoredToggle(!headerSponsoredToggle)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  headerSponsoredToggle ? 'bg-purple-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    headerSponsoredToggle ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -344,10 +529,41 @@ export const MentionTrackingDetailPage = () => {
             </nav>
           </div>
 
-          {/* Overview Tab */}
+          {/* ===== Overview Tab ===== */}
           {activeTab === 'overview' && (
-            <div className="p-6 space-y-6">
-              {/* Categorization Table */}
+            <div className="p-6 space-y-8">
+              {/* Posts / Influencers vs Date Chart */}
+              {chartData.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Posts &amp; Influencers Over Time</h3>
+                  <div className="bg-gray-50 rounded-lg p-4" style={{ height: 350 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 12, fill: '#6b7280' }}
+                          tickFormatter={(v) => {
+                            const d = new Date(v);
+                            return `${d.getMonth() + 1}/${d.getDate()}`;
+                          }}
+                        />
+                        <YAxis yAxisId="left" tick={{ fontSize: 12, fill: '#6b7280' }} />
+                        <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12, fill: '#6b7280' }} />
+                        <Tooltip
+                          contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb' }}
+                          labelFormatter={(label) => new Date(label).toLocaleDateString()}
+                        />
+                        <Legend />
+                        <Bar yAxisId="left" dataKey="postsCount" name="Posts" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                        <Line yAxisId="right" type="monotone" dataKey="influencersCount" name="Influencers" stroke="#ec4899" strokeWidth={2} dot={{ r: 3 }} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* Categorization Table (with Shares column) */}
               <div>
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Influencer Categorization</h3>
                 <div className="overflow-x-auto">
@@ -361,11 +577,12 @@ export const MentionTrackingDetailPage = () => {
                         <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Likes</th>
                         <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Views</th>
                         <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Comments</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Shares</th>
                         <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ER %</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {report.categorization.map(cat => (
+                      {report.categorization.map((cat: any) => (
                         <tr key={cat.category} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
                             <span className={`px-2 py-1 rounded text-xs font-medium ${getCategoryBadge(cat.category)}`}>
@@ -378,6 +595,7 @@ export const MentionTrackingDetailPage = () => {
                           <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(cat.likesCount)}</td>
                           <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(cat.viewsCount)}</td>
                           <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(cat.commentsCount)}</td>
+                          <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(cat.sharesCount || 0)}</td>
                           <td className="px-4 py-3 text-right text-sm font-medium text-purple-600">{cat.engagementRate.toFixed(2)}%</td>
                         </tr>
                       ))}
@@ -388,58 +606,70 @@ export const MentionTrackingDetailPage = () => {
             </div>
           )}
 
-          {/* Influencers Tab */}
+          {/* ===== Influencers Tab ===== */}
           {activeTab === 'influencers' && (
             <div className="p-6">
               <div className="flex flex-wrap gap-4 mb-4">
                 <select
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  value={infCategoryFilter}
+                  onChange={(e) => setInfCategoryFilter(e.target.value)}
                   className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
                 >
                   <option value="ALL">All Categories</option>
-                  <option value="NANO">Nano</option>
-                  <option value="MICRO">Micro</option>
-                  <option value="MACRO">Macro</option>
-                  <option value="MEGA">Mega</option>
+                  <option value="NANO">Nano (&lt;10K)</option>
+                  <option value="MICRO">Micro (10K-100K)</option>
+                  <option value="MACRO">Macro (100K-500K)</option>
+                  <option value="MEGA">Mega (&gt;500K)</option>
                 </select>
                 <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
+                  value={infSortBy}
+                  onChange={(e) => setInfSortBy(e.target.value)}
                   className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
                 >
                   <option value="likes">Sort by Likes</option>
                   <option value="followers">Sort by Followers</option>
                   <option value="comments">Sort by Comments</option>
+                  <option value="shares">Sort by Shares</option>
                   <option value="credibility">Sort by Credibility</option>
                   <option value="engagement">Sort by ER</option>
+                  <option value="recent">Sort by Recent</option>
                 </select>
                 <button
-                  onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+                  onClick={() => setInfSortOrder(infSortOrder === 'desc' ? 'asc' : 'desc')}
                   className="px-3 py-2 border border-gray-200 rounded-lg text-sm flex items-center gap-1"
                 >
-                  {sortOrder === 'desc' ? 'Highest First' : 'Lowest First'}
-                  <ChevronDown className={`w-4 h-4 transition-transform ${sortOrder === 'asc' ? 'rotate-180' : ''}`} />
+                  {infSortOrder === 'desc' ? 'Highest First' : 'Lowest First'}
+                  <ChevronDown className={`w-4 h-4 transition-transform ${infSortOrder === 'asc' ? 'rotate-180' : ''}`} />
                 </button>
+                <span className="ml-auto text-sm text-gray-500 self-center">
+                  {filteredInfluencers.length} influencer{filteredInfluencers.length !== 1 ? 's' : ''}
+                </span>
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50">
                     <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Platform</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Influencer</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Followers</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Posts</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Likes</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Views</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Comments</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Shares</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Credibility</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ER %</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {filteredInfluencers.map(inf => (
+                    {filteredInfluencers.map((inf: any) => (
                       <tr key={inf.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center">
+                            {getPlatformIcon(inf.platform)}
+                          </div>
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
                             <img
@@ -461,6 +691,7 @@ export const MentionTrackingDetailPage = () => {
                         <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(inf.likesCount)}</td>
                         <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(inf.viewsCount)}</td>
                         <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(inf.commentsCount)}</td>
+                        <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(inf.sharesCount || 0)}</td>
                         <td className="px-4 py-3 text-right text-sm text-gray-600">{inf.audienceCredibility?.toFixed(0)}%</td>
                         <td className="px-4 py-3 text-right text-sm font-medium text-purple-600">{inf.avgEngagementRate?.toFixed(2)}%</td>
                       </tr>
@@ -471,40 +702,46 @@ export const MentionTrackingDetailPage = () => {
             </div>
           )}
 
-          {/* Posts Tab */}
+          {/* ===== Posts Tab ===== */}
           {activeTab === 'posts' && (
             <div className="p-6">
               <div className="flex flex-wrap gap-4 mb-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={sponsoredFilter}
-                    onChange={(e) => setSponsoredFilter(e.target.checked)}
-                    className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
-                  />
-                  <span className="text-sm text-gray-700">Sponsored Only</span>
-                </label>
                 <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
+                  value={postCategoryFilter}
+                  onChange={(e) => { setPostCategoryFilter(e.target.value); setPostPage(1); }}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                >
+                  <option value="ALL">All Categories</option>
+                  <option value="NANO">Nano (&lt;10K)</option>
+                  <option value="MICRO">Micro (10K-100K)</option>
+                  <option value="MACRO">Macro (100K-500K)</option>
+                  <option value="MEGA">Mega (&gt;500K)</option>
+                </select>
+                <select
+                  value={postSortBy}
+                  onChange={(e) => setPostSortBy(e.target.value)}
                   className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
                 >
                   <option value="likes">Sort by Likes</option>
                   <option value="views">Sort by Views</option>
                   <option value="comments">Sort by Comments</option>
+                  <option value="shares">Sort by Shares</option>
                   <option value="recent">Sort by Date</option>
                 </select>
                 <button
-                  onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+                  onClick={() => setPostSortOrder(postSortOrder === 'desc' ? 'asc' : 'desc')}
                   className="px-3 py-2 border border-gray-200 rounded-lg text-sm flex items-center gap-1"
                 >
-                  {sortOrder === 'desc' ? 'Highest First' : 'Lowest First'}
-                  <ChevronDown className={`w-4 h-4 transition-transform ${sortOrder === 'asc' ? 'rotate-180' : ''}`} />
+                  {postSortOrder === 'desc' ? 'Highest First' : 'Lowest First'}
+                  <ChevronDown className={`w-4 h-4 transition-transform ${postSortOrder === 'asc' ? 'rotate-180' : ''}`} />
                 </button>
+                <span className="ml-auto text-sm text-gray-500 self-center">
+                  {filteredPosts.length} post{filteredPosts.length !== 1 ? 's' : ''}
+                </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {filteredPosts.map(post => (
+                {paginatedPosts.map((post: any) => (
                   <div key={post.id} className="bg-gray-50 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                     <div className="aspect-square relative">
                       <img
@@ -520,10 +757,10 @@ export const MentionTrackingDetailPage = () => {
                     </div>
                     <div className="p-3">
                       <div className="text-xs text-gray-500 mb-1">
-                        @{post.influencerUsername} • {post.postDate}
+                        @{post.influencerUsername} &bull; {post.postDate}
                       </div>
                       <p className="text-sm text-gray-700 line-clamp-2 mb-2">{post.description}</p>
-                      <div className="flex items-center gap-4 text-xs text-gray-500">
+                      <div className="flex items-center gap-3 text-xs text-gray-500">
                         <span className="flex items-center gap-1">
                           <Heart className="w-3 h-3" />
                           {formatNumber(post.likesCount)}
@@ -535,6 +772,10 @@ export const MentionTrackingDetailPage = () => {
                         <span className="flex items-center gap-1">
                           <MessageCircle className="w-3 h-3" />
                           {formatNumber(post.commentsCount)}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Share className="w-3 h-3" />
+                          {formatNumber(post.sharesCount || 0)}
                         </span>
                       </div>
                       {post.matchedHashtags?.length > 0 && (
@@ -550,6 +791,56 @@ export const MentionTrackingDetailPage = () => {
                   </div>
                 ))}
               </div>
+
+              {/* Pagination */}
+              {postTotalPages > 1 && (
+                <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200">
+                  <div className="text-sm text-gray-500">
+                    Showing {(postPage - 1) * POSTS_PER_PAGE + 1} to {Math.min(postPage * POSTS_PER_PAGE, filteredPosts.length)} of {filteredPosts.length} posts
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setPostPage(p => Math.max(1, p - 1))}
+                      disabled={postPage === 1}
+                      className="p-2 border border-gray-200 rounded-lg disabled:opacity-50 hover:bg-gray-50"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    {Array.from({ length: Math.min(postTotalPages, 5) }, (_, i) => {
+                      let pageNum: number;
+                      if (postTotalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (postPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (postPage >= postTotalPages - 2) {
+                        pageNum = postTotalPages - 4 + i;
+                      } else {
+                        pageNum = postPage - 2 + i;
+                      }
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setPostPage(pageNum)}
+                          className={`px-3 py-1.5 text-sm rounded-lg border ${
+                            postPage === pageNum
+                              ? 'bg-purple-600 text-white border-purple-600'
+                              : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={() => setPostPage(p => Math.min(postTotalPages, p + 1))}
+                      disabled={postPage === postTotalPages}
+                      className="p-2 border border-gray-200 rounded-lg disabled:opacity-50 hover:bg-gray-50"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

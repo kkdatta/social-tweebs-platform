@@ -129,8 +129,7 @@ export const TieBreakerDetailPage = () => {
   };
   
   const handleDownloadPDF = () => {
-    // In production, this would generate a PDF
-    alert('PDF download functionality coming soon!');
+    window.print();
   };
   
   const formatNumber = (num: number) => {
@@ -198,7 +197,12 @@ export const TieBreakerDetailPage = () => {
   }
   
   const influencers = comparison.influencers.sort((a, b) => a.displayOrder - b.displayOrder);
-  
+
+  const audienceEngagersTabLabel =
+    comparison.platform === 'YOUTUBE' || comparison.platform === 'TIKTOK'
+      ? "Commenters' Audience"
+      : "Engagers' Audience";
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -294,7 +298,7 @@ export const TieBreakerDetailPage = () => {
             {[
               { id: 'overview', label: 'Overview' },
               { id: 'followers', label: "Followers' Audience" },
-              { id: 'engagers', label: "Engagers' Audience" },
+              { id: 'engagers', label: audienceEngagersTabLabel },
               { id: 'posts', label: 'Top Posts' },
             ].map((tab) => (
               <button
@@ -341,6 +345,7 @@ export const TieBreakerDetailPage = () => {
             <AudienceTab
               influencers={influencers}
               audienceType="followers"
+              platform={comparison.platform}
             />
           )}
           
@@ -348,6 +353,7 @@ export const TieBreakerDetailPage = () => {
             <AudienceTab
               influencers={influencers}
               audienceType="engagers"
+              platform={comparison.platform}
             />
           )}
           
@@ -414,10 +420,18 @@ const OverviewTab = ({ influencers, formatNumber }: { influencers: Influencer[];
 const AudienceTab = ({
   influencers,
   audienceType,
+  platform,
 }: {
   influencers: Influencer[];
   audienceType: 'followers' | 'engagers';
+  platform: string;
 }) => {
+  const notableAudienceLabel =
+    audienceType === 'followers'
+      ? 'Followers'
+      : platform === 'YOUTUBE' || platform === 'TIKTOK'
+        ? 'Commenters'
+        : 'Engagers';
   const getAudienceData = (inf: Influencer) => {
     return audienceType === 'followers' ? inf.followersAudience : inf.engagersAudience;
   };
@@ -441,7 +455,7 @@ const AudienceTab = ({
         </div>
         
         <div className="grid gap-4" style={{ gridTemplateColumns: `200px repeat(${influencers.length}, 1fr)` }}>
-          <div className="text-gray-700 font-medium">Notable {audienceType === 'followers' ? 'Followers' : 'Engagers'}</div>
+          <div className="text-gray-700 font-medium">Notable {notableAudienceLabel}</div>
           {influencers.map((inf) => {
             const data = getAudienceData(inf);
             return (
@@ -489,6 +503,54 @@ const AudienceTab = ({
         </div>
       </div>
       
+      {/* Age Distribution */}
+      <div className="space-y-4">
+        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Age Distribution</h4>
+        <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${influencers.length}, 1fr)` }}>
+          {influencers.map((inf) => {
+            const data = getAudienceData(inf);
+            if (!data?.ageData?.length) return <div key={inf.id} className="text-center text-gray-400 py-4">No data</div>;
+
+            return (
+              <div key={inf.id} className="bg-gray-50 rounded-lg p-4 space-y-3">
+                {data.ageData.map((ag, idx) => {
+                  const total = ag.male + ag.female;
+                  const maxTotal = Math.max(...data.ageData!.map(a => a.male + a.female), 1);
+                  return (
+                    <div key={idx}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-gray-700 w-12">{ag.ageRange}</span>
+                        <span className="text-xs text-gray-500">{total.toFixed(1)}%</span>
+                      </div>
+                      <div className="flex gap-0.5 h-3">
+                        <div
+                          className="bg-blue-400 rounded-l h-full transition-all"
+                          style={{ width: `${(ag.male / maxTotal) * 100}%` }}
+                          title={`Male: ${ag.male.toFixed(1)}%`}
+                        />
+                        <div
+                          className="bg-pink-400 rounded-r h-full transition-all"
+                          style={{ width: `${(ag.female / maxTotal) * 100}%` }}
+                          title={`Female: ${ag.female.toFixed(1)}%`}
+                        />
+                      </div>
+                      <div className="flex justify-between mt-0.5 text-[10px] text-gray-400">
+                        <span>M: {ag.male.toFixed(1)}%</span>
+                        <span>F: {ag.female.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="flex items-center gap-4 pt-2 border-t border-gray-200 text-xs text-gray-500">
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-blue-400" /> Male</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-pink-400" /> Female</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Top Countries */}
       <div className="space-y-4">
         <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">

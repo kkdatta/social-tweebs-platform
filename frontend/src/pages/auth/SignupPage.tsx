@@ -50,7 +50,9 @@ const SignupPage: React.FC = () => {
         phoneNumber: formData.phoneNumber,
         businessName: formData.businessName,
         campaignFrequency: formData.campaignFrequency as '10-100' | '100-1000' | '1000+',
-        message: formData.message || undefined,
+        message: formData.message || 'No message provided',
+        captchaToken: 'not-implemented',
+        agreeToTerms: true,
       });
       setSuccess(true);
     } catch (err: any) {
@@ -267,7 +269,7 @@ const SignupPage: React.FC = () => {
 
             {/* Message */}
             <div>
-              <label htmlFor="message" className="label text-sm">Message (Optional)</label>
+              <label htmlFor="message" className="label text-sm">Message *</label>
               <textarea
                 id="message"
                 name="message"
@@ -275,6 +277,7 @@ const SignupPage: React.FC = () => {
                 onChange={handleChange}
                 className="input min-h-[80px] sm:min-h-[100px] resize-none text-sm sm:text-base"
                 placeholder="Tell us about your needs..."
+                required
               />
             </div>
 

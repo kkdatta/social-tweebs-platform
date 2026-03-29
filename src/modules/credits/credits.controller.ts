@@ -117,7 +117,7 @@ export class CreditsController {
     @CurrentUser() user: CurrentUserPayload,
     @Query('days') days: number = 30,
   ): Promise<CreditUsageChartDto> {
-    return this.creditsService.getCreditUsageChart(user.sub, days);
+    return this.creditsService.getCreditUsageChart(user.sub, Number(days) || 30);
   }
 
   // ============ CREDIT GUIDE ============

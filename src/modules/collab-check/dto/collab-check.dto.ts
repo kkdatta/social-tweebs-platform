@@ -356,4 +356,7 @@ export class PostsChartDataDto {
 
   @ApiProperty()
   viewsCount: number;
+
+  @ApiProperty()
+  commentsCount: number;
 }

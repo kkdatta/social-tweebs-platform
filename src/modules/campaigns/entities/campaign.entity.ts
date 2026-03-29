@@ -12,6 +12,7 @@ import { User } from '../../users/entities/user.entity';
 
 export enum CampaignStatus {
   DRAFT = 'DRAFT',
+  PENDING = 'PENDING',
   ACTIVE = 'ACTIVE',
   PAUSED = 'PAUSED',
   COMPLETED = 'COMPLETED',
@@ -37,6 +38,9 @@ export class Campaign {
 
   @Column({ type: 'text', nullable: true })
   description?: string;
+
+  @Column({ name: 'logo_url', type: 'text', nullable: true })
+  logoUrl?: string;
 
   @Column({ length: 50 })
   platform: string;
@@ -92,12 +96,14 @@ export class Campaign {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  // Relations
   @OneToMany(() => CampaignInfluencer, (influencer) => influencer.campaign)
   influencers: CampaignInfluencer[];
 
   @OneToMany(() => CampaignDeliverable, (deliverable) => deliverable.campaign)
   deliverables: CampaignDeliverable[];
+
+  @OneToMany(() => CampaignPost, (post) => post.campaign)
+  posts: CampaignPost[];
 
   @OneToMany(() => CampaignShare, (share) => share.campaign)
   shares: CampaignShare[];
@@ -180,6 +186,24 @@ export class CampaignInfluencer {
   })
   contractStatus: ContractStatus;
 
+  @Column({ name: 'likes_count', type: 'integer', default: 0 })
+  likesCount: number;
+
+  @Column({ name: 'views_count', type: 'integer', default: 0 })
+  viewsCount: number;
+
+  @Column({ name: 'comments_count', type: 'integer', default: 0 })
+  commentsCount: number;
+
+  @Column({ name: 'shares_count', type: 'integer', default: 0 })
+  sharesCount: number;
+
+  @Column({ name: 'posts_count', type: 'integer', default: 0 })
+  postsCount: number;
+
+  @Column({ name: 'audience_credibility', type: 'decimal', precision: 5, scale: 2, nullable: true })
+  audienceCredibility: number;
+
   @Column({ type: 'text', nullable: true })
   notes: string;
 
@@ -192,9 +216,11 @@ export class CampaignInfluencer {
   @Column({ name: 'completed_at', type: 'timestamp', nullable: true })
   completedAt: Date;
 
-  // Relations
   @OneToMany(() => CampaignDeliverable, (deliverable) => deliverable.campaignInfluencer)
   deliverables: CampaignDeliverable[];
+
+  @OneToMany(() => CampaignPost, (post) => post.campaignInfluencer)
+  posts: CampaignPost[];
 
   @OneToMany(() => CampaignMetric, (metric) => metric.campaignInfluencer)
   metrics: CampaignMetric[];
@@ -348,6 +374,87 @@ export class CampaignMetric {
 
   @Column({ name: 'cost_per_impression', type: 'decimal', precision: 10, scale: 6, nullable: true })
   costPerImpression: number;
+}
+
+export enum PostType {
+  POST = 'POST',
+  STORY = 'STORY',
+  REEL = 'REEL',
+  VIDEO = 'VIDEO',
+}
+
+@Entity({ name: 'campaign_posts', schema: 'zorbitads' })
+export class CampaignPost {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ name: 'campaign_id', type: 'uuid' })
+  campaignId: string;
+
+  @ManyToOne(() => Campaign, (campaign) => campaign.posts, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'campaign_id' })
+  campaign: Campaign;
+
+  @Column({ name: 'campaign_influencer_id', type: 'uuid', nullable: true })
+  campaignInfluencerId: string;
+
+  @ManyToOne(() => CampaignInfluencer, (influencer) => influencer.posts, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'campaign_influencer_id' })
+  campaignInfluencer: CampaignInfluencer;
+
+  @Column({ name: 'post_url', type: 'text', nullable: true })
+  postUrl: string;
+
+  @Column({ name: 'post_type', type: 'varchar', length: 50, default: PostType.POST })
+  postType: PostType;
+
+  @Column({ length: 50, nullable: true })
+  platform: string;
+
+  @Column({ name: 'influencer_name', length: 255, nullable: true })
+  influencerName: string;
+
+  @Column({ name: 'influencer_username', length: 255, nullable: true })
+  influencerUsername: string;
+
+  @Column({ name: 'post_image_url', type: 'text', nullable: true })
+  postImageUrl: string;
+
+  @Column({ type: 'text', nullable: true })
+  description: string;
+
+  @Column({ name: 'posted_date', type: 'timestamp', nullable: true })
+  postedDate: Date;
+
+  @Column({ name: 'follower_count', type: 'integer', default: 0 })
+  followerCount: number;
+
+  @Column({ name: 'likes_count', type: 'integer', default: 0 })
+  likesCount: number;
+
+  @Column({ name: 'views_count', type: 'integer', default: 0 })
+  viewsCount: number;
+
+  @Column({ name: 'comments_count', type: 'integer', default: 0 })
+  commentsCount: number;
+
+  @Column({ name: 'shares_count', type: 'integer', default: 0 })
+  sharesCount: number;
+
+  @Column({ name: 'engagement_rate', type: 'decimal', precision: 5, scale: 2, nullable: true })
+  engagementRate: number;
+
+  @Column({ name: 'audience_credibility', type: 'decimal', precision: 5, scale: 2, nullable: true })
+  audienceCredibility: number;
+
+  @Column({ name: 'is_published', type: 'boolean', default: true })
+  isPublished: boolean;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 }
 
 export enum SharePermission {

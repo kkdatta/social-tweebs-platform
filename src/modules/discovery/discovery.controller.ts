@@ -32,6 +32,9 @@ import {
   InfluencerProfileDto,
   ExportInfluencersDto,
   ExportResponseDto,
+  ExportHistoryResponseDto,
+  InsightsCheckResponseDto,
+  ExportCostEstimateDto,
 } from './dto/influencer.dto';
 
 @ApiTags('Discovery')
@@ -135,7 +138,7 @@ export class DiscoveryController {
   @Post('export')
   @ApiOperation({
     summary: 'Export influencer data',
-    description: 'Export unlocked influencer data. Costs 0.04 credits per profile.',
+    description: 'Export unlocked influencer data. 1 credit per 25 influencers (0.04 per profile).',
   })
   @ApiResponse({ status: 200, type: ExportResponseDto })
   @ApiResponse({ status: 400, description: 'Insufficient credits' })
@@ -145,6 +148,42 @@ export class DiscoveryController {
     @Body() dto: ExportInfluencersDto,
   ): Promise<ExportResponseDto> {
     return this.discoveryService.exportInfluencers(userId, dto);
+  }
+
+  @Get('export-history')
+  @ApiOperation({ summary: 'Get export history and previously exported profile IDs' })
+  @ApiResponse({ status: 200, type: ExportHistoryResponseDto })
+  async getExportHistory(
+    @CurrentUser('id') userId: string,
+  ): Promise<ExportHistoryResponseDto> {
+    return this.discoveryService.getExportHistory(userId);
+  }
+
+  @Post('export-cost-estimate')
+  @ApiOperation({ summary: 'Get export credit cost estimate' })
+  @ApiResponse({ status: 200, type: ExportCostEstimateDto })
+  async getExportCostEstimate(
+    @CurrentUser('id') userId: string,
+    @Body() body: { profileIds: string[]; excludePreviouslyExported?: boolean },
+  ): Promise<ExportCostEstimateDto> {
+    return this.discoveryService.getExportCostEstimate(
+      userId,
+      body.profileIds,
+      body.excludePreviouslyExported || false,
+    );
+  }
+
+  @Get('insights-check/:id')
+  @ApiOperation({
+    summary: 'Check if user has insights access for a profile',
+    description: 'Returns whether the user already has access and the credit cost if not.',
+  })
+  @ApiResponse({ status: 200, type: InsightsCheckResponseDto })
+  async checkInsightsAccess(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) profileId: string,
+  ): Promise<InsightsCheckResponseDto> {
+    return this.discoveryService.checkInsightsAccess(userId, profileId);
   }
 
   // ============ DICTIONARY ENDPOINTS (Passthrough to Modash) ============

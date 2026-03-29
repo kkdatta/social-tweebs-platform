@@ -43,10 +43,10 @@ export class SignupDto {
   @IsNotEmpty({ message: 'Campaign frequency is required' })
   campaignFrequency: CampaignFrequency;
 
-  @ApiProperty({ example: 'Looking forward to using the platform', required: false })
+  @ApiProperty({ example: 'Looking forward to using the platform', description: 'Message' })
   @IsString()
-  @IsOptional()
-  message?: string;
+  @IsNotEmpty({ message: 'Message is required' })
+  message: string;
 
   @ApiProperty({ example: 'SecurePass123!', description: 'Password' })
   @IsString()

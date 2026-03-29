@@ -8,7 +8,9 @@ import {
   Param,
   Query,
   UseGuards,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -83,6 +85,24 @@ export class AudienceOverlapController {
     @Param('id') reportId: string,
   ): Promise<OverlapReportDetailDto> {
     return this.overlapService.getReportById(userId, reportId);
+  }
+
+  @Get(':id/download')
+  @ApiOperation({ summary: 'Download report as XLSX' })
+  @ApiParam({ name: 'id', description: 'Report ID' })
+  @ApiResponse({ status: 200, description: 'XLSX file download' })
+  async downloadReport(
+    @CurrentUser('id') userId: string,
+    @Param('id') reportId: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, filename } = await this.overlapService.downloadReportAsXlsx(userId, reportId);
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 
   @Patch(':id')

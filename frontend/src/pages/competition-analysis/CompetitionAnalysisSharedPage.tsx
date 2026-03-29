@@ -71,7 +71,7 @@ const CompetitionAnalysisSharedPage: React.FC = () => {
   const fetchReport = async () => {
     try {
       setLoading(true);
-      const response = await api.get(`/competition-analysis/shared/${token}`);
+      const response = await api.get(`/api/v1/competition-analysis/shared/${token}`);
       setReport(response.data);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Report not found or not publicly shared');

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Hash, AtSign, MessageCircle, Calendar, AlertCircle, 
@@ -18,6 +18,27 @@ export const MentionTrackingCreatePage = () => {
   const [platforms, setPlatforms] = useState<PlatformType[]>(['INSTAGRAM']);
   const [dateRangeStart, setDateRangeStart] = useState('');
   const [dateRangeEnd, setDateRangeEnd] = useState('');
+  const [trackingPeriodMonths, setTrackingPeriodMonths] = useState<1 | 2 | 3>(1);
+  const [datesInitialized, setDatesInitialized] = useState(false);
+
+  const addCalendarMonths = (isoDate: string, months: number): string => {
+    const d = new Date(isoDate + 'T12:00:00');
+    d.setMonth(d.getMonth() + months);
+    return d.toISOString().split('T')[0];
+  };
+
+  useEffect(() => {
+    const today = new Date();
+    const start = today.toISOString().split('T')[0];
+    setDateRangeStart(start);
+    setDateRangeEnd(addCalendarMonths(start, 1));
+    setDatesInitialized(true);
+  }, []);
+
+  useEffect(() => {
+    if (!datesInitialized || !dateRangeStart) return;
+    setDateRangeEnd(addCalendarMonths(dateRangeStart, trackingPeriodMonths));
+  }, [trackingPeriodMonths, dateRangeStart, datesInitialized]);
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [hashtagInput, setHashtagInput] = useState('');
   const [usernames, setUsernames] = useState<string[]>([]);
@@ -144,15 +165,6 @@ export const MentionTrackingCreatePage = () => {
     }
   };
 
-  // Set default date range (last 30 days)
-  const setDefaultDateRange = () => {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - 30);
-    setDateRangeStart(start.toISOString().split('T')[0]);
-    setDateRangeEnd(end.toISOString().split('T')[0]);
-  };
-
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Header */}
@@ -249,23 +261,45 @@ export const MentionTrackingCreatePage = () => {
           </p>
         </div>
 
-        {/* Date Range */}
+        {/* Date Range & Tracking Period */}
         <div className="bg-white rounded-xl shadow-sm p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
             <label className="block text-sm font-medium text-gray-700">
-              Date Range *
+              Tracking window *
             </label>
             <button
               type="button"
-              onClick={setDefaultDateRange}
-              className="text-sm text-purple-600 hover:text-purple-700"
+              onClick={() => {
+                const today = new Date().toISOString().split('T')[0];
+                setDateRangeStart(today);
+                setTrackingPeriodMonths(1);
+                setDateRangeEnd(addCalendarMonths(today, 1));
+              }}
+              className="text-sm text-purple-600 hover:text-purple-700 self-start"
             >
-              Last 30 days
+              Reset to today → +1 month
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+
+          <div className="mb-4">
+            <label className="block text-xs text-gray-500 mb-1">Tracking period</label>
+            <p className="text-xs text-gray-500 mb-2">
+              Default is one month forward from the start date. You can extend up to three months; the end date updates automatically.
+            </p>
+            <select
+              value={trackingPeriodMonths}
+              onChange={(e) => setTrackingPeriodMonths(Number(e.target.value) as 1 | 2 | 3)}
+              className="w-full sm:max-w-xs px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+            >
+              <option value={1}>1 Month</option>
+              <option value={2}>2 Months</option>
+              <option value={3}>3 Months</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Start Date</label>
+              <label className="block text-xs text-gray-500 mb-1">Start date</label>
               <div className="relative">
                 <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
@@ -277,14 +311,14 @@ export const MentionTrackingCreatePage = () => {
               </div>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">End Date</label>
+              <label className="block text-xs text-gray-500 mb-1">End date (from period)</label>
               <div className="relative">
                 <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="date"
                   value={dateRangeEnd}
-                  onChange={(e) => setDateRangeEnd(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  readOnly
+                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
                 />
               </div>
             </div>

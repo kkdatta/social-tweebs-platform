@@ -4,11 +4,14 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
-import { PlatformType, ActionType, ModuleType } from '../../../common/enums';
+import { PlatformType, ActionType, ModuleType, UserRole } from '../../../common/enums';
 import { CreditsService } from '../../credits/credits.service';
+import { InsightsService } from '../../insights/insights.service';
 import { User } from '../../users/entities/user.entity';
 import { UnlockedInfluencer } from '../../credits/entities/unlocked-influencer.entity';
 import {
@@ -17,6 +20,7 @@ import {
   SearchResult,
   InsightsAccess,
   AudienceData,
+  ExportRecord,
   SearchStatus,
   AudienceDataType,
 } from '../entities';
@@ -42,15 +46,22 @@ import {
   InfluencerProfileDto,
   ExportInfluencersDto,
   ExportResponseDto,
+  ExportHistoryResponseDto,
+  InsightsCheckResponseDto,
+  ExportCostEstimateDto,
   AudienceDataDto,
 } from '../dto/influencer.dto';
 
-// Credit costs
-const CREDIT_PER_SEARCH_RESULT = 0.01;
+// Credit costs per PRD:
+// Unblur: 0.04 per influencer (10 influencers = 0.4 credits)
+// Export: 1 credit per 25 influencers (0.04 per influencer)
+// View Insights: 1 credit (one-time per influencer)
+// Search: no per-result charge (unblur/export/insights only)
 const CREDIT_PER_UNBLUR = 0.04;
 const CREDIT_PER_INSIGHT = 1;
 const CREDIT_PER_REFRESH = 1;
-const CREDIT_PER_EXPORT = 0.04;
+const CREDIT_PER_EXPORT_INFLUENCER = 0.04; // 1 credit / 25 influencers
+const RESULTS_PER_PAGE = 10;
 
 @Injectable()
 export class DiscoveryService {
@@ -69,11 +80,15 @@ export class DiscoveryService {
     private audienceDataRepository: Repository<AudienceData>,
     @InjectRepository(UnlockedInfluencer)
     private unlockedInfluencerRepository: Repository<UnlockedInfluencer>,
+    @InjectRepository(ExportRecord)
+    private exportRecordRepository: Repository<ExportRecord>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private modashService: ModashService,
     private creditsService: CreditsService,
     private dataSource: DataSource,
+    @Inject(forwardRef(() => InsightsService))
+    private insightsService: InsightsService,
   ) {}
 
   // ============ SEARCH INFLUENCERS ============
@@ -94,18 +109,7 @@ export class DiscoveryService {
     userId: string,
     dto: SearchInfluencersDto,
   ): Promise<SearchResponseDto> {
-    // 1. Validate user and credits
-    const balance = await this.creditsService.getBalance(userId);
-
-    // Estimate minimum credits needed (15 results per page)
-    const estimatedCredits = 15 * CREDIT_PER_SEARCH_RESULT;
-    if (balance.unifiedBalance < estimatedCredits) {
-      throw new BadRequestException(
-        `Insufficient credits. Minimum required: ${estimatedCredits}, Available: ${balance.unifiedBalance}`,
-      );
-    }
-
-    // 2. Create search record
+    // 1. Create search record
     const search = this.searchRepository.create({
       userId,
       platform: dto.platform,
@@ -130,28 +134,19 @@ export class DiscoveryService {
         userId,
       );
 
-      // 5. Deduct credits based on actual result count
-      const creditsToDeduct = modashResponse.lookalikes.length * CREDIT_PER_SEARCH_RESULT;
-      const deductResult = await this.creditsService.deductCredits(userId, {
-        actionType: ActionType.INFLUENCER_SEARCH,
-        module: ModuleType.UNIFIED_BALANCE,
-        quantity: modashResponse.lookalikes.length,
-        resourceId: search.id,
-        resourceType: 'discovery_search',
-      });
-
-      // 6. Update search record
+      // 5. Update search record (no per-result search credits)
+      const balanceAfterSearch = await this.creditsService.getBalance(userId);
       search.status = SearchStatus.COMPLETED;
       search.resultCount = modashResponse.lookalikes.length;
       search.totalAvailable = modashResponse.total;
       search.hasMore = modashResponse.hasMore;
-      search.creditsUsed = creditsToDeduct;
+      search.creditsUsed = 0;
       await this.searchRepository.save(search);
 
-      // 7. Get unlocked profiles for this user
+      // 6. Get unlocked profiles for this user
       const unlockedProfileIds = await this.getUnlockedProfileIds(userId, dto.platform);
 
-      // 8. Build response
+      // 7. Build response
       const results: InfluencerResultDto[] = profiles.map((profile, index) => ({
         id: profile.id,
         platformUserId: profile.platformUserId,
@@ -180,8 +175,8 @@ export class DiscoveryService {
         totalAvailable: modashResponse.total,
         page: dto.page || 0,
         hasMore: modashResponse.hasMore,
-        creditsUsed: creditsToDeduct,
-        remainingBalance: deductResult.remainingBalance,
+        creditsUsed: 0,
+        remainingBalance: balanceAfterSearch.unifiedBalance,
       };
     } catch (error) {
       // Update search as failed
@@ -197,7 +192,7 @@ export class DiscoveryService {
     userId: string,
     dto: SearchInfluencersDto,
   ): Promise<SearchResponseDto> {
-    const pageSize = 15;
+    const pageSize = RESULTS_PER_PAGE;
     const page = dto.page || 0;
 
     // Build query for local database
@@ -256,9 +251,13 @@ export class DiscoveryService {
         });
       }
       if (filters.accountTypes && filters.accountTypes.length > 0) {
-        queryBuilder.andWhere('profile.accountType IN (:...accountTypes)', {
-          accountTypes: filters.accountTypes,
-        });
+        const typeMap: Record<number, string> = { 1: 'REGULAR', 2: 'BUSINESS', 3: 'CREATOR' };
+        const mapped = filters.accountTypes.map(t => typeMap[t] || t).filter(Boolean);
+        if (mapped.length > 0) {
+          queryBuilder.andWhere('profile.accountType IN (:...accountTypes)', {
+            accountTypes: mapped,
+          });
+        }
       }
     }
 
@@ -478,19 +477,17 @@ export class DiscoveryService {
     }
 
     let updatedProfile = profile;
+    let modashReport: ModashReportResponse | undefined;
 
-    // Only call Modash if enabled
     if (isModashEnabled) {
-      const report = await this.modashService.getInfluencerReport(
+      modashReport = await this.modashService.getInfluencerReport(
         profile.platform,
         profile.platformUserId,
         userId,
       );
 
-      // Update profile with latest data
-      await this.updateProfileFromReport(profile, report);
+      await this.updateProfileFromReport(profile, modashReport);
 
-      // Get updated profile with audience data
       const refreshedProfile = await this.profileRepository.findOne({
         where: { id: profileId },
         relations: ['audienceData'],
@@ -502,10 +499,17 @@ export class DiscoveryService {
       updatedProfile = refreshedProfile;
     }
 
+    const insightId = await this.insightsService.ensureInsightRecordForDiscoveryProfile(
+      userId,
+      updatedProfile,
+      modashReport,
+    );
+
     const balance = await this.creditsService.getBalance(userId);
 
     return {
       success: true,
+      insightId,
       isFirstAccess,
       creditsCharged,
       remainingBalance: balance.unifiedBalance,
@@ -658,7 +662,24 @@ export class DiscoveryService {
     userId: string,
     dto: ExportInfluencersDto,
   ): Promise<ExportResponseDto> {
-    const { profileIds, format } = dto;
+    let { profileIds, format, fileName, excludePreviouslyExported } = dto;
+
+    // If excluding previously exported, filter them out
+    if (excludePreviouslyExported) {
+      const previouslyExported = await this.getPreviouslyExportedProfileIds(userId);
+      profileIds = profileIds.filter((id) => !previouslyExported.has(id));
+    }
+
+    if (profileIds.length === 0) {
+      const balance = await this.creditsService.getBalance(userId);
+      return {
+        success: true,
+        exportedCount: 0,
+        creditsUsed: 0,
+        remainingBalance: balance.unifiedBalance,
+        data: [],
+      };
+    }
 
     // Verify all profiles are unlocked
     const unlockedIds = await this.getUnlockedProfileIds(userId, null);
@@ -670,13 +691,13 @@ export class DiscoveryService {
       );
     }
 
-    // Calculate credits
-    const creditsNeeded = profileIds.length * CREDIT_PER_EXPORT;
+    // 1 credit per 25 influencers = 0.04 per influencer
+    const creditsNeeded = profileIds.length * CREDIT_PER_EXPORT_INFLUENCER;
     const balance = await this.creditsService.getBalance(userId);
 
     if (balance.unifiedBalance < creditsNeeded) {
       throw new BadRequestException(
-        `Insufficient credits. Required: ${creditsNeeded}, Available: ${balance.unifiedBalance}`,
+        `Insufficient credits. Required: ${creditsNeeded.toFixed(2)}, Available: ${balance.unifiedBalance}`,
       );
     }
 
@@ -709,6 +730,18 @@ export class DiscoveryService {
       website: p.websiteUrl,
     }));
 
+    // Record the export
+    const exportRecord = this.exportRecordRepository.create({
+      userId,
+      fileName: fileName || `influencer_export_${new Date().toISOString().split('T')[0]}`,
+      format,
+      profileIds,
+      exportedCount: profiles.length,
+      creditsUsed: creditsNeeded,
+      excludedPreviouslyExported: excludePreviouslyExported || false,
+    });
+    await this.exportRecordRepository.save(exportRecord);
+
     const newBalance = await this.creditsService.getBalance(userId);
 
     return {
@@ -717,6 +750,100 @@ export class DiscoveryService {
       creditsUsed: creditsNeeded,
       remainingBalance: newBalance.unifiedBalance,
       data: format === 'json' ? data : undefined,
+    };
+  }
+
+  // ============ EXPORT HISTORY ============
+  async getExportHistory(userId: string): Promise<ExportHistoryResponseDto> {
+    const exports = await this.exportRecordRepository.find({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+      take: 50,
+    });
+
+    const allExportedProfileIds = new Set<string>();
+    exports.forEach((e) => e.profileIds.forEach((id) => allExportedProfileIds.add(id)));
+
+    return {
+      exports: exports.map((e) => ({
+        id: e.id,
+        fileName: e.fileName,
+        exportedCount: e.exportedCount,
+        creditsUsed: Number(e.creditsUsed),
+        createdAt: e.createdAt,
+        profileIds: e.profileIds,
+      })),
+      total: exports.length,
+      allExportedProfileIds: Array.from(allExportedProfileIds),
+    };
+  }
+
+  // ============ EXPORT COST ESTIMATE ============
+  async getExportCostEstimate(
+    userId: string,
+    profileIds: string[],
+    excludePreviouslyExported: boolean,
+  ): Promise<ExportCostEstimateDto> {
+    let previouslyExportedCount = 0;
+    let effectiveIds = profileIds;
+
+    if (excludePreviouslyExported) {
+      const previouslyExported = await this.getPreviouslyExportedProfileIds(userId);
+      const filtered = profileIds.filter((id) => !previouslyExported.has(id));
+      previouslyExportedCount = profileIds.length - filtered.length;
+      effectiveIds = filtered;
+    }
+
+    const creditCost = effectiveIds.length * CREDIT_PER_EXPORT_INFLUENCER;
+
+    return {
+      count: profileIds.length,
+      creditCost: Math.round(creditCost * 100) / 100,
+      previouslyExportedCount,
+      newExportCount: effectiveIds.length,
+    };
+  }
+
+  // ============ CHECK INSIGHTS ACCESS ============
+  async checkInsightsAccess(
+    userId: string,
+    profileId: string,
+  ): Promise<InsightsCheckResponseDto> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      return { hasAccess: false, creditCost: CREDIT_PER_INSIGHT };
+    }
+
+    // Check both user and parent (admin) access
+    const userIdsToCheck = [userId];
+    if (user.parentId) userIdsToCheck.push(user.parentId);
+
+    const existingAccess = await this.insightsAccessRepository.findOne({
+      where: [
+        ...userIdsToCheck.map((uid) => ({
+          userId: uid,
+          influencerProfileId: profileId,
+        })),
+      ],
+    });
+
+    if (existingAccess) {
+      const insightId =
+        (await this.insightsService.findOrEnsureInsightIdForProfile(
+          userId,
+          profileId,
+        )) ?? undefined;
+      return {
+        hasAccess: true,
+        creditCost: 0,
+        firstAccessedAt: existingAccess.firstAccessedAt,
+        insightId,
+      };
+    }
+
+    return {
+      hasAccess: false,
+      creditCost: CREDIT_PER_INSIGHT,
     };
   }
 
@@ -773,6 +900,16 @@ export class DiscoveryService {
   }
 
   // ============ PRIVATE HELPER METHODS ============
+
+  private async getPreviouslyExportedProfileIds(userId: string): Promise<Set<string>> {
+    const exports = await this.exportRecordRepository.find({
+      where: { userId },
+      select: ['profileIds'],
+    });
+    const ids = new Set<string>();
+    exports.forEach((e) => e.profileIds.forEach((id) => ids.add(id)));
+    return ids;
+  }
 
   private async storeSearchResults(
     search: DiscoverySearch,
@@ -987,6 +1124,13 @@ export class DiscoveryService {
     const userIdsToCheck = [userId];
     if (user.parentId) {
       userIdsToCheck.push(user.parentId);
+    }
+    if (user.role === UserRole.ADMIN) {
+      const children = await this.userRepository.find({
+        where: { parentId: userId },
+        select: ['id'],
+      });
+      userIdsToCheck.push(...children.map((c) => c.id));
     }
 
     const whereClause: any = {

@@ -4,7 +4,7 @@ import {
   Search, Plus, Filter, Trash2, Eye, MoreVertical,
   CheckCircle, Clock, AlertCircle, Loader,
   Instagram, FileText, RefreshCw, Copy, Edit3,
-  Hash, AtSign, MessageCircle, Users
+  Hash, AtSign, MessageCircle, Users, Download, Pencil
 } from 'lucide-react';
 import { mentionTrackingApi } from '../../services/api';
 
@@ -159,6 +159,9 @@ export const MentionTrackingListPage = () => {
     }
   };
 
+  const [renameModal, setRenameModal] = useState<{ id: string; title: string } | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+
   const handleCopyUrl = async (id: string) => {
     try {
       const result = await mentionTrackingApi.share(id, {});
@@ -170,6 +173,22 @@ export const MentionTrackingListPage = () => {
       alert(err.response?.data?.message || 'Failed to copy URL');
     }
     setOpenMenuId(null);
+  };
+
+  const handleRename = async () => {
+    if (!renameModal || !renameValue.trim()) return;
+    try {
+      await mentionTrackingApi.update(renameModal.id, { title: renameValue.trim() });
+      setRenameModal(null);
+      loadData();
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to rename report');
+    }
+  };
+
+  const handleDownload = (id: string, format: 'pdf' | 'xlsx') => {
+    setOpenMenuId(null);
+    alert(`Export as ${format.toUpperCase()} will be available soon.`);
   };
 
   const getStatusBadge = (status: string) => {
@@ -489,6 +508,31 @@ export const MentionTrackingListPage = () => {
                                 <Edit3 className="w-4 h-4" />
                                 View Report
                               </button>
+                              <button
+                                onClick={() => {
+                                  setOpenMenuId(null);
+                                  setRenameValue(report.title);
+                                  setRenameModal({ id: report.id, title: report.title });
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                              >
+                                <Pencil className="w-4 h-4" />
+                                Rename Report
+                              </button>
+                              <button
+                                onClick={() => handleDownload(report.id, 'pdf')}
+                                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                              >
+                                <Download className="w-4 h-4" />
+                                Download PDF
+                              </button>
+                              <button
+                                onClick={() => handleDownload(report.id, 'xlsx')}
+                                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                              >
+                                <Download className="w-4 h-4" />
+                                Download XLSX
+                              </button>
                               {report.status === 'FAILED' && (
                                 <button
                                   onClick={() => {
@@ -556,6 +600,37 @@ export const MentionTrackingListPage = () => {
           </div>
         )}
       </div>
+      {/* Rename Modal */}
+      {renameModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Rename Report</h3>
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleRename()}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 mb-4"
+              autoFocus
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setRenameModal(null)}
+                className="px-4 py-2 text-sm text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRename}
+                disabled={!renameValue.trim() || renameValue.trim() === renameModal.title}
+                className="px-4 py-2 text-sm text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

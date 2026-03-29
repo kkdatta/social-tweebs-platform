@@ -8,6 +8,8 @@ import DashboardLayout from './components/layout/DashboardLayout';
 // Auth Pages
 import LoginPage from './pages/auth/LoginPage';
 import SignupPage from './pages/auth/SignupPage';
+import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
+import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 
 // Dashboard Pages
 import DiscoveryPage from './pages/discovery/DiscoveryPage';
@@ -15,9 +17,19 @@ import InsightsListPage from './pages/insights/InsightsListPage';
 import InsightsPage from './pages/insights/InsightsPage';
 import { CampaignsListPage, CampaignDetailPage, CampaignFormPage } from './pages/campaigns';
 import { FaqPage, PrivacyPolicyPage, TermsConditionsPage } from './pages/content';
-import { AudienceOverlapListPage, AudienceOverlapDetailPage, AudienceOverlapCreatePage } from './pages/audience-overlap';
-import { CustomErListPage, CustomErDetailPage, CustomErCreatePage } from './pages/custom-er';
-import { SentimentsListPage, SentimentsCreatePage, SentimentsDetailPage } from './pages/sentiments';
+import {
+  AudienceOverlapListPage,
+  AudienceOverlapDetailPage,
+  AudienceOverlapCreatePage,
+  AudienceOverlapSharedPage,
+} from './pages/audience-overlap';
+import { CustomErListPage, CustomErDetailPage, CustomErCreatePage, CustomErSharedPage } from './pages/custom-er';
+import {
+  SentimentsListPage,
+  SentimentsCreatePage,
+  SentimentsDetailPage,
+  SentimentsSharedPage,
+} from './pages/sentiments';
 import { CollabCheckListPage, CollabCheckCreatePage, CollabCheckDetailPage, CollabCheckSharedPage } from './pages/collab-check';
 import { PaidCollaborationListPage, PaidCollaborationCreatePage, PaidCollaborationDetailPage } from './pages/paid-collaboration';
 import { GeneratedReportsListPage } from './pages/generated-reports';
@@ -26,9 +38,17 @@ import { InfluencerGroupsListPage, InfluencerGroupCreatePage, InfluencerGroupDet
 import { MentionTrackingListPage, MentionTrackingCreatePage, MentionTrackingDetailPage, MentionTrackingSharedPage } from './pages/mention-tracking';
 import { CompetitionAnalysisListPage, CompetitionAnalysisCreatePage, CompetitionAnalysisDetailPage, CompetitionAnalysisSharedPage } from './pages/competition-analysis';
 import { CreditsPage } from './pages/credits';
+import { ProfilePage } from './pages/profile';
 import { AnalyticsPage, AnalyticsDetailPage } from './pages/analytics';
+import {
+  TeamMemberListPage,
+  TeamMemberFormPage,
+  TeamMemberServicesPage,
+  TeamMemberCreditsPage,
+  TeamCreditLogsPage,
+  TeamCreditDetailPage,
+} from './pages/team';
 
-// Placeholder pages
 const PlaceholderPage = ({ title }: { title: string }) => (
   <div className="card p-12 text-center">
     <h2 className="text-2xl font-bold text-gray-900 mb-2">{title}</h2>
@@ -54,10 +74,15 @@ function App() {
             {/* Public Routes */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/collab-check/shared/:token" element={<CollabCheckSharedPage />} />
             <Route path="/mention-tracking/shared/:token" element={<MentionTrackingSharedPage />} />
             <Route path="/competition-analysis/shared/:token" element={<CompetitionAnalysisSharedPage />} />
-            
+            <Route path="/audience-overlap/shared/:token" element={<AudienceOverlapSharedPage />} />
+            <Route path="/custom-er/shared/:token" element={<CustomErSharedPage />} />
+            <Route path="/sentiments/shared/:token" element={<SentimentsSharedPage />} />
+
             {/* Protected Dashboard Routes */}
             <Route element={<DashboardLayout />}>
               <Route path="/" element={<Navigate to="/discovery" replace />} />
@@ -98,9 +123,15 @@ function App() {
               <Route path="/competition-analysis/:id" element={<CompetitionAnalysisDetailPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/analytics/:userId" element={<AnalyticsDetailPage />} />
-              <Route path="/team" element={<PlaceholderPage title="Team Management" />} />
+              <Route path="/team" element={<TeamMemberListPage />} />
+              <Route path="/team/new" element={<TeamMemberFormPage />} />
+              <Route path="/team/:id/edit" element={<TeamMemberFormPage />} />
+              <Route path="/team/:id/services" element={<TeamMemberServicesPage />} />
+              <Route path="/team/:id/credits" element={<TeamMemberCreditsPage />} />
+              <Route path="/team/credit-logs" element={<TeamCreditLogsPage />} />
+              <Route path="/team/credit-logs/:userId" element={<TeamCreditDetailPage />} />
               <Route path="/credits" element={<CreditsPage />} />
-              <Route path="/profile" element={<PlaceholderPage title="Profile Settings" />} />
+              <Route path="/profile" element={<ProfilePage />} />
               <Route path="/settings" element={<PlaceholderPage title="Account Settings" />} />
               <Route path="/faq" element={<FaqPage />} />
               <Route path="/privacy" element={<PrivacyPolicyPage />} />

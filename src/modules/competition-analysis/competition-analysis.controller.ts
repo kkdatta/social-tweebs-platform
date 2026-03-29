@@ -29,6 +29,7 @@ import {
   CompetitionReportDetailDto,
   DashboardStatsDto,
   ChartDataDto,
+  EnhancedChartDataDto,
   PostsFilterDto,
   InfluencersFilterDto,
 } from './dto';
@@ -114,6 +115,18 @@ export class CompetitionAnalysisController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ChartDataDto[]> {
     return this.competitionAnalysisService.getChartData(userId, id);
+  }
+
+  @Get(':id/enhanced-charts')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get enhanced chart data including timelines and distributions' })
+  @ApiResponse({ status: 200, type: EnhancedChartDataDto })
+  async getEnhancedChartData(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<EnhancedChartDataDto> {
+    return this.competitionAnalysisService.getEnhancedChartData(userId, id);
   }
 
   @Get(':id/posts')

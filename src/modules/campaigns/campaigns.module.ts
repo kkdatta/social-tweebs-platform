@@ -7,6 +7,7 @@ import {
   CampaignInfluencer,
   CampaignDeliverable,
   CampaignMetric,
+  CampaignPost,
   CampaignShare,
 } from './entities/campaign.entity';
 import { User } from '../users/entities/user.entity';
@@ -19,6 +20,7 @@ import { CreditsModule } from '../credits/credits.module';
       CampaignInfluencer,
       CampaignDeliverable,
       CampaignMetric,
+      CampaignPost,
       CampaignShare,
       User,
     ]),

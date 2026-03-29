@@ -10,7 +10,15 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import * as fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
 import {
   ApiTags,
   ApiOperation,
@@ -18,6 +26,7 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiQuery,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -34,6 +43,9 @@ import {
   CampaignFilterDto,
   CampaignListResponseDto,
   CampaignDetailDto,
+  AddPostDto,
+  PostFilterDto,
+  InfluencerFilterDto,
 } from './dto/campaign.dto';
 
 @ApiTags('campaigns')
@@ -62,7 +74,7 @@ export class CampaignsController {
 
   @Get()
   @ApiOperation({ summary: 'Get campaigns list with filters' })
-  @ApiQuery({ name: 'tab', required: false, enum: ['created_by_me', 'created_by_team', 'shared_with_me'] })
+  @ApiQuery({ name: 'tab', required: false, enum: ['created_by_me', 'created_by_team', 'shared_with_me', 'sample_public'] })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'platform', required: false })
   @ApiQuery({ name: 'search', required: false })
@@ -79,6 +91,54 @@ export class CampaignsController {
   @ApiOperation({ summary: 'Get campaign dashboard statistics' })
   async getDashboardStats(@CurrentUser('id') userId: string) {
     return this.campaignsService.getDashboardStats(userId);
+  }
+
+  @Get('credit-notification')
+  @ApiOperation({ summary: 'Get credit usage notification' })
+  async getCreditNotification(@CurrentUser('id') userId: string) {
+    return this.campaignsService.getCreditNotification(userId);
+  }
+
+  @Post('upload/logo')
+  @ApiOperation({ summary: 'Upload campaign logo image' })
+  @ApiConsumes('multipart/form-data')
+  @ApiResponse({ status: 201, description: 'File saved; returns public path for logoUrl' })
+  @UseInterceptors(
+    FileInterceptor('logo', {
+      storage: diskStorage({
+        destination: (_req, _file, cb) => {
+          const dest = join(process.cwd(), 'uploads', 'campaigns');
+          fs.mkdirSync(dest, { recursive: true });
+          cb(null, dest);
+        },
+        filename: (_req, file, cb) => {
+          const ext = extname(file.originalname || '').toLowerCase();
+          const safeExt = ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext) ? ext : '.png';
+          cb(null, `${uuidv4()}${safeExt}`);
+        },
+      }),
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (!/^image\/(jpeg|png|gif|webp)$/i.test(file.mimetype)) {
+          return cb(
+            new BadRequestException('Only JPEG, PNG, GIF, or WebP images are allowed'),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async uploadCampaignLogo(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+    const relativePath = `/uploads/campaigns/${file.filename}`;
+    return {
+      success: true,
+      path: relativePath,
+      logoUrl: relativePath,
+    };
   }
 
   @Get(':id')
@@ -141,13 +201,17 @@ export class CampaignsController {
   }
 
   @Get(':id/influencers')
-  @ApiOperation({ summary: 'Get campaign influencers' })
+  @ApiOperation({ summary: 'Get campaign influencers with filters' })
   @ApiParam({ name: 'id', description: 'Campaign ID' })
+  @ApiQuery({ name: 'platform', required: false })
+  @ApiQuery({ name: 'publishStatus', required: false })
+  @ApiQuery({ name: 'search', required: false })
   async getInfluencers(
     @CurrentUser('id') userId: string,
     @Param('id') campaignId: string,
+    @Query() filters: InfluencerFilterDto,
   ) {
-    const influencers = await this.campaignsService.getInfluencers(userId, campaignId);
+    const influencers = await this.campaignsService.getInfluencers(userId, campaignId, filters);
     return {
       success: true,
       influencers,
@@ -192,6 +256,56 @@ export class CampaignsController {
     return {
       success: true,
       message: 'Influencer removed from campaign',
+    };
+  }
+
+  // ============ POSTS ============
+
+  @Post(':id/posts')
+  @ApiOperation({ summary: 'Add post to campaign' })
+  @ApiParam({ name: 'id', description: 'Campaign ID' })
+  async addPost(
+    @CurrentUser('id') userId: string,
+    @Param('id') campaignId: string,
+    @Body() dto: AddPostDto,
+  ) {
+    const post = await this.campaignsService.addPost(userId, campaignId, dto);
+    return {
+      success: true,
+      message: 'Post added to campaign',
+      post,
+    };
+  }
+
+  @Get(':id/posts')
+  @ApiOperation({ summary: 'Get campaign posts with filters' })
+  @ApiParam({ name: 'id', description: 'Campaign ID' })
+  async getPosts(
+    @CurrentUser('id') userId: string,
+    @Param('id') campaignId: string,
+    @Query() filters: PostFilterDto,
+  ) {
+    const result = await this.campaignsService.getPosts(userId, campaignId, filters);
+    return {
+      success: true,
+      ...result,
+    };
+  }
+
+  @Delete(':id/posts/:postId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remove post from campaign' })
+  @ApiParam({ name: 'id', description: 'Campaign ID' })
+  @ApiParam({ name: 'postId', description: 'Post ID' })
+  async removePost(
+    @CurrentUser('id') userId: string,
+    @Param('id') campaignId: string,
+    @Param('postId') postId: string,
+  ) {
+    await this.campaignsService.removePost(userId, campaignId, postId);
+    return {
+      success: true,
+      message: 'Post removed from campaign',
     };
   }
 
@@ -293,12 +407,45 @@ export class CampaignsController {
     @CurrentUser('id') userId: string,
     @Param('id') campaignId: string,
   ) {
-    // First check access
     await this.campaignsService.getCampaignById(userId, campaignId);
     const metrics = await this.campaignsService.getCampaignMetrics(campaignId);
     return {
       success: true,
       metrics,
+    };
+  }
+
+  // ============ ANALYTICS ============
+
+  @Get(':id/analytics')
+  @ApiOperation({ summary: 'Get campaign analytics' })
+  @ApiParam({ name: 'id', description: 'Campaign ID' })
+  async getAnalytics(
+    @CurrentUser('id') userId: string,
+    @Param('id') campaignId: string,
+  ) {
+    const analytics = await this.campaignsService.getAnalytics(userId, campaignId);
+    return {
+      success: true,
+      ...analytics,
+    };
+  }
+
+  // ============ EXPORT ============
+
+  @Get(':id/export')
+  @ApiOperation({ summary: 'Get campaign report data for export' })
+  @ApiParam({ name: 'id', description: 'Campaign ID' })
+  @ApiQuery({ name: 'type', required: false, enum: ['basic', 'advanced'] })
+  async exportReport(
+    @CurrentUser('id') userId: string,
+    @Param('id') campaignId: string,
+    @Query('type') reportType: 'basic' | 'advanced' = 'basic',
+  ) {
+    const data = await this.campaignsService.getReportData(userId, campaignId, reportType);
+    return {
+      success: true,
+      ...data,
     };
   }
 

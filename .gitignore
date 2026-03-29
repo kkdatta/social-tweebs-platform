@@ -2,9 +2,7 @@
 node_modules
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
-
-# Environment variables
+yarn-error.log*# Environment variables
 .env
 .env.local
 .env.development
@@ -14,9 +12,7 @@ yarn-error.log*
 # Build output
 dist
 build
-*.tsbuildinfo
-
-# IDE
+*.tsbuildinfo# IDE
 .vscode
 .idea
 *.swp
@@ -39,3 +35,6 @@ coverage
 tmp
 temp
 *.tmp
+
+# Uploaded assets (local dev)
+uploads

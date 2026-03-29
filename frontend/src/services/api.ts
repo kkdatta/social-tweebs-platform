@@ -12,6 +12,9 @@ import type {
   BrandOption,
   TopicOption,
   HashtagOption,
+  ProfileData,
+  NotificationPreferences,
+  AccountExpiry,
 } from '../types';
 
 // Use relative URL so Vite proxy handles it (works for both localhost and tunnel)
@@ -73,12 +76,45 @@ export const authApi = {
   },
   
   resetPassword: async (token: string, password: string): Promise<{ message: string }> => {
-    const { data } = await api.post('/api/v1/auth/reset-password', { token, password });
+    const { data } = await api.post('/api/v1/auth/reset-password', { token, newPassword: password, password });
     return data;
   },
   
   getProfile: async () => {
     const { data } = await api.get('/api/v1/profile');
+    return data;
+  },
+};
+
+// Profile APIs
+export const profileApi = {
+  getProfile: async (): Promise<ProfileData> => {
+    const { data } = await api.get('/api/v1/profile');
+    return data;
+  },
+
+  updateProfile: async (profileData: { name?: string; phone?: string }): Promise<{ success: boolean; message: string }> => {
+    const { data } = await api.put('/api/v1/profile', profileData);
+    return data;
+  },
+
+  changePassword: async (currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> => {
+    const { data } = await api.put('/api/v1/profile/password', { currentPassword, newPassword });
+    return data;
+  },
+
+  getPreferences: async (): Promise<NotificationPreferences> => {
+    const { data } = await api.get('/api/v1/profile/preferences');
+    return data;
+  },
+
+  updatePreferences: async (preferences: Partial<NotificationPreferences>): Promise<{ success: boolean; message: string }> => {
+    const { data } = await api.put('/api/v1/profile/preferences', preferences);
+    return data;
+  },
+
+  getAccountExpiry: async (): Promise<AccountExpiry> => {
+    const { data } = await api.get('/api/v1/profile/account-expiry');
     return data;
   },
 };
@@ -135,7 +171,9 @@ export const discoveryApi = {
     return data;
   },
   
-  viewInsights: async (profileId: string): Promise<InfluencerInsights> => {
+  viewInsights: async (
+    profileId: string,
+  ): Promise<InfluencerInsights & { insightId: string }> => {
     const { data } = await api.get(`/api/v1/discovery/insights/${profileId}`);
     return data;
   },
@@ -145,7 +183,12 @@ export const discoveryApi = {
     return data;
   },
   
-  export: async (profileIds: string[], format: 'csv' | 'xlsx' | 'json' = 'csv'): Promise<{ 
+  export: async (params: {
+    profileIds: string[];
+    format?: 'csv' | 'xlsx' | 'json';
+    fileName?: string;
+    excludePreviouslyExported?: boolean;
+  }): Promise<{ 
     success: boolean;
     exportedCount: number;
     creditsUsed: number;
@@ -153,7 +196,44 @@ export const discoveryApi = {
     downloadUrl?: string;
     data?: any[];
   }> => {
-    const { data } = await api.post('/api/v1/discovery/export', { profileIds, format });
+    const { data } = await api.post('/api/v1/discovery/export', {
+      profileIds: params.profileIds,
+      format: params.format || 'csv',
+      fileName: params.fileName,
+      excludePreviouslyExported: params.excludePreviouslyExported || false,
+    });
+    return data;
+  },
+
+  getExportHistory: async (): Promise<{
+    exports: { id: string; fileName: string; exportedCount: number; creditsUsed: number; createdAt: string; profileIds: string[] }[];
+    total: number;
+    allExportedProfileIds: string[];
+  }> => {
+    const { data } = await api.get('/api/v1/discovery/export-history');
+    return data;
+  },
+
+  getExportCostEstimate: async (profileIds: string[], excludePreviouslyExported = false): Promise<{
+    count: number;
+    creditCost: number;
+    previouslyExportedCount: number;
+    newExportCount: number;
+  }> => {
+    const { data } = await api.post('/api/v1/discovery/export-cost-estimate', {
+      profileIds,
+      excludePreviouslyExported,
+    });
+    return data;
+  },
+
+  checkInsightsAccess: async (profileId: string): Promise<{
+    hasAccess: boolean;
+    creditCost: number;
+    firstAccessedAt?: string;
+    insightId?: string;
+  }> => {
+    const { data } = await api.get(`/api/v1/discovery/insights-check/${profileId}`);
     return data;
   },
   
@@ -479,9 +559,8 @@ export const insightsApi = {
 
 // Campaigns APIs
 export const campaignsApi = {
-  // Get campaigns list
   list: async (params?: {
-    tab?: 'created_by_me' | 'created_by_team' | 'shared_with_me';
+    tab?: 'created_by_me' | 'created_by_team' | 'shared_with_me' | 'sample_public';
     status?: string;
     platform?: string;
     search?: string;
@@ -500,27 +579,32 @@ export const campaignsApi = {
     return data;
   },
 
-  // Get dashboard stats
-  getDashboard: async (): Promise<{
-    campaigns: { total: number; byStatus: Record<string, number> };
-    influencers: { total: number; byStatus: Record<string, number> };
-    deliverables: { total: number; byStatus: Record<string, number> };
-    budget: { total: number; spent: number; utilization: number };
-  }> => {
+  getDashboard: async (): Promise<any> => {
     const { data } = await api.get('/api/v1/campaigns/dashboard');
     return data;
   },
 
-  // Get campaign by ID
+  getCreditNotification: async (): Promise<{ showWarning: boolean; message: string; balance: number }> => {
+    const { data } = await api.get('/api/v1/campaigns/credit-notification');
+    return data;
+  },
+
+  uploadLogo: async (file: File): Promise<{ success: boolean; path: string; logoUrl: string }> => {
+    const formData = new FormData();
+    formData.append('logo', file);
+    const { data } = await api.post('/api/v1/campaigns/upload/logo', formData);
+    return data;
+  },
+
   getById: async (id: string): Promise<any> => {
     const { data } = await api.get(`/api/v1/campaigns/${id}`);
     return data;
   },
 
-  // Create campaign
   create: async (campaignData: {
     name: string;
     description?: string;
+    logoUrl?: string;
     platform: string;
     objective?: string;
     startDate?: string;
@@ -535,10 +619,10 @@ export const campaignsApi = {
     return data;
   },
 
-  // Update campaign
   update: async (id: string, campaignData: Partial<{
     name: string;
     description: string;
+    logoUrl: string;
     platform: string;
     status: string;
     objective: string;
@@ -553,13 +637,11 @@ export const campaignsApi = {
     return data;
   },
 
-  // Delete campaign
   delete: async (id: string): Promise<{ success: boolean }> => {
     const { data } = await api.delete(`/api/v1/campaigns/${id}`);
     return data;
   },
 
-  // Influencer management
   addInfluencer: async (campaignId: string, influencerData: {
     influencerProfileId?: string;
     influencerName: string;
@@ -573,19 +655,16 @@ export const campaignsApi = {
     return data;
   },
 
-  getInfluencers: async (campaignId: string): Promise<{ success: boolean; influencers: any[]; count: number }> => {
-    const { data } = await api.get(`/api/v1/campaigns/${campaignId}/influencers`);
+  getInfluencers: async (campaignId: string, params?: {
+    platform?: string;
+    publishStatus?: string;
+    search?: string;
+  }): Promise<{ success: boolean; influencers: any[]; count: number }> => {
+    const { data } = await api.get(`/api/v1/campaigns/${campaignId}/influencers`, { params });
     return data;
   },
 
-  updateInfluencer: async (campaignId: string, influencerId: string, updateData: {
-    status?: string;
-    budgetAllocated?: number;
-    paymentStatus?: string;
-    paymentAmount?: number;
-    contractStatus?: string;
-    notes?: string;
-  }): Promise<{ success: boolean; influencer: any }> => {
+  updateInfluencer: async (campaignId: string, influencerId: string, updateData: any): Promise<{ success: boolean; influencer: any }> => {
     const { data } = await api.patch(`/api/v1/campaigns/${campaignId}/influencers/${influencerId}`, updateData);
     return data;
   },
@@ -595,14 +674,31 @@ export const campaignsApi = {
     return data;
   },
 
-  // Deliverables management
-  createDeliverable: async (campaignId: string, deliverableData: {
-    campaignInfluencerId: string;
-    deliverableType: string;
-    title?: string;
-    description?: string;
-    dueDate?: string;
-  }): Promise<{ success: boolean; deliverable: any }> => {
+  addPost: async (campaignId: string, postData: any): Promise<{ success: boolean; post: any }> => {
+    const { data } = await api.post(`/api/v1/campaigns/${campaignId}/posts`, postData);
+    return data;
+  },
+
+  getPosts: async (campaignId: string, params?: {
+    platform?: string;
+    postType?: string;
+    publishStatus?: string;
+    search?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    page?: number;
+    limit?: number;
+  }): Promise<{ success: boolean; posts: any[]; total: number }> => {
+    const { data } = await api.get(`/api/v1/campaigns/${campaignId}/posts`, { params });
+    return data;
+  },
+
+  removePost: async (campaignId: string, postId: string): Promise<{ success: boolean }> => {
+    const { data } = await api.delete(`/api/v1/campaigns/${campaignId}/posts/${postId}`);
+    return data;
+  },
+
+  createDeliverable: async (campaignId: string, deliverableData: any): Promise<{ success: boolean; deliverable: any }> => {
     const { data } = await api.post(`/api/v1/campaigns/${campaignId}/deliverables`, deliverableData);
     return data;
   },
@@ -612,14 +708,7 @@ export const campaignsApi = {
     return data;
   },
 
-  updateDeliverable: async (campaignId: string, deliverableId: string, updateData: {
-    status?: string;
-    title?: string;
-    description?: string;
-    dueDate?: string;
-    contentUrl?: string;
-    postId?: string;
-  }): Promise<{ success: boolean; deliverable: any }> => {
+  updateDeliverable: async (campaignId: string, deliverableId: string, updateData: any): Promise<{ success: boolean; deliverable: any }> => {
     const { data } = await api.patch(`/api/v1/campaigns/${campaignId}/deliverables/${deliverableId}`, updateData);
     return data;
   },
@@ -629,19 +718,7 @@ export const campaignsApi = {
     return data;
   },
 
-  // Metrics
-  recordMetrics: async (campaignId: string, metricsData: {
-    deliverableId?: string;
-    campaignInfluencerId?: string;
-    impressions?: number;
-    reach?: number;
-    likes?: number;
-    comments?: number;
-    shares?: number;
-    saves?: number;
-    views?: number;
-    clicks?: number;
-  }): Promise<{ success: boolean; metric: any }> => {
+  recordMetrics: async (campaignId: string, metricsData: any): Promise<{ success: boolean; metric: any }> => {
     const { data } = await api.post(`/api/v1/campaigns/${campaignId}/metrics`, metricsData);
     return data;
   },
@@ -651,7 +728,16 @@ export const campaignsApi = {
     return data;
   },
 
-  // Sharing
+  getAnalytics: async (campaignId: string): Promise<any> => {
+    const { data } = await api.get(`/api/v1/campaigns/${campaignId}/analytics`);
+    return data;
+  },
+
+  getExportData: async (campaignId: string, reportType: 'basic' | 'advanced' = 'basic'): Promise<any> => {
+    const { data } = await api.get(`/api/v1/campaigns/${campaignId}/export`, { params: { type: reportType } });
+    return data;
+  },
+
   share: async (campaignId: string, shareData: {
     sharedWithUserId: string;
     permissionLevel?: 'VIEW' | 'EDIT' | 'ADMIN';
@@ -668,11 +754,16 @@ export const campaignsApi = {
 
 // Team APIs
 export const teamApi = {
-  getMembers: async () => {
-    const { data } = await api.get('/api/v1/team/members');
+  getMembers: async (params?: { search?: string; status?: string; roleType?: string; page?: number; limit?: number }) => {
+    const { data } = await api.get('/api/v1/team/members', { params });
     return data;
   },
-  
+
+  getMember: async (id: string) => {
+    const { data } = await api.get(`/api/v1/team/members/${id}`);
+    return data;
+  },
+
   createMember: async (memberData: {
     name: string;
     email: string;
@@ -691,7 +782,7 @@ export const teamApi = {
     const { data } = await api.post('/api/v1/team/members', memberData);
     return data;
   },
-  
+
   updateMember: async (id: string, memberData: Partial<{
     name: string;
     phone: string;
@@ -705,38 +796,55 @@ export const teamApi = {
     const { data } = await api.put(`/api/v1/team/members/${id}`, memberData);
     return data;
   },
-  
+
   deleteMember: async (id: string) => {
     const { data } = await api.delete(`/api/v1/team/members/${id}`);
     return data;
   },
-  
-  // Feature management
+
   getFeatures: async (memberId: string) => {
     const { data } = await api.get(`/api/v1/team/members/${memberId}/features`);
     return data;
   },
-  
+
   updateFeatures: async (memberId: string, features: { featureName: string; isEnabled: boolean }[]) => {
     const { data } = await api.put(`/api/v1/team/members/${memberId}/features`, { features });
     return data;
   },
-  
-  // Action management
+
   getActions: async (memberId: string) => {
     const { data } = await api.get(`/api/v1/team/members/${memberId}/actions`);
     return data;
   },
-  
+
   updateActions: async (memberId: string, actions: { actionName: string; isEnabled: boolean }[]) => {
     const { data } = await api.put(`/api/v1/team/members/${memberId}/actions`, { actions });
     return data;
   },
-  
-  // Credit allocation
-  allocateCredits: async (memberId: string, data: { amount: number; moduleType?: string; comment?: string }) => {
-    const { data: response } = await api.post(`/api/v1/team/members/${memberId}/credits/allocate`, data);
-    return response;
+
+  allocateCredits: async (memberId: string, creditData: { amount: number; moduleType?: string; comment?: string }) => {
+    const { data } = await api.post(`/api/v1/team/members/${memberId}/credits/allocate`, creditData);
+    return data;
+  },
+
+  impersonate: async (memberId: string) => {
+    const { data } = await api.post(`/api/v1/team/members/${memberId}/impersonate`);
+    return data;
+  },
+
+  exitImpersonation: async (impersonationId: string) => {
+    const { data } = await api.post('/api/v1/team/impersonation/exit', { impersonationId });
+    return data;
+  },
+
+  getCreditLogs: async (params?: { search?: string; page?: number; limit?: number }) => {
+    const { data } = await api.get('/api/v1/team/credit-logs', { params });
+    return data;
+  },
+
+  getCreditDetails: async (userId: string, params?: { transactionType?: string; moduleType?: string; page?: number; limit?: number }) => {
+    const { data } = await api.get(`/api/v1/team/credit-logs/${userId}`, { params });
+    return data;
   },
 };
 
@@ -829,6 +937,13 @@ export const audienceOverlapApi = {
     return data;
   },
 
+  downloadReport: async (id: string) => {
+    const response = await api.get(`/api/v1/audience-overlap/${id}/download`, {
+      responseType: 'blob',
+    });
+    return response;
+  },
+
   share: async (id: string, shareData?: { sharedWithUserId?: string; permissionLevel?: string }) => {
     const { data } = await api.post(`/api/v1/audience-overlap/${id}/share`, shareData || {});
     return data;
@@ -889,7 +1004,33 @@ export const customErApi = {
     return data;
   },
 
-  update: async (id: string, updateData: { isPublic?: boolean }) => {
+  uploadExcel: async (file: File, platform: string, dateRangeStart: string, dateRangeEnd: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('platform', platform);
+    formData.append('dateRangeStart', dateRangeStart);
+    formData.append('dateRangeEnd', dateRangeEnd);
+    const { data } = await api.post('/api/v1/custom-er/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
+
+  downloadSampleFile: async () => {
+    const response = await api.get('/api/v1/custom-er/sample-file', {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  downloadReport: async (id: string) => {
+    const response = await api.get(`/api/v1/custom-er/${id}/download`, {
+      responseType: 'blob',
+    });
+    return response;
+  },
+
+  update: async (id: string, updateData: { isPublic?: boolean; influencerName?: string }) => {
     const { data } = await api.patch(`/api/v1/custom-er/${id}`, updateData);
     return data;
   },

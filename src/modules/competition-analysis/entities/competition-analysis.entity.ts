@@ -177,6 +177,10 @@ export class CompetitionBrand {
   @Column({ type: 'text', array: true, nullable: true })
   keywords: string[];
 
+  /** Per-brand platform; falls back to report-level platforms when null */
+  @Column({ length: 32, nullable: true })
+  platform?: string;
+
   // Brand color for charts
   @Column({ name: 'display_color', length: 20, nullable: true })
   displayColor?: string;

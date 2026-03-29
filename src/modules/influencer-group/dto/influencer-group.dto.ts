@@ -231,7 +231,7 @@ export class RemoveInfluencersDto {
   @ApiProperty({ description: 'Influencer member IDs to remove' })
   @IsArray()
   @ArrayMinSize(1)
-  @IsUUID('4', { each: true })
+  @IsString({ each: true })
   memberIds: string[];
 }
 

@@ -26,11 +26,28 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
+/** Matches backend `FeatureName` (e.g. INFLUENCER_DISCOVERY). */
+type FeatureKey =
+  | 'INFLUENCER_DISCOVERY'
+  | 'INFLUENCER_INSIGHTS'
+  | 'PAID_COLLABORATION'
+  | 'AUDIENCE_OVERLAP'
+  | 'INFLUENCER_TIE_BREAKER'
+  | 'CUSTOM_ER_CALCULATOR'
+  | 'SOCIAL_SENTIMENTS'
+  | 'INFLUENCER_COLLAB_CHECK'
+  | 'MENTION_TRACKING'
+  | 'CAMPAIGN_TRACKING'
+  | 'INFLUENCERS_GROUP'
+  | 'COMPETITION_ANALYSIS';
+
 interface NavItem {
   name: string;
   path: string;
   icon: React.ElementType;
   roles?: string[];
+  /** If set, non–super-admins only see this when the feature is in `user.featureAccess`. */
+  feature?: FeatureKey;
 }
 
 interface SidebarProps {
@@ -38,18 +55,18 @@ interface SidebarProps {
 }
 
 const navItems: NavItem[] = [
-  { name: 'Influencer Discovery', path: '/discovery', icon: Search },
-  { name: 'Influencer Insights', path: '/insights', icon: Sparkles },
-  { name: 'Campaign Tracking', path: '/campaigns', icon: Target },
-  { name: 'Audience Overlap', path: '/audience-overlap', icon: Users },
-  { name: 'Influencer Tie Breaker', path: '/tie-breaker', icon: Scale },
-  { name: 'Custom ER Calculator', path: '/custom-er', icon: Calculator },
-  { name: 'Social Sentiments', path: '/sentiments', icon: MessageCircle },
-  { name: 'Collab Check', path: '/collab-check', icon: Handshake },
-  { name: 'Paid Collaboration', path: '/paid-collaboration', icon: DollarSign },
-  { name: 'Mention Tracking', path: '/mention-tracking', icon: AtSign },
-  { name: 'Competition Analysis', path: '/competition-analysis', icon: Swords },
-  { name: 'Influencer Groups', path: '/influencer-groups', icon: UsersRound },
+  { name: 'Influencer Discovery', path: '/discovery', icon: Search, feature: 'INFLUENCER_DISCOVERY' },
+  { name: 'Influencer Insights', path: '/insights', icon: Sparkles, feature: 'INFLUENCER_INSIGHTS' },
+  { name: 'Campaign Tracking', path: '/campaigns', icon: Target, feature: 'CAMPAIGN_TRACKING' },
+  { name: 'Audience Overlap', path: '/audience-overlap', icon: Users, feature: 'AUDIENCE_OVERLAP' },
+  { name: 'Influencer Tie Breaker', path: '/tie-breaker', icon: Scale, feature: 'INFLUENCER_TIE_BREAKER' },
+  { name: 'Custom ER Calculator', path: '/custom-er', icon: Calculator, feature: 'CUSTOM_ER_CALCULATOR' },
+  { name: 'Social Sentiments', path: '/sentiments', icon: MessageCircle, feature: 'SOCIAL_SENTIMENTS' },
+  { name: 'Collab Check', path: '/collab-check', icon: Handshake, feature: 'INFLUENCER_COLLAB_CHECK' },
+  { name: 'Paid Collaboration', path: '/paid-collaboration', icon: DollarSign, feature: 'PAID_COLLABORATION' },
+  { name: 'Mention Tracking', path: '/mention-tracking', icon: AtSign, feature: 'MENTION_TRACKING' },
+  { name: 'Competition Analysis', path: '/competition-analysis', icon: Swords, feature: 'COMPETITION_ANALYSIS' },
+  { name: 'Influencer Groups', path: '/influencer-groups', icon: UsersRound, feature: 'INFLUENCERS_GROUP' },
   { name: 'Generated Reports', path: '/generated-reports', icon: FileBarChart },
   { name: 'Analytics', path: '/analytics', icon: BarChart3 },
   { name: 'Team Management', path: '/team', icon: UserCog, roles: ['SUPER_ADMIN', 'ADMIN'] },
@@ -66,9 +83,14 @@ const bottomNavItems: NavItem[] = [
 const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   const { user } = useAuth();
 
-  const filteredNavItems = navItems.filter(
-    item => !item.roles || (user && item.roles.includes(user.role))
-  );
+  const filteredNavItems = navItems.filter((item) => {
+    if (!user) return false;
+    if (item.roles && !item.roles.includes(user.role)) return false;
+    if (user.role === 'SUPER_ADMIN') return true;
+    if (!item.feature) return true;
+    if (user.featureAccess === undefined) return true;
+    return user.featureAccess.includes(item.feature);
+  });
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 h-full flex flex-col">

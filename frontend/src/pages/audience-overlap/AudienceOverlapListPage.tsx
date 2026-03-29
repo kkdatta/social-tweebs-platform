@@ -1,11 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, Plus, Filter, RefreshCw, Trash2, Eye,
   Users, CheckCircle, Clock, AlertCircle,
-  Instagram, Youtube, ChevronDown
+  Instagram, Youtube, ChevronDown, MoreVertical,
+  Edit2, Share2, FileSpreadsheet, Printer
 } from 'lucide-react';
 import { audienceOverlapApi } from '../../services/api';
+import { saveAs } from 'file-saver';
+import * as XLSX from 'xlsx';
 
 interface Influencer {
   id: string;
@@ -44,13 +47,19 @@ export const AudienceOverlapListPage = () => {
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
-  
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
   // Filters
   const [platform, setPlatform] = useState('ALL');
   const [status, setStatus] = useState('');
   const [createdBy, setCreatedBy] = useState('ALL');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+
+  // Edit modal state
+  const [editModal, setEditModal] = useState<{ report: Report } | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -105,7 +114,76 @@ export const AudienceOverlapListPage = () => {
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  const handleDownloadXlsx = async (id: string, title: string) => {
+    try {
+      const response = await audienceOverlapApi.downloadReport(id);
+      const disposition = response.headers?.['content-disposition'];
+      let filename = `Audience_Overlap_${title}.xlsx`;
+      if (disposition) {
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        if (match) filename = match[1];
+      }
+      saveAs(response.data, filename);
+    } catch (err: any) {
+      alert('Failed to download report');
+    }
+  };
+
+  const handlePrintPdf = () => {
+    window.print();
+  };
+
+  const handleShareReport = async (id: string) => {
+    try {
+      const result = await audienceOverlapApi.share(id);
+      if (result.shareUrl) {
+        navigator.clipboard.writeText(window.location.origin + result.shareUrl);
+        alert('Share URL copied to clipboard!');
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to share report');
+    }
+  };
+
+  const handleEditSave = async () => {
+    if (!editModal || !editTitle.trim()) return;
+    try {
+      setEditSaving(true);
+      await audienceOverlapApi.update(editModal.report.id, { title: editTitle.trim() });
+      setEditModal(null);
+      loadData();
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to update report');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleExportTable = () => {
+    if (reports.length === 0) return;
+
+    const exportData = reports.map(r => ({
+      'Report Title': r.title,
+      'Platform': r.platform,
+      'Influencers': r.influencerCount,
+      'Overlap (%)': r.status === 'COMPLETED' && r.overlapPercentage != null ? r.overlapPercentage.toFixed(1) : '',
+      'Status': r.status.replace('_', ' '),
+      'Created': new Date(r.createdAt).toLocaleDateString(),
+      'Influencer Names': r.influencers.map(i => i.influencerName).join(', '),
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    ws['!cols'] = [
+      { wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+      { wch: 14 }, { wch: 14 }, { wch: 40 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Reports');
+    const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(new Blob([buffer]), `Audience_Overlap_Reports_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const getStatusBadge = (reportStatus: string) => {
     const styles: Record<string, string> = {
       COMPLETED: 'bg-green-100 text-green-800',
       IN_PROCESS: 'bg-blue-100 text-blue-800',
@@ -119,15 +197,15 @@ export const AudienceOverlapListPage = () => {
       FAILED: <AlertCircle className="w-3 h-3" />,
     };
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${styles[status]}`}>
-        {icons[status]}
-        <span className="hidden xs:inline">{status.replace('_', ' ')}</span>
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${styles[reportStatus]}`}>
+        {icons[reportStatus]}
+        <span className="hidden xs:inline">{reportStatus.replace('_', ' ')}</span>
       </span>
     );
   };
 
-  const getPlatformIcon = (platform: string) => {
-    return platform === 'INSTAGRAM' ? (
+  const getPlatformIcon = (plat: string) => {
+    return plat === 'INSTAGRAM' ? (
       <Instagram className="w-4 sm:w-5 h-4 sm:h-5 text-pink-500" />
     ) : (
       <Youtube className="w-4 sm:w-5 h-4 sm:h-5 text-red-500" />
@@ -142,13 +220,25 @@ export const AudienceOverlapListPage = () => {
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Audience Overlap</h1>
           <p className="text-sm text-gray-600 hidden sm:block">Compare audience overlap between influencers</p>
         </div>
-        <button
-          onClick={() => navigate('/audience-overlap/new')}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium w-full sm:w-auto"
-        >
-          <Plus className="w-4 h-4" />
-          Create Report
-        </button>
+        <div className="flex gap-2 w-full sm:w-auto print:hidden">
+          {reports.length > 0 && (
+            <button
+              onClick={handleExportTable}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+              title="Export table as XLSX"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span className="hidden sm:inline">Export</span>
+            </button>
+          )}
+          <button
+            onClick={() => navigate('/audience-overlap/new')}
+            className="print:hidden flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium flex-1 sm:flex-initial"
+          >
+            <Plus className="w-4 h-4" />
+            Create Report
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -202,90 +292,52 @@ export const AudienceOverlapListPage = () => {
                 />
               </div>
             </div>
-            
-            {/* Filter Toggle for Mobile */}
+
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className="sm:hidden flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 rounded-lg text-sm"
+              className="print:hidden sm:hidden flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 rounded-lg text-sm"
             >
               <Filter className="w-4 h-4" />
               Filters
               <ChevronDown className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
             </button>
-            
-            {/* Desktop Filters */}
+
             <div className="hidden sm:flex gap-3">
-              <select
-                value={platform}
-                onChange={(e) => setPlatform(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-              >
+              <select value={platform} onChange={(e) => setPlatform(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
                 <option value="ALL">All Platforms</option>
                 <option value="INSTAGRAM">Instagram</option>
                 <option value="YOUTUBE">YouTube</option>
               </select>
-
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-              >
+              <select value={status} onChange={(e) => setStatus(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
                 <option value="">All Status</option>
                 <option value="COMPLETED">Completed</option>
                 <option value="IN_PROCESS">Processing</option>
                 <option value="PENDING">Pending</option>
                 <option value="FAILED">Failed</option>
               </select>
-
-              <select
-                value={createdBy}
-                onChange={(e) => setCreatedBy(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-              >
+              <select value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
                 <option value="ALL">All Reports</option>
                 <option value="ME">My Reports</option>
                 <option value="TEAM">Team</option>
               </select>
-
-              <button
-                onClick={handleSearch}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm"
-              >
-                Search
-              </button>
+              <button onClick={handleSearch} className="print:hidden px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm">Search</button>
             </div>
           </div>
-          
-          {/* Mobile Filters Panel */}
+
           {showFilters && (
             <div className="sm:hidden flex flex-wrap gap-2 pt-3 border-t border-gray-200">
-              <select
-                value={platform}
-                onChange={(e) => setPlatform(e.target.value)}
-                className="flex-1 min-w-[120px] px-3 py-2 border border-gray-200 rounded-lg text-sm"
-              >
+              <select value={platform} onChange={(e) => setPlatform(e.target.value)} className="flex-1 min-w-[120px] px-3 py-2 border border-gray-200 rounded-lg text-sm">
                 <option value="ALL">All Platforms</option>
                 <option value="INSTAGRAM">Instagram</option>
                 <option value="YOUTUBE">YouTube</option>
               </select>
-
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="flex-1 min-w-[120px] px-3 py-2 border border-gray-200 rounded-lg text-sm"
-              >
+              <select value={status} onChange={(e) => setStatus(e.target.value)} className="flex-1 min-w-[120px] px-3 py-2 border border-gray-200 rounded-lg text-sm">
                 <option value="">All Status</option>
                 <option value="COMPLETED">Completed</option>
                 <option value="IN_PROCESS">Processing</option>
                 <option value="FAILED">Failed</option>
               </select>
-
-              <button
-                onClick={handleSearch}
-                className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg text-sm"
-              >
-                Apply Filters
-              </button>
+              <button onClick={handleSearch} className="print:hidden w-full px-4 py-2 bg-purple-600 text-white rounded-lg text-sm">Apply Filters</button>
             </div>
           )}
         </div>
@@ -301,10 +353,7 @@ export const AudienceOverlapListPage = () => {
           <div className="flex flex-col items-center justify-center h-64 text-gray-500 px-4">
             <Users className="w-12 h-12 mb-4 text-gray-300" />
             <p>No reports found</p>
-            <button
-              onClick={() => navigate('/audience-overlap/new')}
-              className="mt-4 text-purple-600 hover:text-purple-700 text-sm"
-            >
+            <button onClick={() => navigate('/audience-overlap/new')} className="mt-4 text-purple-600 hover:text-purple-700 text-sm">
               Create your first report
             </button>
           </div>
@@ -315,7 +364,7 @@ export const AudienceOverlapListPage = () => {
               {reports.map((report) => (
                 <div key={report.id} className="p-4 hover:bg-gray-50">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className="flex items-center gap-3 min-w-0 flex-1" onClick={() => navigate(`/audience-overlap/${report.id}`)}>
                       {getPlatformIcon(report.platform)}
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 mb-1">
@@ -330,25 +379,20 @@ export const AudienceOverlapListPage = () => {
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => navigate(`/audience-overlap/${report.id}`)}
-                        className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(report.id, report.title)}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    <MobileMenu
+                      report={report}
+                      onView={() => navigate(`/audience-overlap/${report.id}`)}
+                      onEdit={() => { setEditModal({ report }); setEditTitle(report.title); }}
+                      onRetry={() => handleRetry(report.id)}
+                      onDelete={() => handleDelete(report.id, report.title)}
+                      onDownloadPdf={handlePrintPdf}
+                      onDownloadXlsx={() => handleDownloadXlsx(report.id, report.title)}
+                    />
                   </div>
                 </div>
               ))}
             </div>
-            
+
             {/* Desktop Table Layout */}
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full">
@@ -393,9 +437,7 @@ export const AudienceOverlapListPage = () => {
                       </td>
                       <td className="px-6 py-4">
                         {report.status === 'COMPLETED' && report.overlapPercentage !== undefined ? (
-                          <span className="text-lg font-semibold text-purple-600">
-                            {report.overlapPercentage.toFixed(1)}%
-                          </span>
+                          <span className="text-lg font-semibold text-purple-600">{report.overlapPercentage.toFixed(1)}%</span>
                         ) : (
                           <span className="text-gray-400">-</span>
                         )}
@@ -407,30 +449,25 @@ export const AudienceOverlapListPage = () => {
                         {new Date(report.createdAt).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => navigate(`/audience-overlap/${report.id}`)}
-                            className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg"
+                            className="print:hidden p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg"
                             title="View Report"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          {report.status === 'FAILED' && (
-                            <button
-                              onClick={() => handleRetry(report.id)}
-                              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
-                              title="Retry"
-                            >
-                              <RefreshCw className="w-4 h-4" />
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleDelete(report.id, report.title)}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <DesktopMenu
+                            report={report}
+                            isOpen={openMenuId === report.id}
+                            onToggle={() => setOpenMenuId(openMenuId === report.id ? null : report.id)}
+                            onClose={() => setOpenMenuId(null)}
+                            onEdit={() => { setEditModal({ report }); setEditTitle(report.title); setOpenMenuId(null); }}
+                            onRetry={() => { handleRetry(report.id); setOpenMenuId(null); }}
+                            onDelete={() => { handleDelete(report.id, report.title); setOpenMenuId(null); }}
+                            onDownloadPdf={() => { handlePrintPdf(); setOpenMenuId(null); }}
+                            onDownloadXlsx={() => { handleDownloadXlsx(report.id, report.title); setOpenMenuId(null); }}
+                          />
                         </div>
                       </td>
                     </tr>
@@ -447,25 +484,142 @@ export const AudienceOverlapListPage = () => {
             <div className="text-xs sm:text-sm text-gray-500 text-center sm:text-left">
               Showing {((page - 1) * 10) + 1} to {Math.min(page * 10, total)} of {total}
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setPage(p => p + 1)}
-                disabled={page * 10 >= total}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm disabled:opacity-50"
-              >
-                Next
-              </button>
+            <div className="print:hidden flex gap-2">
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm disabled:opacity-50">Previous</button>
+              <button onClick={() => setPage(p => p + 1)} disabled={page * 10 >= total} className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm disabled:opacity-50">Next</button>
             </div>
           </div>
         )}
       </div>
+
+      {/* Edit/Share Modal */}
+      {editModal && (
+        <div className="print:hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Report</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Report Title</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Share</label>
+                <button
+                  onClick={() => handleShareReport(editModal.report.id)}
+                  className="flex items-center gap-2 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Copy share link
+                </button>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => setEditModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Cancel</button>
+              <button onClick={handleEditSave} disabled={editSaving} className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm disabled:opacity-50">
+                {editSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Three-dots menu for desktop table rows
+const DesktopMenu = ({
+  report, isOpen, onToggle, onClose, onEdit, onRetry, onDelete, onDownloadPdf, onDownloadXlsx,
+}: {
+  report: Report; isOpen: boolean; onToggle: () => void; onClose: () => void;
+  onEdit: () => void; onRetry: () => void; onDelete: () => void; onDownloadPdf: () => void; onDownloadXlsx: () => void;
+}) => (
+  <div className="relative print:hidden">
+    <button onClick={onToggle} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
+      <MoreVertical className="w-4 h-4" />
+    </button>
+    {isOpen && (
+      <>
+        <div className="fixed inset-0 z-10" onClick={onClose} />
+        <div className="absolute right-0 mt-1 w-52 bg-white rounded-lg shadow-lg border border-gray-200 z-20 py-1">
+          <button onClick={onEdit} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
+            <Edit2 className="w-4 h-4" /> Edit / Share
+          </button>
+          {(report.status === 'FAILED' || report.status === 'PENDING') && (
+            <button onClick={onRetry} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-blue-600 hover:bg-blue-50">
+              <RefreshCw className="w-4 h-4" /> Retry (1 credit)
+            </button>
+          )}
+          {report.status === 'COMPLETED' && (
+            <>
+              <button onClick={onDownloadPdf} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
+                <Printer className="w-4 h-4" /> Download PDF
+              </button>
+              <button onClick={onDownloadXlsx} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
+                <FileSpreadsheet className="w-4 h-4" /> Download XLSX
+              </button>
+            </>
+          )}
+          <div className="border-t border-gray-100 my-1" />
+          <button onClick={onDelete} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50">
+            <Trash2 className="w-4 h-4" /> Delete
+          </button>
+        </div>
+      </>
+    )}
+  </div>
+);
+
+// Three-dots menu for mobile cards
+const MobileMenu = ({
+  report, onView, onEdit, onRetry, onDelete, onDownloadPdf, onDownloadXlsx,
+}: {
+  report: Report; onView: () => void; onEdit: () => void; onRetry: () => void;
+  onDelete: () => void; onDownloadPdf: () => void; onDownloadXlsx: () => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative print:hidden">
+      <button onClick={() => setOpen(!open)} className="p-2 text-gray-400 hover:text-gray-600 rounded">
+        <MoreVertical className="w-4 h-4" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-20 py-1">
+            <button onClick={() => { onView(); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+              <Eye className="w-4 h-4" /> View
+            </button>
+            <button onClick={() => { onEdit(); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+              <Edit2 className="w-4 h-4" /> Edit / Share
+            </button>
+            {(report.status === 'FAILED' || report.status === 'PENDING') && (
+              <button onClick={() => { onRetry(); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-blue-600 hover:bg-blue-50">
+                <RefreshCw className="w-4 h-4" /> Retry
+              </button>
+            )}
+            {report.status === 'COMPLETED' && (
+              <>
+                <button onClick={() => { onDownloadPdf(); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                  <Printer className="w-4 h-4" /> Download PDF
+                </button>
+                <button onClick={() => { onDownloadXlsx(); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                  <FileSpreadsheet className="w-4 h-4" /> Download XLSX
+                </button>
+              </>
+            )}
+            <div className="border-t border-gray-100 my-1" />
+            <button onClick={() => { onDelete(); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50">
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 };

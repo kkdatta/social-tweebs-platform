@@ -532,7 +532,8 @@ export class TieBreakerService {
   ): Promise<SearchInfluencerResultDto[]> {
     const queryBuilder = this.profileRepo.createQueryBuilder('profile');
 
-    queryBuilder.where('profile.platform = :platform', { platform: platform.toUpperCase() });
+    const safePlatform = (platform || 'INSTAGRAM').toUpperCase();
+    queryBuilder.where('profile.platform = :platform', { platform: safePlatform });
 
     if (query) {
       queryBuilder.andWhere(

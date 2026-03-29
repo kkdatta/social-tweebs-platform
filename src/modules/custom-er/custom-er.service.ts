@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException 
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
+import * as XLSX from 'xlsx';
 import {
   CustomErReport,
   CustomErPost,
@@ -285,6 +286,7 @@ export class CustomErService {
     await this.checkReportAccess(userId, report, 'edit');
 
     if (dto.isPublic !== undefined) report.isPublic = dto.isPublic;
+    if (dto.influencerName !== undefined) report.influencerName = dto.influencerName.trim();
 
     const savedReport = await this.reportRepo.save(report);
 
@@ -328,6 +330,9 @@ export class CustomErService {
       share.permissionLevel = dto.permissionLevel || SharePermission.VIEW;
       await this.shareRepo.save(share);
     }
+
+    report.isPublic = true;
+    await this.reportRepo.save(report);
 
     const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/custom-er/shared/${report.shareUrlToken}`;
 
@@ -380,6 +385,200 @@ export class CustomErService {
     const posts = await queryBuilder.getMany();
 
     return posts.map(p => this.toPostDto(p));
+  }
+
+  /**
+   * Create reports from uploaded Excel file
+   */
+  async createReportsFromExcel(
+    userId: string,
+    file: Express.Multer.File,
+    platform: string,
+    dateRangeStart: string,
+    dateRangeEnd: string,
+  ): Promise<{ success: boolean; reportsCreated: number; errors: string[] }> {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    if (!platform || !dateRangeStart || !dateRangeEnd) {
+      throw new BadRequestException('Platform and date range are required');
+    }
+
+    const startDate = new Date(dateRangeStart);
+    const endDate = new Date(dateRangeEnd);
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+    if (startDate < oneYearAgo) {
+      throw new BadRequestException('Date range cannot be more than 1 year old');
+    }
+    if (endDate < startDate) {
+      throw new BadRequestException('End date must be after start date');
+    }
+
+    const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) {
+      throw new BadRequestException('Excel file has no sheets');
+    }
+
+    const sheet = workbook.Sheets[sheetName];
+    const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+
+    if (rows.length === 0) {
+      throw new BadRequestException('Excel file has no data rows');
+    }
+
+    const errors: string[] = [];
+    let reportsCreated = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const profileUrl = row['Profile URL'] || row['profile_url'] || row['profileUrl'] || row['url'] || '';
+      const influencerName = row['Influencer Name'] || row['influencer_name'] || row['name'] || '';
+
+      if (!profileUrl && !influencerName) {
+        errors.push(`Row ${i + 2}: Missing profile URL and influencer name`);
+        continue;
+      }
+
+      try {
+        let username = '';
+        if (profileUrl) {
+          const urlMatch = profileUrl.match(/(?:instagram\.com|tiktok\.com)\/@?([^/?]+)/i);
+          username = urlMatch ? urlMatch[1] : profileUrl;
+        }
+
+        const report = new CustomErReport();
+        report.influencerProfileUrl = profileUrl;
+        report.influencerName = influencerName || username || `Influencer ${i + 1}`;
+        report.influencerUsername = username || influencerName;
+        report.platform = platform;
+        report.dateRangeStart = startDate;
+        report.dateRangeEnd = endDate;
+        report.status = CustomErReportStatus.PENDING;
+        report.ownerId = userId;
+        report.createdById = userId;
+        report.followerCount = 0;
+        report.shareUrlToken = `er_share_${uuidv4().substring(0, 8)}`;
+
+        const savedReport = await this.reportRepo.save(report);
+        reportsCreated++;
+
+        setTimeout(() => this.processReport(savedReport.id), 2000 + i * 1000);
+      } catch (err) {
+        errors.push(`Row ${i + 2}: Failed to create report - ${err.message}`);
+      }
+    }
+
+    return { success: reportsCreated > 0, reportsCreated, errors };
+  }
+
+  /**
+   * Generate sample Excel file for bulk upload reference
+   */
+  generateSampleExcel(): Buffer {
+    const sampleData = [
+      { 'Influencer Name': 'John Doe', 'Profile URL': 'https://instagram.com/johndoe' },
+      { 'Influencer Name': 'Jane Smith', 'Profile URL': 'https://instagram.com/janesmith' },
+      { 'Influencer Name': 'Creator Pro', 'Profile URL': 'https://instagram.com/creatorpro' },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(sampleData);
+
+    worksheet['!cols'] = [{ wch: 25 }, { wch: 45 }];
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Influencers');
+    return Buffer.from(XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }));
+  }
+
+  /**
+   * Download report as XLSX file
+   */
+  async downloadReportAsXlsx(userId: string, reportId: string): Promise<{ buffer: Buffer; filename: string }> {
+    const report = await this.reportRepo.findOne({
+      where: { id: reportId },
+      relations: ['posts'],
+    });
+
+    if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+
+    await this.checkReportAccess(userId, report);
+
+    const workbook = XLSX.utils.book_new();
+
+    // Summary sheet
+    const summaryData = [
+      { Metric: 'Influencer Name', Value: report.influencerName },
+      { Metric: 'Username', Value: report.influencerUsername || '' },
+      { Metric: 'Platform', Value: report.platform },
+      { Metric: 'Followers', Value: report.followerCount },
+      { Metric: 'Date Range', Value: `${report.dateRangeStart} to ${report.dateRangeEnd}` },
+      { Metric: 'Report Status', Value: report.status },
+      { Metric: '', Value: '' },
+      { Metric: '--- All Posts ---', Value: '' },
+      { Metric: 'Total Posts', Value: report.allPostsCount },
+      { Metric: 'Total Likes', Value: Number(report.allLikesCount) },
+      { Metric: 'Total Views', Value: Number(report.allViewsCount) },
+      { Metric: 'Total Comments', Value: Number(report.allCommentsCount) },
+      { Metric: 'Total Shares', Value: Number(report.allSharesCount) },
+      { Metric: 'Avg Engagement Rate (%)', Value: report.allAvgEngagementRate ? Number(report.allAvgEngagementRate).toFixed(2) : '0' },
+      { Metric: 'Engagements/Views Rate (%)', Value: report.allEngagementViewsRate ? Number(report.allEngagementViewsRate).toFixed(2) : '0' },
+    ];
+
+    if (report.hasSponsoredPosts) {
+      summaryData.push(
+        { Metric: '', Value: '' },
+        { Metric: '--- Sponsored Posts ---', Value: '' },
+        { Metric: 'Sponsored Posts', Value: report.sponsoredPostsCount },
+        { Metric: 'Sponsored Likes', Value: Number(report.sponsoredLikesCount) },
+        { Metric: 'Sponsored Views', Value: Number(report.sponsoredViewsCount) },
+        { Metric: 'Sponsored Comments', Value: Number(report.sponsoredCommentsCount) },
+        { Metric: 'Sponsored Shares', Value: Number(report.sponsoredSharesCount) },
+        { Metric: 'Sponsored Avg ER (%)', Value: report.sponsoredAvgEngagementRate ? Number(report.sponsoredAvgEngagementRate).toFixed(2) : '0' },
+        { Metric: 'Sponsored Eng/Views (%)', Value: report.sponsoredEngagementViewsRate ? Number(report.sponsoredEngagementViewsRate).toFixed(2) : '0' },
+      );
+    }
+
+    const summarySheet = XLSX.utils.json_to_sheet(summaryData);
+    summarySheet['!cols'] = [{ wch: 30 }, { wch: 40 }];
+    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+
+    // Posts sheet
+    const posts = report.posts || [];
+    const postsData = posts.map(p => ({
+      'Post Date': p.postDate instanceof Date ? p.postDate.toISOString().split('T')[0] : String(p.postDate).split('T')[0],
+      'Post Type': p.postType || '',
+      'Description': p.description || '',
+      'Likes': p.likesCount,
+      'Views': p.viewsCount,
+      'Comments': p.commentsCount,
+      'Shares': p.sharesCount,
+      'Engagement Rate (%)': p.engagementRate ? Number(p.engagementRate).toFixed(2) : '0',
+      'Sponsored': p.isSponsored ? 'Yes' : 'No',
+      'Post URL': p.postUrl || '',
+      'Hashtags': (p.hashtags || []).join(', '),
+      'Mentions': (p.mentions || []).join(', '),
+    }));
+
+    if (postsData.length > 0) {
+      const postsSheet = XLSX.utils.json_to_sheet(postsData);
+      postsSheet['!cols'] = [
+        { wch: 12 }, { wch: 10 }, { wch: 40 }, { wch: 10 },
+        { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 15 },
+        { wch: 10 }, { wch: 45 }, { wch: 30 }, { wch: 30 },
+      ];
+      XLSX.utils.book_append_sheet(workbook, postsSheet, 'Posts');
+    }
+
+    const buffer = Buffer.from(XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }));
+    const filename = `ER_Report_${report.influencerUsername || report.influencerName}_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+    return { buffer, filename };
   }
 
   // Helper methods

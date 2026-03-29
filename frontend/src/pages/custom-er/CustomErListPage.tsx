@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Search, Plus, Filter, Trash2, Eye,
   CheckCircle, Clock, AlertCircle, Loader,
-  Instagram, Calendar, ChevronDown
+  Instagram, Calendar, ChevronDown, MoreVertical, Pencil,
 } from 'lucide-react';
 import { customErApi } from '../../services/api';
 
@@ -43,6 +43,10 @@ export const CustomErListPage = () => {
   const [createdBy, setCreatedBy] = useState('ALL');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [editModalReport, setEditModalReport] = useState<Report | null>(null);
+  const [editReportName, setEditReportName] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -75,6 +79,26 @@ export const CustomErListPage = () => {
   const handleSearch = () => {
     setPage(1);
     loadData();
+  };
+
+  const openEditModal = (report: Report) => {
+    setMenuOpenId(null);
+    setEditModalReport(report);
+    setEditReportName(report.influencerName);
+  };
+
+  const handleSaveReportName = async () => {
+    if (!editModalReport || !editReportName.trim()) return;
+    try {
+      setSavingEdit(true);
+      await customErApi.update(editModalReport.id, { influencerName: editReportName.trim() });
+      setEditModalReport(null);
+      loadData();
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to rename report');
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const handleDelete = async (id: string, name: string) => {
@@ -114,8 +138,97 @@ export const CustomErListPage = () => {
     return `${startDate} - ${endDate}`;
   };
 
+  const RowActionsMenu = ({ report }: { report: Report }) => (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setMenuOpenId(menuOpenId === report.id ? null : report.id)}
+        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+        aria-label="Open actions"
+      >
+        <MoreVertical className="w-4 h-4 sm:w-5 sm:h-5" />
+      </button>
+      {menuOpenId === report.id && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setMenuOpenId(null)} />
+          <div className="absolute right-0 mt-1 w-44 bg-white rounded-lg shadow-lg border border-gray-200 z-20 py-1">
+            <button
+              type="button"
+              onClick={() => openEditModal(report)}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Pencil className="w-4 h-4 shrink-0" /> Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpenId(null);
+                handleDelete(report.id, report.influencerName);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+            >
+              <Trash2 className="w-4 h-4 shrink-0" /> Delete
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-4 sm:space-y-6">
+      {editModalReport && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setEditModalReport(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4"
+            role="dialog"
+            aria-labelledby="list-edit-report-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="list-edit-report-title" className="text-lg font-semibold text-gray-900">
+              Rename report
+            </h2>
+            <div>
+              <label htmlFor="list-report-name-input" className="block text-sm font-medium text-gray-700 mb-1">
+                Report name
+              </label>
+              <input
+                id="list-report-name-input"
+                type="text"
+                value={editReportName}
+                onChange={(e) => setEditReportName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveReportName();
+                  if (e.key === 'Escape') setEditModalReport(null);
+                }}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditModalReport(null)}
+                className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveReportName}
+                disabled={savingEdit || !editReportName.trim()}
+                className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+              >
+                {savingEdit ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -312,19 +425,16 @@ export const CustomErListPage = () => {
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
+                        type="button"
                         onClick={() => navigate(`/custom-er/${report.id}`)}
                         className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded"
+                        title="View report"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => handleDelete(report.id, report.influencerName)}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <RowActionsMenu report={report} />
                     </div>
                   </div>
                 </div>
@@ -381,19 +491,14 @@ export const CustomErListPage = () => {
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-end gap-2">
                           <button
+                            type="button"
                             onClick={() => navigate(`/custom-er/${report.id}`)}
                             className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg"
                             title="View Report"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => handleDelete(report.id, report.influencerName)}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <RowActionsMenu report={report} />
                         </div>
                       </td>
                     </tr>

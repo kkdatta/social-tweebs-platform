@@ -152,12 +152,12 @@ export const CollabCheckListPage = () => {
   };
 
   const handleRetry = async (id: string, title: string) => {
-    if (!confirm(`Retry "${title}"? This will cost 1 credit per influencer.`)) return;
+    if (!confirm(`Retrying will deduct 1 credit. Do you want to continue?`)) return;
     try {
       await collabCheckApi.retry(id);
       loadData();
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to retry report');
+      alert(err.response?.data?.message || 'Report generation failed. Please try again.');
     }
   };
 
@@ -461,7 +461,7 @@ export const CollabCheckListPage = () => {
                               <Edit3 className="w-4 h-4" />
                               Edit Report
                             </button>
-                            {report.status === 'FAILED' && (
+                            {(report.status === 'COMPLETED' || report.status === 'FAILED') && (
                               <button
                                 onClick={() => {
                                   setOpenMenuId(null);
@@ -478,7 +478,7 @@ export const CollabCheckListPage = () => {
                               className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                             >
                               <Copy className="w-4 h-4" />
-                              Copy URL
+                              Copy Report URL
                             </button>
                             <hr className="my-1" />
                             <button

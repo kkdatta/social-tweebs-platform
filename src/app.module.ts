@@ -21,17 +21,21 @@ import { PaidCollaborationModule } from './modules/paid-collaboration/paid-colla
 import { InfluencerGroupModule } from './modules/influencer-group/influencer-group.module';
 import { MentionTrackingModule } from './modules/mention-tracking/mention-tracking.module';
 import { CompetitionAnalysisModule } from './modules/competition-analysis/competition-analysis.module';
+import { SchedulerModule } from './modules/scheduler/scheduler.module';
+import { MailModule } from './common/services/mail.module';
+import { ScheduleModule } from '@nestjs/schedule';
 import databaseConfig from './config/database.config';
 import jwtConfig from './config/jwt.config';
 import appConfig from './config/app.config';
 import modashConfig from './config/modash.config';
+import mailConfig from './config/mail.config';
 
 @Module({
   imports: [
     // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, jwtConfig, appConfig, modashConfig],
+      load: [databaseConfig, jwtConfig, appConfig, modashConfig, mailConfig],
     }),
 
     // Database
@@ -66,6 +70,10 @@ import modashConfig from './config/modash.config';
       inject: [ConfigService],
     }),
 
+    // Global modules
+    MailModule,
+    ScheduleModule.forRoot(),
+
     // Feature modules
     AuthModule,
     UsersModule,
@@ -86,6 +94,7 @@ import modashConfig from './config/modash.config';
     InfluencerGroupModule,
     MentionTrackingModule,
     CompetitionAnalysisModule,
+    SchedulerModule,
   ],
 })
 export class AppModule {}

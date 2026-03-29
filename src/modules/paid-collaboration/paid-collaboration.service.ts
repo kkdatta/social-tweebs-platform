@@ -145,7 +145,7 @@ export class PaidCollaborationService {
 
       for (const infData of influencerData) {
         totalInfluencers++;
-        totalFollowers += infData.followerCount;
+        totalFollowers += Number(infData.followerCount) || 0;
         totalPosts += infData.postsCount;
         totalLikes += infData.likesCount;
         totalViews += infData.viewsCount;
@@ -663,8 +663,7 @@ export class PaidCollaborationService {
       queryBuilder.andWhere('influencer.category = :category', { category });
     }
 
-    // Apply sorting
-    const validSortFields = ['likesCount', 'commentsCount', 'viewsCount', 'postDate', 'engagementRate'];
+    const validSortFields = ['likesCount', 'commentsCount', 'viewsCount', 'sharesCount', 'postDate', 'engagementRate'];
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'likesCount';
     queryBuilder.orderBy(`post.${sortField}`, sortOrder);
 

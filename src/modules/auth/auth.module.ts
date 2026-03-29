@@ -8,6 +8,7 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { User } from '../users/entities/user.entity';
 import { CreditAccount } from '../credits/entities/credit-account.entity';
+import { FeatureAccess } from '../team/entities/feature-access.entity';
 import {
   PasswordResetToken,
   LoginHistory,
@@ -20,6 +21,7 @@ import {
     TypeOrmModule.forFeature([
       User,
       CreditAccount,
+      FeatureAccess,
       PasswordResetToken,
       LoginHistory,
       SignupRequest,

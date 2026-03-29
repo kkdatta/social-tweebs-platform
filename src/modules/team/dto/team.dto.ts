@@ -131,6 +131,12 @@ export class UpdateTeamMemberDto {
   @IsOptional()
   @IsEnum(UserStatus)
   status?: UserStatus;
+
+  @ApiPropertyOptional({ example: 'NewSecurePass123!' })
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  password?: string;
 }
 
 // Feature Toggle DTO

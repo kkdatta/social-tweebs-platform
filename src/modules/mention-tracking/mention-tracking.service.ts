@@ -218,7 +218,7 @@ export class MentionTrackingService {
         totalViews += infViews;
         totalComments += infComments;
         totalShares += infShares;
-        totalFollowers += savedInfluencer.followerCount;
+        totalFollowers += Number(savedInfluencer.followerCount) || 0;
         totalInfluencers++;
       }
 
@@ -325,7 +325,7 @@ export class MentionTrackingService {
       
       queryBuilder.where(
         '(report.createdById = :userId OR report.createdById IN (:...teamUserIds) OR report.id IN (:...reportIds) OR report.isPublic = true)',
-        { userId, teamUserIds, reportIds: reportIds.length > 0 ? reportIds : ['none'] }
+        { userId, teamUserIds, reportIds: reportIds.length > 0 ? reportIds : ['00000000-0000-0000-0000-000000000000'] }
       );
     }
 
@@ -770,8 +770,8 @@ export class MentionTrackingService {
       title: report.title,
       platforms: report.platforms,
       status: report.status,
-      dateRangeStart: report.dateRangeStart?.toISOString().split('T')[0],
-      dateRangeEnd: report.dateRangeEnd?.toISOString().split('T')[0],
+      dateRangeStart: report.dateRangeStart instanceof Date ? report.dateRangeStart.toISOString().split('T')[0] : report.dateRangeStart,
+      dateRangeEnd: report.dateRangeEnd instanceof Date ? report.dateRangeEnd.toISOString().split('T')[0] : report.dateRangeEnd,
       hashtags: report.hashtags || [],
       usernames: report.usernames || [],
       keywords: report.keywords || [],
@@ -792,8 +792,8 @@ export class MentionTrackingService {
       platforms: report.platforms,
       status: report.status,
       errorMessage: report.errorMessage,
-      dateRangeStart: report.dateRangeStart?.toISOString().split('T')[0],
-      dateRangeEnd: report.dateRangeEnd?.toISOString().split('T')[0],
+      dateRangeStart: report.dateRangeStart instanceof Date ? report.dateRangeStart.toISOString().split('T')[0] : report.dateRangeStart,
+      dateRangeEnd: report.dateRangeEnd instanceof Date ? report.dateRangeEnd.toISOString().split('T')[0] : report.dateRangeEnd,
       hashtags: report.hashtags || [],
       usernames: report.usernames || [],
       keywords: report.keywords || [],

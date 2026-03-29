@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Search,
   Filter,
   Download,
   Trash2,
-  Edit2,
   FileText,
   BarChart3,
   Instagram,
@@ -13,8 +12,12 @@ import {
   Square,
   X,
   Check,
+  MoreVertical,
+  Eye,
+  Pencil,
 } from 'lucide-react';
 import { generatedReportsApi } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 
 type ReportTab = 'INFLUENCER_DISCOVERY' | 'PAID_COLLABORATION';
 
@@ -58,6 +61,10 @@ interface DashboardStats {
 }
 
 export const GeneratedReportsListPage = () => {
+  const { user } = useAuth();
+  const canDelete = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+  const menuRef = useRef<HTMLDivElement>(null);
+
   // State
   const [activeTab, setActiveTab] = useState<ReportTab>('INFLUENCER_DISCOVERY');
   const [discoveryExports, setDiscoveryExports] = useState<DiscoveryExport[]>([]);
@@ -75,8 +82,8 @@ export const GeneratedReportsListPage = () => {
   // Selection for bulk delete
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  // Rename state
-  const [renamingId, setRenamingId] = useState<string | null>(null);
+  // Rename modal (also opened via double-click on title)
+  const [renameModal, setRenameModal] = useState<{ id: string; title: string } | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
   // Toast state
@@ -86,10 +93,22 @@ export const GeneratedReportsListPage = () => {
     type: 'success',
   });
 
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
   useEffect(() => {
     loadData();
     loadStats();
   }, [activeTab, platform, createdBy, page]);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpenMenuId(null);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
 
   const loadData = async () => {
     try {
@@ -144,11 +163,24 @@ export const GeneratedReportsListPage = () => {
     setSearch('');
   };
 
+  const handleView = async (id: string) => {
+    try {
+      const detail = await generatedReportsApi.getById(activeTab, id);
+      if (detail?.fileUrl) {
+        window.open(detail.fileUrl, '_blank');
+      } else {
+        showToast('No file is available to view for this report yet.', 'error');
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to open report', 'error');
+    }
+    setOpenMenuId(null);
+  };
+
   const handleDownload = async (id: string) => {
     try {
       const result = await generatedReportsApi.download(activeTab, id);
       if (result.fileUrl) {
-        // In production, this would trigger a download
         window.open(result.fileUrl, '_blank');
       }
       showToast(result.message || 'Your report has been downloaded.');
@@ -156,18 +188,21 @@ export const GeneratedReportsListPage = () => {
     } catch (err: any) {
       showToast(err.response?.data?.message || 'Failed to download report', 'error');
     }
+    setOpenMenuId(null);
   };
 
-  const handleRename = async (id: string) => {
+  const handleRename = async () => {
+    if (!renameModal) return;
+    const id = renameModal.id;
     if (!renameValue.trim()) {
       showToast('Report title cannot be empty', 'error');
       return;
     }
 
     try {
-      const result = await generatedReportsApi.rename(activeTab, id, renameValue);
+      const result = await generatedReportsApi.rename(activeTab, id, renameValue.trim());
       showToast(result.message || 'Report renamed successfully.');
-      setRenamingId(null);
+      setRenameModal(null);
       setRenameValue('');
       loadData();
     } catch (err: any) {
@@ -175,7 +210,19 @@ export const GeneratedReportsListPage = () => {
     }
   };
 
+  const openRenameModal = (id: string, currentTitle: string) => {
+    setRenameModal({ id, title: currentTitle });
+    setRenameValue(currentTitle);
+    setOpenMenuId(null);
+  };
+
+  const closeRenameModal = () => {
+    setRenameModal(null);
+    setRenameValue('');
+  };
+
   const handleDelete = async (id: string, title: string) => {
+    if (!canDelete) return;
     if (!confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
       return;
     }
@@ -188,6 +235,7 @@ export const GeneratedReportsListPage = () => {
     } catch (err: any) {
       showToast(err.response?.data?.message || 'Failed to delete report', 'error');
     }
+    setOpenMenuId(null);
   };
 
   const handleBulkDelete = async () => {
@@ -226,16 +274,6 @@ export const GeneratedReportsListPage = () => {
     } else {
       setSelectedIds(currentReports.map((r) => r.id));
     }
-  };
-
-  const startRename = (id: string, currentTitle: string) => {
-    setRenamingId(id);
-    setRenameValue(currentTitle);
-  };
-
-  const cancelRename = () => {
-    setRenamingId(null);
-    setRenameValue('');
   };
 
   const getPlatformIcon = (platform: string) => {
@@ -277,6 +315,50 @@ export const GeneratedReportsListPage = () => {
         >
           {toast.type === 'success' ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
           {toast.message}
+        </div>
+      )}
+
+      {renameModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="rename-report-title">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            onClick={closeRenameModal}
+            aria-label="Close"
+          />
+          <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-md p-5 z-10">
+            <h2 id="rename-report-title" className="text-lg font-semibold text-gray-900 mb-3">
+              Rename report
+            </h2>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Title</label>
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRename();
+                if (e.key === 'Escape') closeRenameModal();
+              }}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={closeRenameModal}
+                className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRename}
+                className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+              >
+                Save
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -429,7 +511,7 @@ export const GeneratedReportsListPage = () => {
               Search
             </button>
 
-            {selectedIds.length > 0 && (
+            {canDelete && selectedIds.length > 0 && (
               <button
                 onClick={handleBulkDelete}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2"
@@ -460,18 +542,21 @@ export const GeneratedReportsListPage = () => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-4 py-3 text-left">
-                  <button
-                    onClick={toggleSelectAll}
-                    className="p-1 hover:bg-gray-200 rounded"
-                  >
-                    {selectedIds.length === currentReports.length ? (
-                      <CheckSquare className="w-5 h-5 text-purple-600" />
-                    ) : (
-                      <Square className="w-5 h-5 text-gray-400" />
-                    )}
-                  </button>
-                </th>
+                {canDelete && (
+                  <th className="px-4 py-3 text-left">
+                    <button
+                      type="button"
+                      onClick={toggleSelectAll}
+                      className="p-1 hover:bg-gray-200 rounded"
+                    >
+                      {selectedIds.length === currentReports.length ? (
+                        <CheckSquare className="w-5 h-5 text-purple-600" />
+                      ) : (
+                        <Square className="w-5 h-5 text-gray-400" />
+                      )}
+                    </button>
+                  </th>
+                )}
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                   Platform
                 </th>
@@ -495,54 +580,35 @@ export const GeneratedReportsListPage = () => {
             <tbody className="divide-y divide-gray-200">
               {currentReports.map((report: any) => (
                 <tr key={report.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-4">
-                    <button
-                      onClick={() => toggleSelection(report.id)}
-                      className="p-1 hover:bg-gray-200 rounded"
-                    >
-                      {selectedIds.includes(report.id) ? (
-                        <CheckSquare className="w-5 h-5 text-purple-600" />
-                      ) : (
-                        <Square className="w-5 h-5 text-gray-400" />
-                      )}
-                    </button>
-                  </td>
+                  {canDelete && (
+                    <td className="px-4 py-4">
+                      <button
+                        type="button"
+                        onClick={() => toggleSelection(report.id)}
+                        className="p-1 hover:bg-gray-200 rounded"
+                      >
+                        {selectedIds.includes(report.id) ? (
+                          <CheckSquare className="w-5 h-5 text-purple-600" />
+                        ) : (
+                          <Square className="w-5 h-5 text-gray-400" />
+                        )}
+                      </button>
+                    </td>
+                  )}
                   <td className="px-4 py-4">{getPlatformIcon(report.platform)}</td>
                   <td className="px-4 py-4">
-                    {renamingId === report.id ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleRename(report.id);
-                            if (e.key === 'Escape') cancelRename();
-                          }}
-                          className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          autoFocus
-                        />
-                        <button
-                          onClick={() => handleRename(report.id)}
-                          className="p-1 text-green-600 hover:bg-green-100 rounded"
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={cancelRename}
-                          className="p-1 text-red-600 hover:bg-red-100 rounded"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                    <div>
+                      <div
+                        className="font-medium text-gray-900 cursor-pointer hover:text-purple-700"
+                        onDoubleClick={() => openRenameModal(report.id, report.title)}
+                        title="Double-click to rename"
+                      >
+                        {report.title}
                       </div>
-                    ) : (
-                      <div>
-                        <div className="font-medium text-gray-900">{report.title}</div>
-                        {report.createdByName && (
-                          <div className="text-xs text-gray-500">by {report.createdByName}</div>
-                        )}
-                      </div>
-                    )}
+                      {report.createdByName && (
+                        <div className="text-xs text-gray-500">by {report.createdByName}</div>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-4">{getFormatBadge(report.exportFormat)}</td>
                   <td className="px-4 py-4 text-gray-900">
@@ -553,29 +619,54 @@ export const GeneratedReportsListPage = () => {
                   <td className="px-4 py-4 text-sm text-gray-500">
                     {new Date(report.createdAt).toLocaleDateString()}
                   </td>
-                  <td className="px-4 py-4">
-                    <div className="flex items-center justify-end gap-2">
+                  <td className="px-4 py-4 text-right">
+                    <div className="relative inline-flex justify-end" ref={openMenuId === report.id ? menuRef : undefined}>
                       <button
-                        onClick={() => handleDownload(report.id)}
-                        className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg"
-                        title="Re-download"
+                        type="button"
+                        onClick={() => setOpenMenuId((prev) => (prev === report.id ? null : report.id))}
+                        className="p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg"
+                        aria-label="More actions"
                       >
-                        <Download className="w-4 h-4" />
+                        <MoreVertical className="w-5 h-5" />
                       </button>
-                      <button
-                        onClick={() => startRename(report.id, report.title)}
-                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
-                        title="Rename"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(report.id, report.title)}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {openMenuId === report.id && (
+                        <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20 text-left">
+                          <button
+                            type="button"
+                            onClick={() => handleView(report.id)}
+                            className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                          >
+                            <Eye className="w-4 h-4 shrink-0" />
+                            View
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDownload(report.id)}
+                            className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                          >
+                            <Download className="w-4 h-4 shrink-0" />
+                            Download
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openRenameModal(report.id, report.title)}
+                            className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                          >
+                            <Pencil className="w-4 h-4 shrink-0" />
+                            Rename
+                          </button>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(report.id, report.title)}
+                              className="w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                            >
+                              <Trash2 className="w-4 h-4 shrink-0" />
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </td>
                 </tr>

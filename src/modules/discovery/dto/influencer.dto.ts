@@ -140,6 +140,11 @@ export class ViewInsightsResponseDto {
   @ApiProperty()
   success: boolean;
 
+  @ApiProperty({
+    description: 'InfluencerInsight row id for /insights/:id navigation',
+  })
+  insightId: string;
+
   @ApiProperty()
   isFirstAccess: boolean;
 
@@ -226,6 +231,15 @@ export class ExportInfluencersDto {
   @IsString()
   format: 'csv' | 'xlsx' | 'json';
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  fileName?: string;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  excludePreviouslyExported?: boolean;
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
@@ -251,4 +265,68 @@ export class ExportResponseDto {
 
   @ApiPropertyOptional()
   data?: any[];
+}
+
+// ============ EXPORT HISTORY DTOs ============
+export class ExportHistoryItemDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  fileName: string;
+
+  @ApiProperty()
+  exportedCount: number;
+
+  @ApiProperty()
+  creditsUsed: number;
+
+  @ApiProperty()
+  createdAt: Date;
+
+  @ApiProperty({ type: [String] })
+  profileIds: string[];
+}
+
+export class ExportHistoryResponseDto {
+  @ApiProperty({ type: [ExportHistoryItemDto] })
+  exports: ExportHistoryItemDto[];
+
+  @ApiProperty()
+  total: number;
+
+  @ApiProperty({ type: [String], description: 'All previously exported profile IDs for this user' })
+  allExportedProfileIds: string[];
+}
+
+// ============ INSIGHTS CHECK DTOs ============
+export class InsightsCheckResponseDto {
+  @ApiProperty()
+  hasAccess: boolean;
+
+  @ApiProperty()
+  creditCost: number;
+
+  @ApiPropertyOptional({
+    description: 'InfluencerInsight id when the user has access (for /insights/:id)',
+  })
+  insightId?: string;
+
+  @ApiPropertyOptional()
+  firstAccessedAt?: Date;
+}
+
+// ============ EXPORT COST ESTIMATE DTOs ============
+export class ExportCostEstimateDto {
+  @ApiProperty()
+  count: number;
+
+  @ApiProperty()
+  creditCost: number;
+
+  @ApiProperty()
+  previouslyExportedCount: number;
+
+  @ApiProperty()
+  newExportCount: number;
 }

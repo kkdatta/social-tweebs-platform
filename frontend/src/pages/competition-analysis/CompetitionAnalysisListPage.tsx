@@ -77,7 +77,7 @@ const CompetitionAnalysisListPage: React.FC = () => {
       if (statusFilter) params.append('status', statusFilter);
       if (platformFilter && platformFilter !== 'ALL') params.append('platform', platformFilter);
 
-      const response = await api.get(`/competition-analysis?${params}`);
+      const response = await api.get(`/api/v1/competition-analysis?${params}`);
       setReports(response.data.reports || []);
       setHasMore(response.data.hasMore || false);
     } catch (error) {
@@ -89,7 +89,7 @@ const CompetitionAnalysisListPage: React.FC = () => {
 
   const fetchStats = async () => {
     try {
-      const response = await api.get('/competition-analysis/dashboard');
+      const response = await api.get('/api/v1/competition-analysis/dashboard');
       setStats(response.data);
     } catch (error) {
       console.error('Failed to fetch stats:', error);
@@ -104,7 +104,7 @@ const CompetitionAnalysisListPage: React.FC = () => {
   const handleDelete = async (id: string) => {
     if (!window.confirm('Are you sure you want to delete this report?')) return;
     try {
-      await api.delete(`/competition-analysis/${id}`);
+      await api.delete(`/api/v1/competition-analysis/${id}`);
       fetchReports();
       fetchStats();
     } catch (error) {
@@ -114,7 +114,7 @@ const CompetitionAnalysisListPage: React.FC = () => {
 
   const handleRetry = async (id: string) => {
     try {
-      await api.post(`/competition-analysis/${id}/retry`);
+      await api.post(`/api/v1/competition-analysis/${id}/retry`);
       fetchReports();
     } catch (error) {
       console.error('Failed to retry report:', error);

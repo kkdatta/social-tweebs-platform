@@ -16,6 +16,7 @@ import api from '../../services/api';
 interface BrandInput {
   id: string;
   brandName: string;
+  platform: 'INSTAGRAM' | 'YOUTUBE';
   hashtags: string;
   username: string;
   keywords: string;
@@ -29,30 +30,19 @@ const CompetitionAnalysisCreatePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const [title, setTitle] = useState('');
-  const [platforms, setPlatforms] = useState<string[]>(['INSTAGRAM']);
   const [dateRangeStart, setDateRangeStart] = useState('');
   const [dateRangeEnd, setDateRangeEnd] = useState('');
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
   const [brands, setBrands] = useState<BrandInput[]>([
-    { id: '1', brandName: '', hashtags: '', username: '', keywords: '' },
-    { id: '2', brandName: '', hashtags: '', username: '', keywords: '' },
+    { id: '1', brandName: '', platform: 'INSTAGRAM', hashtags: '', username: '', keywords: '' },
+    { id: '2', brandName: '', platform: 'INSTAGRAM', hashtags: '', username: '', keywords: '' },
   ]);
-
-  const handlePlatformToggle = (platform: string) => {
-    if (platforms.includes(platform)) {
-      if (platforms.length > 1) {
-        setPlatforms(platforms.filter(p => p !== platform));
-      }
-    } else {
-      setPlatforms([...platforms, platform]);
-    }
-  };
 
   const addBrand = () => {
     if (brands.length >= 5) return;
     setBrands([
       ...brands,
-      { id: Date.now().toString(), brandName: '', hashtags: '', username: '', keywords: '' }
+      { id: Date.now().toString(), brandName: '', platform: 'INSTAGRAM', hashtags: '', username: '', keywords: '' }
     ]);
   };
 
@@ -95,6 +85,7 @@ const CompetitionAnalysisCreatePage: React.FC = () => {
 
     setLoading(true);
     try {
+      const platforms = Array.from(new Set(brands.map(b => b.platform)));
       const payload = {
         title: title || `Competition Report - ${new Date().toLocaleDateString()}`,
         platforms,
@@ -103,13 +94,14 @@ const CompetitionAnalysisCreatePage: React.FC = () => {
         autoRefreshEnabled,
         brands: brands.map(b => ({
           brandName: b.brandName.trim(),
+          platform: b.platform,
           hashtags: b.hashtags.split(',').map(h => h.trim()).filter(Boolean),
           username: b.username.trim() || undefined,
           keywords: b.keywords.split(',').map(k => k.trim()).filter(Boolean),
         })),
       };
 
-      const response = await api.post('/competition-analysis', payload);
+      const response = await api.post('/api/v1/competition-analysis', payload);
       navigate(`/competition-analysis/${response.data.report.id}`);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to create report');
@@ -190,28 +182,6 @@ const CompetitionAnalysisCreatePage: React.FC = () => {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Platforms
-              </label>
-              <div className="flex gap-3">
-                {['INSTAGRAM', 'TIKTOK'].map((platform) => (
-                  <button
-                    key={platform}
-                    type="button"
-                    onClick={() => handlePlatformToggle(platform)}
-                    className={`px-4 py-2 rounded-lg border transition-colors ${
-                      platforms.includes(platform)
-                        ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
-                        : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    {platform === 'INSTAGRAM' ? 'Instagram' : 'TikTok'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <div className="flex items-center gap-3">
               <input
                 type="checkbox"
@@ -280,6 +250,22 @@ const CompetitionAnalysisCreatePage: React.FC = () => {
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       required
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Platform
+                    </label>
+                    <select
+                      value={brand.platform}
+                      onChange={(e) =>
+                        updateBrand(brand.id, 'platform', e.target.value as 'INSTAGRAM' | 'YOUTUBE')
+                      }
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                    >
+                      <option value="INSTAGRAM">Instagram</option>
+                      <option value="YOUTUBE">YouTube</option>
+                    </select>
                   </div>
 
                   <div>

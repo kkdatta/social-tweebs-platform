@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { InsightsController } from './insights.controller';
 import { InsightsService } from './insights.service';
@@ -8,6 +8,7 @@ import {
   InsightAccessLog,
 } from './entities';
 import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
+import { User } from '../users/entities/user.entity';
 import { CreditsModule } from '../credits/credits.module';
 import { DiscoveryModule } from '../discovery/discovery.module';
 
@@ -18,9 +19,10 @@ import { DiscoveryModule } from '../discovery/discovery.module';
       SystemConfig,
       InsightAccessLog,
       InfluencerProfile, // For querying local profiles when Modash is disabled
+      User,
     ]),
     CreditsModule,
-    DiscoveryModule, // For ModashService
+    forwardRef(() => DiscoveryModule), // For ModashService
   ],
   controllers: [InsightsController],
   providers: [InsightsService],

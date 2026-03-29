@@ -30,6 +30,7 @@ import {
   PostTypeStatsDto,
   DashboardStatsDto,
   ChartDataDto,
+  EnhancedChartDataDto,
   PostsFilterDto,
   InfluencersFilterDto,
 } from './dto';
@@ -123,6 +124,7 @@ export class CompetitionAnalysisService {
       brand.hashtags = brandDto.hashtags || [];
       brand.username = brandDto.username;
       brand.keywords = brandDto.keywords || [];
+      brand.platform = brandDto.platform;
       brand.displayColor = BRAND_COLORS[i % BRAND_COLORS.length];
       brand.displayOrder = i;
       await this.brandRepo.save(brand);
@@ -243,7 +245,11 @@ export class CompetitionAnalysisService {
       const influencer = new CompetitionInfluencer();
       influencer.reportId = reportId;
       influencer.brandId = brand.id;
-      influencer.platform = report.platforms[Math.floor(Math.random() * report.platforms.length)];
+      const platformPool =
+        brand.platform?.trim()
+          ? [brand.platform.trim().toUpperCase()]
+          : (report.platforms?.length ? report.platforms : ['INSTAGRAM']);
+      influencer.platform = platformPool[Math.floor(Math.random() * platformPool.length)];
       influencer.influencerName = this.generateInfluencerName();
       influencer.influencerUsername = influencer.influencerName.toLowerCase().replace(/\s/g, '_');
       influencer.platformUserId = `user_${Date.now()}_${brand.id}_${i}`;
@@ -302,10 +308,10 @@ export class CompetitionAnalysisService {
 
         await this.postRepo.save(post);
 
-        infLikes += post.likesCount;
-        infViews += post.viewsCount;
-        infComments += post.commentsCount;
-        infShares += post.sharesCount;
+        infLikes += Number(post.likesCount) || 0;
+        infViews += Number(post.viewsCount) || 0;
+        infComments += Number(post.commentsCount) || 0;
+        infShares += Number(post.sharesCount) || 0;
       }
 
       // Update influencer metrics
@@ -322,7 +328,7 @@ export class CompetitionAnalysisService {
       brandViews += infViews;
       brandComments += infComments;
       brandShares += infShares;
-      brandFollowers += savedInfluencer.followerCount;
+      brandFollowers += Number(savedInfluencer.followerCount) || 0;
     }
 
     // Update brand metrics
@@ -446,7 +452,7 @@ export class CompetitionAnalysisService {
       
       queryBuilder.where(
         '(report.createdById = :userId OR report.createdById IN (:...teamUserIds) OR report.id IN (:...reportIds) OR report.isPublic = true)',
-        { userId, teamUserIds, reportIds: reportIds.length > 0 ? reportIds : ['none'] }
+        { userId, teamUserIds, reportIds: reportIds.length > 0 ? reportIds : ['00000000-0000-0000-0000-000000000000'] }
       );
     }
 
@@ -760,6 +766,104 @@ export class CompetitionAnalysisService {
   }
 
   /**
+   * Get enhanced chart data (posts over time, influencers over time, share distributions)
+   */
+  async getEnhancedChartData(userId: string, reportId: string): Promise<EnhancedChartDataDto> {
+    const report = await this.reportRepo.findOne({
+      where: { id: reportId },
+      relations: ['brands'],
+    });
+
+    if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+
+    await this.checkReportAccess(userId, report);
+
+    const posts = await this.postRepo.find({ where: { reportId } });
+    const brands = report.brands || [];
+    const brandNameMap: Record<string, string> = {};
+    const brandColorMap: Record<string, string> = {};
+    brands.forEach(b => {
+      brandNameMap[b.id] = b.brandName;
+      brandColorMap[b.id] = b.displayColor || '#6b7280';
+    });
+
+    // Posts over time
+    const postsGrouped: Record<string, Record<string, number>> = {};
+    // Influencers over time (unique influencers per date per brand)
+    const influencersByDate: Record<string, Record<string, Set<string>>> = {};
+
+    posts.forEach(post => {
+      const dateStr = post.postDate
+        ? new Date(post.postDate).toISOString().split('T')[0]
+        : 'Unknown';
+
+      if (!postsGrouped[dateStr]) {
+        postsGrouped[dateStr] = {};
+        influencersByDate[dateStr] = {};
+        brands.forEach(b => {
+          postsGrouped[dateStr][b.id] = 0;
+          influencersByDate[dateStr][b.id] = new Set();
+        });
+      }
+
+      if (post.brandId && postsGrouped[dateStr][post.brandId] !== undefined) {
+        postsGrouped[dateStr][post.brandId] += 1;
+      }
+      if (post.brandId && post.influencerId && influencersByDate[dateStr][post.brandId]) {
+        influencersByDate[dateStr][post.brandId].add(post.influencerId);
+      }
+    });
+
+    const sortedDates = Object.keys(postsGrouped).sort(
+      (a, b) => new Date(a).getTime() - new Date(b).getTime(),
+    );
+
+    const postsOverTime = sortedDates.map(date => {
+      const namedBrands: Record<string, number> = {};
+      let total = 0;
+      Object.entries(postsGrouped[date]).forEach(([brandId, count]) => {
+        namedBrands[brandNameMap[brandId] || brandId] = count;
+        total += count;
+      });
+      return { date, brands: namedBrands, total };
+    });
+
+    const influencersOverTime = sortedDates.map(date => {
+      const namedBrands: Record<string, number> = {};
+      let total = 0;
+      Object.entries(influencersByDate[date]).forEach(([brandId, infSet]) => {
+        const count = infSet.size;
+        namedBrands[brandNameMap[brandId] || brandId] = count;
+        total += count;
+      });
+      return { date, brands: namedBrands, total };
+    });
+
+    // Share distributions
+    const postsShare = brands.map(b => ({
+      brandName: b.brandName,
+      value: b.postsCount || 0,
+      color: b.displayColor || '#6b7280',
+    }));
+
+    const influencersShare = brands.map(b => ({
+      brandName: b.brandName,
+      value: b.influencerCount || 0,
+      color: b.displayColor || '#6b7280',
+    }));
+
+    const engagementShare = brands.map(b => ({
+      brandName: b.brandName,
+      value: (Number(b.totalLikes) || 0) + (Number(b.totalComments) || 0) + (Number(b.totalShares) || 0),
+      color: b.displayColor || '#6b7280',
+    }));
+
+    return { postsOverTime, influencersOverTime, postsShare, influencersShare, engagementShare };
+  }
+
+  /**
    * Get posts with filters
    */
   async getPosts(userId: string, reportId: string, filters: PostsFilterDto): Promise<{ posts: CompetitionPostDto[]; total: number; page: number; limit: number }> {
@@ -796,16 +900,19 @@ export class CompetitionAnalysisService {
     // Sorting
     const sortField = filters.sortBy || 'postDate';
     const sortOrder = filters.sortOrder?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-    
+
     const sortMap: Record<string, string> = {
       'recent': 'post.postDate',
       'postDate': 'post.postDate',
       'likes': 'post.likesCount',
       'views': 'post.viewsCount',
       'comments': 'post.commentsCount',
+      'shares': 'post.sharesCount',
       'engagement': 'post.engagementRate',
+      'credibility': 'influencer.audienceCredibility',
+      'followers': 'influencer.followerCount',
     };
-    
+
     queryBuilder.orderBy(sortMap[sortField] || 'post.postDate', sortOrder as 'ASC' | 'DESC');
 
     const [posts, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
@@ -927,8 +1034,8 @@ export class CompetitionAnalysisService {
       title: report.title,
       platforms: report.platforms,
       status: report.status,
-      dateRangeStart: report.dateRangeStart?.toISOString().split('T')[0],
-      dateRangeEnd: report.dateRangeEnd?.toISOString().split('T')[0],
+      dateRangeStart: report.dateRangeStart instanceof Date ? report.dateRangeStart.toISOString().split('T')[0] : report.dateRangeStart,
+      dateRangeEnd: report.dateRangeEnd instanceof Date ? report.dateRangeEnd.toISOString().split('T')[0] : report.dateRangeEnd,
       totalBrands: report.totalBrands || 0,
       totalPosts: report.totalPosts || 0,
       totalInfluencers: report.totalInfluencers || 0,
@@ -948,8 +1055,8 @@ export class CompetitionAnalysisService {
       platforms: report.platforms,
       status: report.status,
       errorMessage: report.errorMessage,
-      dateRangeStart: report.dateRangeStart?.toISOString().split('T')[0],
-      dateRangeEnd: report.dateRangeEnd?.toISOString().split('T')[0],
+      dateRangeStart: report.dateRangeStart instanceof Date ? report.dateRangeStart.toISOString().split('T')[0] : report.dateRangeStart,
+      dateRangeEnd: report.dateRangeEnd instanceof Date ? report.dateRangeEnd.toISOString().split('T')[0] : report.dateRangeEnd,
       autoRefreshEnabled: report.autoRefreshEnabled,
       totalBrands: report.totalBrands || 0,
       totalInfluencers: report.totalInfluencers || 0,
@@ -980,6 +1087,7 @@ export class CompetitionAnalysisService {
       hashtags: brand.hashtags,
       username: brand.username,
       keywords: brand.keywords,
+      platform: brand.platform,
       displayColor: brand.displayColor,
       influencerCount: brand.influencerCount || 0,
       postsCount: brand.postsCount || 0,
@@ -1041,8 +1149,11 @@ export class CompetitionAnalysisService {
       engagementRate: post.engagementRate ? Number(post.engagementRate) : undefined,
       isSponsored: post.isSponsored,
       postDate: post.postDate ? (post.postDate instanceof Date ? post.postDate.toISOString().split('T')[0] : String(post.postDate).split('T')[0]) : undefined,
+      influencerId: post.influencerId,
       influencerName: post.influencer?.influencerName,
       influencerUsername: post.influencer?.influencerUsername,
+      influencerFollowerCount: post.influencer ? Number(post.influencer.followerCount) : undefined,
+      influencerCredibility: post.influencer ? Number(post.influencer.audienceCredibility) : undefined,
     };
   }
 

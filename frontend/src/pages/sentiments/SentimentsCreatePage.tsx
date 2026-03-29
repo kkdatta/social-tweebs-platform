@@ -1,13 +1,23 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Plus, X, Instagram, AlertCircle, Loader,
   FileText, Users, Sparkles, CreditCard
 } from 'lucide-react';
 import { sentimentsApi } from '../../services/api';
 
+type SentimentPrefillState = {
+  sentimentPrefill?: {
+    urls: string[];
+    reportType?: 'POST' | 'PROFILE';
+    platform?: 'INSTAGRAM' | 'TIKTOK';
+    multipleQuery?: boolean;
+  };
+};
+
 export const SentimentsCreatePage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showCreditsModal, setShowCreditsModal] = useState(false);
@@ -23,6 +33,22 @@ export const SentimentsCreatePage = () => {
   const [brandName, setBrandName] = useState('');
   const [brandUsername, setBrandUsername] = useState('');
   const [productName, setProductName] = useState('');
+  const sentimentPrefillApplied = useRef(false);
+
+  useEffect(() => {
+    if (sentimentPrefillApplied.current) return;
+    const state = location.state as SentimentPrefillState | null;
+    const pre = state?.sentimentPrefill;
+    if (!pre?.urls?.length) return;
+    sentimentPrefillApplied.current = true;
+    const cleaned = pre.urls.map((u) => u.trim()).filter(Boolean);
+    if (cleaned.length === 0) return;
+    setUrls(cleaned.length === 1 ? [cleaned[0]] : cleaned);
+    setMultipleQuery(cleaned.length > 1 || !!pre.multipleQuery);
+    if (pre.reportType) setReportType(pre.reportType);
+    if (pre.platform) setPlatform(pre.platform);
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [location, navigate]);
 
   const addUrl = () => {
     if (multipleQuery && urls.length < 10) {

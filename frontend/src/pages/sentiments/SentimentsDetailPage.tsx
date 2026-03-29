@@ -3,10 +3,18 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Share2, Trash2, Download, Edit3, ExternalLink,
   ThumbsUp, ThumbsDown, Minus, Heart, Smile, Frown, Angry,
-  MessageCircle, Eye, ThumbsUpIcon, Instagram, Clock,
+  MessageCircle, Eye, ThumbsUpIcon, Instagram, Music2, Clock,
   CheckCircle, Loader, AlertCircle, Copy, Check, MoreVertical,
   Link, Users, X
 } from 'lucide-react';
+import {
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 import { sentimentsApi } from '../../services/api';
 
 interface PostData {
@@ -257,6 +265,17 @@ export const SentimentsDetailPage = () => {
     return 'text-gray-600 bg-gray-100';
   };
 
+  const getPlatformIcon = (platform: string) => {
+    const p = (platform || '').toUpperCase();
+    if (p === 'TIKTOK') {
+      return <Music2 className="w-4 h-4 text-cyan-600 shrink-0" aria-hidden />;
+    }
+    if (p === 'INSTAGRAM') {
+      return <Instagram className="w-4 h-4 text-pink-500 shrink-0" aria-hidden />;
+    }
+    return <Music2 className="w-4 h-4 text-gray-500 shrink-0" aria-hidden />;
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -334,7 +353,7 @@ export const SentimentsDetailPage = () => {
               </div>
               <div className="flex items-center gap-3 mt-1">
                 <span className="flex items-center gap-1 text-gray-500">
-                  <Instagram className="w-4 h-4 text-pink-500" />
+                  {getPlatformIcon(report.platform)}
                   {report.influencerUsername || report.influencerName || 'Unknown'}
                 </span>
                 <span className="text-gray-300">|</span>
@@ -523,37 +542,51 @@ export const SentimentsDetailPage = () => {
           {/* Sentiment Distribution Chart */}
           <div className="bg-white rounded-xl p-6 shadow-sm">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Sentiment Distribution</h3>
-            <div className="h-8 flex rounded-full overflow-hidden">
-              <div 
-                className="bg-green-500 flex items-center justify-center text-white text-xs font-medium"
-                style={{ width: `${report.positivePercentage || 0}%` }}
-              >
-                {(report.positivePercentage || 0) > 10 && `${report.positivePercentage?.toFixed(0)}%`}
-              </div>
-              <div 
-                className="bg-gray-400 flex items-center justify-center text-white text-xs font-medium"
-                style={{ width: `${report.neutralPercentage || 0}%` }}
-              >
-                {(report.neutralPercentage || 0) > 10 && `${report.neutralPercentage?.toFixed(0)}%`}
-              </div>
-              <div 
-                className="bg-red-500 flex items-center justify-center text-white text-xs font-medium"
-                style={{ width: `${report.negativePercentage || 0}%` }}
-              >
-                {(report.negativePercentage || 0) > 10 && `${report.negativePercentage?.toFixed(0)}%`}
-              </div>
-            </div>
-            <div className="flex gap-6 mt-4">
+            {(() => {
+              const pieData = [
+                { name: 'Positive', value: Number(report.positivePercentage ?? 0), fill: '#22c55e' },
+                { name: 'Neutral', value: Number(report.neutralPercentage ?? 0), fill: '#a3a3a3' },
+                { name: 'Negative', value: Number(report.negativePercentage ?? 0), fill: '#ef4444' },
+              ];
+              return (
+                <div className="w-full max-w-md mx-auto h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={55}
+                        outerRadius={90}
+                        paddingAngle={2}
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      >
+                        {pieData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} stroke="#fff" strokeWidth={1} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value: number) => [`${value.toFixed(1)}%`, 'Share']}
+                      />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })()}
+            <div className="flex flex-wrap justify-center gap-6 mt-4">
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500" />
                 <span className="text-sm text-gray-600">Positive</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-gray-400"></div>
+                <div className="w-3 h-3 rounded-full bg-neutral-400" />
                 <span className="text-sm text-gray-600">Neutral</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                <div className="w-3 h-3 rounded-full bg-red-500" />
                 <span className="text-sm text-gray-600">Negative</span>
               </div>
             </div>

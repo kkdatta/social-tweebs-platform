@@ -27,6 +27,7 @@ export class LoginResponseDto {
     email: string;
     name: string;
     role: string;
+    featureAccess: string[];
   };
 
   @ApiProperty()

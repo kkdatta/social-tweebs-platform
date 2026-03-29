@@ -4,12 +4,14 @@ import {
   ArrowLeft, Share2, Download, MoreVertical, Edit3, Trash2, RefreshCw,
   CheckCircle, Clock, AlertCircle, Loader, Eye, Heart, MessageCircle,
   Hash, AtSign, Users, FileText, BarChart3, TrendingUp,
-  ExternalLink, Share, Filter
+  ExternalLink, Share, Filter, Instagram, UserPlus, ChevronLeft, ChevronRight,
+  Image, Video, Layers, Play, X, Mail, FileSpreadsheet
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, BarChart, Bar, ComposedChart, Area
 } from 'recharts';
+import * as XLSX from 'xlsx';
 import { paidCollaborationApi } from '../../services/api';
 
 interface Report {
@@ -120,6 +122,15 @@ export const PaidCollaborationDetailPage = () => {
   // Tab state
   const [activeTab, setActiveTab] = useState<'overview' | 'influencers' | 'posts'>('overview');
 
+  // Pagination
+  const ITEMS_PER_PAGE = 12;
+  const [influencerPage, setInfluencerPage] = useState(1);
+  const [postPage, setPostPage] = useState(1);
+
+  // Invite modal
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+
   useEffect(() => {
     if (id) loadReport();
   }, [id]);
@@ -197,6 +208,86 @@ export const PaidCollaborationDetailPage = () => {
     setShowMenu(false);
   };
 
+  const handleExportPdf = () => {
+    setShowMenu(false);
+    window.print();
+  };
+
+  const handleExportExcel = () => {
+    if (!report) return;
+    setShowMenu(false);
+
+    const wb = XLSX.utils.book_new();
+
+    const summaryRows = [
+      {
+        Title: report.title,
+        Platform: report.platform,
+        Status: report.status,
+        'Date range start': report.dateRangeStart,
+        'Date range end': report.dateRangeEnd,
+        Hashtags: (report.hashtags || []).join(', '),
+        Mentions: (report.mentions || []).join(', '),
+        'Query logic': report.queryLogic,
+        'Total influencers': report.totalInfluencers,
+        'Total posts': report.totalPosts,
+        'Total likes': report.totalLikes,
+        'Total views': report.totalViews,
+        'Total comments': report.totalComments,
+        'Total shares': report.totalShares,
+        'Avg engagement rate': report.avgEngagementRate,
+        'Engagement / views rate': report.engagementViewsRate,
+        'Created at': report.createdAt,
+        'Completed at': report.completedAt ?? '',
+      },
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Summary');
+
+    if (report.categorizations?.length) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(report.categorizations), 'Categories');
+    }
+
+    if (report.influencers?.length) {
+      const infRows = report.influencers.map((i) => ({
+        Name: i.influencerName,
+        Username: i.influencerUsername ?? '',
+        Platform: i.platform,
+        Category: i.category,
+        Followers: i.followerCount,
+        Posts: i.postsCount,
+        Likes: i.likesCount,
+        Views: i.viewsCount,
+        Comments: i.commentsCount,
+        Shares: i.sharesCount,
+        'Engagement rate': i.engagementRate,
+        'Credibility score': i.credibilityScore,
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(infRows), 'Influencers');
+    }
+
+    if (report.posts?.length) {
+      const postRows = report.posts.map((p) => ({
+        'Post ID': p.postId ?? '',
+        'Post URL': p.postUrl ?? '',
+        Type: p.postType,
+        Sponsored: p.isSponsored,
+        Caption: p.caption ?? '',
+        Likes: p.likesCount,
+        Views: p.viewsCount,
+        Comments: p.commentsCount,
+        Shares: p.sharesCount,
+        'Engagement rate': p.engagementRate,
+        'Post date': p.postDate,
+        'Influencer name': p.influencer?.influencerName ?? '',
+        'Influencer username': p.influencer?.influencerUsername ?? '',
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(postRows), 'Posts');
+    }
+
+    const safeName = (report.title || 'report').replace(/[^\w\-]+/g, '_').slice(0, 80);
+    XLSX.writeFile(wb, `paid-collaboration-${safeName}.xlsx`);
+  };
+
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       COMPLETED: 'bg-green-100 text-green-800',
@@ -243,15 +334,63 @@ export const PaidCollaborationDetailPage = () => {
     return colors[category] || 'bg-gray-100 text-gray-800';
   };
 
-  const filteredInfluencers = report?.influencers
+  const getPlatformIcon = (platform: string) => {
+    switch (platform?.toUpperCase()) {
+      case 'INSTAGRAM':
+        return <Instagram className="w-5 h-5 text-pink-500" />;
+      case 'TIKTOK':
+        return <div className="w-5 h-5 text-black font-bold text-xs flex items-center justify-center rounded bg-gray-100">TT</div>;
+      default:
+        return <FileText className="w-5 h-5 text-gray-400" />;
+    }
+  };
+
+  const getPostTypeBadge = (type?: string) => {
+    const config: Record<string, { icon: any; label: string; color: string }> = {
+      IMAGE: { icon: <Image className="w-3 h-3" />, label: 'Image', color: 'bg-blue-100 text-blue-700' },
+      VIDEO: { icon: <Video className="w-3 h-3" />, label: 'Video', color: 'bg-red-100 text-red-700' },
+      REEL: { icon: <Play className="w-3 h-3" />, label: 'Reel', color: 'bg-purple-100 text-purple-700' },
+      CAROUSEL: { icon: <Layers className="w-3 h-3" />, label: 'Carousel', color: 'bg-amber-100 text-amber-700' },
+    };
+    const cfg = config[type?.toUpperCase() || ''] || config.IMAGE;
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${cfg.color}`}>
+        {cfg.icon}
+        {cfg.label}
+      </span>
+    );
+  };
+
+  const handleInvite = async () => {
+    if (!inviteEmail.trim()) return;
+    try {
+      await paidCollaborationApi.share(id!, { sharedWithEmail: inviteEmail.trim() });
+      setShowInviteModal(false);
+      setInviteEmail('');
+      alert('Team member invited successfully!');
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to invite team member');
+    }
+  };
+
+  const allFilteredInfluencers = report?.influencers
     ?.filter(inf => selectedCategory === 'ALL' || inf.category === selectedCategory)
     .sort((a, b) => {
+      if (influencerSort === 'createdAt') {
+        return influencerSortOrder === 'desc' ? -1 : 1;
+      }
       const aVal = (a as any)[influencerSort] || 0;
       const bVal = (b as any)[influencerSort] || 0;
       return influencerSortOrder === 'desc' ? bVal - aVal : aVal - bVal;
     }) || [];
 
-  const filteredPosts = report?.posts
+  const influencerTotalPages = Math.ceil(allFilteredInfluencers.length / ITEMS_PER_PAGE);
+  const paginatedInfluencers = allFilteredInfluencers.slice(
+    (influencerPage - 1) * ITEMS_PER_PAGE,
+    influencerPage * ITEMS_PER_PAGE,
+  );
+
+  const allFilteredPosts = report?.posts
     ?.filter(post => {
       if (sponsoredOnly && !post.isSponsored) return false;
       if (selectedCategory !== 'ALL') {
@@ -261,10 +400,21 @@ export const PaidCollaborationDetailPage = () => {
       return true;
     })
     .sort((a, b) => {
+      if (postSort === 'postDate') {
+        const aDate = new Date(a.postDate || 0).getTime();
+        const bDate = new Date(b.postDate || 0).getTime();
+        return postSortOrder === 'desc' ? bDate - aDate : aDate - bDate;
+      }
       const aVal = (a as any)[postSort] || 0;
       const bVal = (b as any)[postSort] || 0;
       return postSortOrder === 'desc' ? bVal - aVal : aVal - bVal;
     }) || [];
+
+  const postTotalPages = Math.ceil(allFilteredPosts.length / ITEMS_PER_PAGE);
+  const paginatedPosts = allFilteredPosts.slice(
+    (postPage - 1) * ITEMS_PER_PAGE,
+    postPage * ITEMS_PER_PAGE,
+  );
 
   if (loading) {
     return (
@@ -354,11 +504,41 @@ export const PaidCollaborationDetailPage = () => {
                 </span>
               )}
             </div>
+            {report.status === 'COMPLETED' && (
+              <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                <div className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${sponsoredOnly ? 'bg-purple-600' : 'bg-gray-200'}`}>
+                  <input
+                    type="checkbox"
+                    checked={sponsoredOnly}
+                    onChange={(e) => setSponsoredOnly(e.target.checked)}
+                    className="sr-only"
+                  />
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${sponsoredOnly ? 'translate-x-6' : 'translate-x-1'}`} />
+                </div>
+                <span className="text-sm text-gray-700 font-medium">Show Sponsored Posts Only</span>
+              </label>
+            )}
           </div>
         </div>
 
         {/* Actions Menu */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-700"
+          >
+            <Download className="w-4 h-4" />
+            Export PDF
+          </button>
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-700"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Export Excel
+          </button>
           <button
             onClick={handleShare}
             className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg"
@@ -376,18 +556,27 @@ export const PaidCollaborationDetailPage = () => {
             {showMenu && (
               <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
                 <button
-                  onClick={() => { setShowMenu(false); /* Download PDF */ }}
+                  type="button"
+                  onClick={handleExportPdf}
                   className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                 >
                   <Download className="w-4 h-4" />
-                  Download PDF
+                  Export PDF
                 </button>
                 <button
-                  onClick={() => { setShowMenu(false); /* Download XLSX */ }}
+                  type="button"
+                  onClick={handleExportExcel}
                   className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                 >
-                  <Download className="w-4 h-4" />
-                  Download XLSX
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Export Excel
+                </button>
+                <button
+                  onClick={() => { setShowMenu(false); setShowInviteModal(true); }}
+                  className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Invite Team Member
                 </button>
                 {report.status === 'FAILED' && (
                   <button
@@ -667,7 +856,7 @@ export const PaidCollaborationDetailPage = () => {
                   </div>
                   <select
                     value={selectedCategory}
-                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    onChange={(e) => { setSelectedCategory(e.target.value); setInfluencerPage(1); }}
                     className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
                   >
                     <option value="ALL">All Categories</option>
@@ -682,31 +871,42 @@ export const PaidCollaborationDetailPage = () => {
                       const [sort, order] = e.target.value.split('-');
                       setInfluencerSort(sort);
                       setInfluencerSortOrder(order as 'asc' | 'desc');
+                      setInfluencerPage(1);
                     }}
                     className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
                   >
                     <option value="likesCount-desc">Most Liked</option>
                     <option value="likesCount-asc">Least Liked</option>
-                    <option value="followerCount-desc">Most Followers</option>
-                    <option value="followerCount-asc">Least Followers</option>
-                    <option value="engagementRate-desc">Highest ER</option>
-                    <option value="engagementRate-asc">Lowest ER</option>
+                    <option value="commentsCount-desc">Most Commented</option>
+                    <option value="commentsCount-asc">Least Commented</option>
+                    <option value="followerCount-desc">Highest Followers</option>
+                    <option value="followerCount-asc">Lowest Followers</option>
                     <option value="credibilityScore-desc">Highest Credibility</option>
                     <option value="credibilityScore-asc">Lowest Credibility</option>
+                    <option value="createdAt-desc">Recent</option>
+                    <option value="createdAt-asc">Oldest</option>
                   </select>
+                </div>
+
+                {/* Influencers Count */}
+                <div className="text-sm text-gray-500">
+                  Showing {paginatedInfluencers.length} of {allFilteredInfluencers.length} influencers
                 </div>
 
                 {/* Influencers List */}
                 <div className="grid gap-4">
-                  {filteredInfluencers.map((influencer) => (
+                  {paginatedInfluencers.map((influencer) => (
                     <div key={influencer.id} className="bg-gray-50 rounded-xl p-4 flex items-center gap-4">
-                      <img
-                        src={influencer.profilePictureUrl || `https://ui-avatars.com/api/?name=${influencer.influencerName}`}
-                        alt={influencer.influencerName}
-                        className="w-14 h-14 rounded-full object-cover"
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3">
+                        {getPlatformIcon(influencer.platform)}
+                        <img
+                          src={influencer.profilePictureUrl || `https://ui-avatars.com/api/?name=${influencer.influencerName}`}
+                          alt={influencer.influencerName}
+                          className="w-14 h-14 rounded-full object-cover"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium text-gray-900">{influencer.influencerName}</span>
                           {influencer.influencerUsername && (
                             <span className="text-gray-500 text-sm">@{influencer.influencerUsername}</span>
@@ -735,10 +935,64 @@ export const PaidCollaborationDetailPage = () => {
                           <div className="text-green-600 font-semibold">{formatNumber(influencer.commentsCount)}</div>
                           <div className="text-gray-400 text-xs">Comments</div>
                         </div>
+                        <div className="text-center">
+                          <div className="text-purple-600 font-semibold">{formatNumber(influencer.sharesCount)}</div>
+                          <div className="text-gray-400 text-xs">Shares</div>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
+
+                {/* Influencer Pagination */}
+                {influencerTotalPages > 1 && (
+                  <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                    <div className="text-sm text-gray-500">
+                      Page {influencerPage} of {influencerTotalPages}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setInfluencerPage(p => Math.max(1, p - 1))}
+                        disabled={influencerPage === 1}
+                        className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      {Array.from({ length: Math.min(5, influencerTotalPages) }, (_, i) => {
+                        let pageNum: number;
+                        if (influencerTotalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (influencerPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (influencerPage >= influencerTotalPages - 2) {
+                          pageNum = influencerTotalPages - 4 + i;
+                        } else {
+                          pageNum = influencerPage - 2 + i;
+                        }
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setInfluencerPage(pageNum)}
+                            className={`w-8 h-8 rounded-lg text-sm font-medium ${
+                              influencerPage === pageNum
+                                ? 'bg-purple-600 text-white'
+                                : 'border border-gray-200 hover:bg-gray-50 text-gray-700'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                      <button
+                        onClick={() => setInfluencerPage(p => Math.min(influencerTotalPages, p + 1))}
+                        disabled={influencerPage === influencerTotalPages}
+                        className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -755,21 +1009,21 @@ export const PaidCollaborationDetailPage = () => {
                     <input
                       type="checkbox"
                       checked={sponsoredOnly}
-                      onChange={(e) => setSponsoredOnly(e.target.checked)}
+                      onChange={(e) => { setSponsoredOnly(e.target.checked); setPostPage(1); }}
                       className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
                     />
                     <span className="text-sm text-gray-700">Sponsored Only</span>
                   </label>
                   <select
                     value={selectedCategory}
-                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    onChange={(e) => { setSelectedCategory(e.target.value); setPostPage(1); }}
                     className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
                   >
                     <option value="ALL">All Categories</option>
-                    <option value="NANO">Nano</option>
-                    <option value="MICRO">Micro</option>
-                    <option value="MACRO">Macro</option>
-                    <option value="MEGA">Mega</option>
+                    <option value="NANO">Nano (&lt;10K)</option>
+                    <option value="MICRO">Micro (10K-100K)</option>
+                    <option value="MACRO">Macro (100K-500K)</option>
+                    <option value="MEGA">Mega (&gt;500K)</option>
                   </select>
                   <select
                     value={`${postSort}-${postSortOrder}`}
@@ -777,22 +1031,34 @@ export const PaidCollaborationDetailPage = () => {
                       const [sort, order] = e.target.value.split('-');
                       setPostSort(sort);
                       setPostSortOrder(order as 'asc' | 'desc');
+                      setPostPage(1);
                     }}
                     className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
                   >
                     <option value="likesCount-desc">Most Liked</option>
                     <option value="likesCount-asc">Least Liked</option>
+                    <option value="commentsCount-desc">Most Commented</option>
+                    <option value="commentsCount-asc">Least Commented</option>
                     <option value="viewsCount-desc">Most Viewed</option>
                     <option value="viewsCount-asc">Least Viewed</option>
+                    <option value="sharesCount-desc">Most Shared</option>
+                    <option value="sharesCount-asc">Least Shared</option>
+                    <option value="engagementRate-desc">Highest Engagement</option>
+                    <option value="engagementRate-asc">Lowest Engagement</option>
                     <option value="postDate-desc">Newest</option>
                     <option value="postDate-asc">Oldest</option>
                   </select>
                 </div>
 
+                {/* Post Count */}
+                <div className="text-sm text-gray-500">
+                  Showing {paginatedPosts.length} of {allFilteredPosts.length} posts
+                </div>
+
                 {/* Posts Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredPosts.map((post) => (
-                    <div key={post.id} className="bg-gray-50 rounded-xl overflow-hidden">
+                  {paginatedPosts.map((post) => (
+                    <div key={post.id} className="bg-gray-50 rounded-xl overflow-hidden border border-gray-100 hover:shadow-md transition-shadow">
                       {post.thumbnailUrl && (
                         <div className="relative aspect-square bg-gray-200">
                           <img
@@ -800,21 +1066,27 @@ export const PaidCollaborationDetailPage = () => {
                             alt="Post thumbnail"
                             className="w-full h-full object-cover"
                           />
-                          {post.isSponsored && (
-                            <span className="absolute top-2 left-2 px-2 py-1 bg-yellow-500 text-white text-xs rounded-full">
-                              Sponsored
-                            </span>
-                          )}
-                          {post.postUrl && (
-                            <a
-                              href={post.postUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="absolute top-2 right-2 p-1.5 bg-white/90 rounded-full hover:bg-white"
-                            >
-                              <ExternalLink className="w-4 h-4 text-gray-700" />
-                            </a>
-                          )}
+                          <div className="absolute top-2 left-2 flex flex-wrap gap-1">
+                            {post.isSponsored && (
+                              <span className="px-2 py-1 bg-yellow-500 text-white text-xs rounded-full font-medium">
+                                Sponsored
+                              </span>
+                            )}
+                            {getPostTypeBadge(post.postType)}
+                          </div>
+                          <div className="absolute top-2 right-2 flex items-center gap-1">
+                            {getPlatformIcon(report.platform)}
+                            {post.postUrl && (
+                              <a
+                                href={post.postUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 bg-white/90 rounded-full hover:bg-white"
+                              >
+                                <ExternalLink className="w-4 h-4 text-gray-700" />
+                              </a>
+                            )}
+                          </div>
                         </div>
                       )}
                       <div className="p-4">
@@ -825,10 +1097,10 @@ export const PaidCollaborationDetailPage = () => {
                               alt={post.influencer.influencerName}
                               className="w-8 h-8 rounded-full"
                             />
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">{post.influencer.influencerName}</div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-medium text-gray-900 truncate">{post.influencer.influencerName}</div>
                               {post.influencer.influencerUsername && (
-                                <div className="text-xs text-gray-500">@{post.influencer.influencerUsername}</div>
+                                <div className="text-xs text-gray-500 truncate">@{post.influencer.influencerUsername}</div>
                               )}
                             </div>
                           </div>
@@ -844,27 +1116,90 @@ export const PaidCollaborationDetailPage = () => {
                             <span key={idx} className="text-xs text-purple-600">@{m.replace('@', '')}</span>
                           ))}
                         </div>
-                        <div className="flex items-center justify-between text-sm text-gray-500">
-                          <div className="flex items-center gap-3">
-                            <span className="flex items-center gap-1">
-                              <Heart className="w-4 h-4 text-pink-500" />
-                              {formatNumber(post.likesCount)}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <MessageCircle className="w-4 h-4 text-green-500" />
-                              {formatNumber(post.commentsCount)}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Eye className="w-4 h-4 text-blue-500" />
-                              {formatNumber(post.viewsCount)}
-                            </span>
+                        <div className="grid grid-cols-4 gap-2 mb-2">
+                          <div className="text-center">
+                            <div className="flex items-center justify-center">
+                              <Heart className="w-3.5 h-3.5 text-pink-500" />
+                            </div>
+                            <div className="text-xs font-semibold text-gray-800">{formatNumber(post.likesCount)}</div>
                           </div>
-                          <span className="text-xs">{formatDate(post.postDate)}</span>
+                          <div className="text-center">
+                            <div className="flex items-center justify-center">
+                              <MessageCircle className="w-3.5 h-3.5 text-green-500" />
+                            </div>
+                            <div className="text-xs font-semibold text-gray-800">{formatNumber(post.commentsCount)}</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="flex items-center justify-center">
+                              <Eye className="w-3.5 h-3.5 text-blue-500" />
+                            </div>
+                            <div className="text-xs font-semibold text-gray-800">{formatNumber(post.viewsCount)}</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="flex items-center justify-center">
+                              <Share className="w-3.5 h-3.5 text-purple-500" />
+                            </div>
+                            <div className="text-xs font-semibold text-gray-800">{formatNumber(post.sharesCount)}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-100">
+                          <span className="text-emerald-600 font-medium">{(post.engagementRate || 0).toFixed(2)}% ER</span>
+                          <span>{formatDate(post.postDate)}</span>
                         </div>
                       </div>
                     </div>
                   ))}
                 </div>
+
+                {/* Posts Pagination */}
+                {postTotalPages > 1 && (
+                  <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                    <div className="text-sm text-gray-500">
+                      Page {postPage} of {postTotalPages}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setPostPage(p => Math.max(1, p - 1))}
+                        disabled={postPage === 1}
+                        className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      {Array.from({ length: Math.min(5, postTotalPages) }, (_, i) => {
+                        let pageNum: number;
+                        if (postTotalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (postPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (postPage >= postTotalPages - 2) {
+                          pageNum = postTotalPages - 4 + i;
+                        } else {
+                          pageNum = postPage - 2 + i;
+                        }
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setPostPage(pageNum)}
+                            className={`w-8 h-8 rounded-lg text-sm font-medium ${
+                              postPage === pageNum
+                                ? 'bg-purple-600 text-white'
+                                : 'border border-gray-200 hover:bg-gray-50 text-gray-700'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                      <button
+                        onClick={() => setPostPage(p => Math.min(postTotalPages, p + 1))}
+                        disabled={postPage === postTotalPages}
+                        className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -883,6 +1218,54 @@ export const PaidCollaborationDetailPage = () => {
               ? 'Your report is in the queue and will start processing shortly.'
               : 'Analyzing posts and influencers. This may take a few minutes...'}
           </p>
+        </div>
+      )}
+
+      {/* Invite Team Member Modal */}
+      {showInviteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Invite Team Member</h3>
+              <button
+                onClick={() => { setShowInviteModal(false); setInviteEmail(''); }}
+                className="p-1 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Enter the email address of a registered SocialTweebs user to share this report with them.
+            </p>
+            <div className="relative mb-4">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleInvite()}
+                placeholder="team.member@company.com"
+                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setShowInviteModal(false); setInviteEmail(''); }}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleInvite}
+                disabled={!inviteEmail.trim()}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2"
+              >
+                <UserPlus className="w-4 h-4" />
+                Send Invite
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

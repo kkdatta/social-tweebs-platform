@@ -137,6 +137,9 @@ export class InfluencerInsight {
   @Column({ name: 'recent_reels', type: 'jsonb', nullable: true })
   recentReels: any;
 
+  @Column({ name: 'popular_reels', type: 'jsonb', nullable: true })
+  popularReels: any;
+
   @Column({ name: 'popular_posts', type: 'jsonb', nullable: true })
   popularPosts: any;
 

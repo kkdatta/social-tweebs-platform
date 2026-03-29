@@ -8,6 +8,9 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  Res,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,7 +19,11 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiQuery,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CustomErService } from './custom-er.service';
@@ -49,6 +56,46 @@ export class CustomErController {
     @Body() dto: CreateCustomErReportDto,
   ) {
     return this.customErService.createReport(userId, dto);
+  }
+
+  @Post('upload')
+  @ApiOperation({ summary: 'Create reports by uploading Excel file with influencer URLs' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        platform: { type: 'string', enum: ['INSTAGRAM', 'TIKTOK'] },
+        dateRangeStart: { type: 'string', format: 'date' },
+        dateRangeEnd: { type: 'string', format: 'date' },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Reports created from uploaded file' })
+  @ApiResponse({ status: 400, description: 'Invalid file or data' })
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadExcel(
+    @CurrentUser('id') userId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('platform') platform: string,
+    @Body('dateRangeStart') dateRangeStart: string,
+    @Body('dateRangeEnd') dateRangeEnd: string,
+  ) {
+    return this.customErService.createReportsFromExcel(userId, file, platform, dateRangeStart, dateRangeEnd);
+  }
+
+  @Get('sample-file')
+  @ApiOperation({ summary: 'Download sample Excel file for bulk upload' })
+  @ApiResponse({ status: 200, description: 'Sample Excel file' })
+  async downloadSampleFile(@Res() res: Response) {
+    const buffer = this.customErService.generateSampleExcel();
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="custom_er_sample.xlsx"',
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 
   @Get()
@@ -97,6 +144,24 @@ export class CustomErController {
     @Query('sponsoredOnly') sponsoredOnly?: string,
   ): Promise<PostSummaryDto[]> {
     return this.customErService.getReportPosts(userId, reportId, sponsoredOnly === 'true');
+  }
+
+  @Get(':id/download')
+  @ApiOperation({ summary: 'Download report as XLSX' })
+  @ApiParam({ name: 'id', description: 'Report ID' })
+  @ApiResponse({ status: 200, description: 'XLSX file download' })
+  async downloadReport(
+    @CurrentUser('id') userId: string,
+    @Param('id') reportId: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, filename } = await this.customErService.downloadReportAsXlsx(userId, reportId);
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 
   @Patch(':id')

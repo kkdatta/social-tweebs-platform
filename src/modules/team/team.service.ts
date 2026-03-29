@@ -45,6 +45,7 @@ import {
   ActionType,
   ModuleType,
 } from '../../common/enums';
+import { MailService } from '../../common/services/mail.service';
 
 @Injectable()
 export class TeamService {
@@ -68,6 +69,7 @@ export class TeamService {
     private dataSource: DataSource,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private mailService: MailService,
   ) {}
 
   async getTeamMembers(
@@ -305,6 +307,12 @@ export class TeamService {
 
       await queryRunner.commitTransaction();
 
+      await this.mailService.sendWelcomeEmail(
+        user.email,
+        user.name,
+        dto.password,
+      );
+
       // Return the created member
       return this.getTeamMemberById(creatorId, user.id);
     } catch (error) {
@@ -338,6 +346,9 @@ export class TeamService {
     if (dto.name) user.name = dto.name;
     if (dto.phone) user.phone = dto.phone;
     if (dto.status) user.status = dto.status;
+    if (dto.password) {
+      user.passwordHash = await bcrypt.hash(dto.password, 12);
+    }
     await this.userRepository.save(user);
 
     // Update profile fields
@@ -698,7 +709,6 @@ export class TeamService {
     const usersWithCredits = await this.userRepository
       .createQueryBuilder('user')
       .leftJoinAndSelect('user.creditAccount', 'creditAccount')
-      .leftJoin('zorbitads.team_member_profiles', 'profile', 'profile.user_id = user.id')
       .where('user.id IN (:...userIds)', { userIds })
       .orderBy('user.createdAt', 'DESC')
       .skip((page - 1) * limit)
@@ -731,6 +741,25 @@ export class TeamService {
         where: { userId: user.id },
       });
 
+      const discoveryCreditsUsed = await this.sumDebitByModuleAndActions(
+        user.creditAccount?.id,
+        ModuleType.DISCOVERY,
+        [
+          ActionType.INFLUENCER_SEARCH,
+          ActionType.INFLUENCER_UNBLUR,
+          ActionType.INFLUENCER_EXPORT,
+        ],
+      );
+      const insightsCreditsUsed = await this.sumDebitByModuleAndActions(
+        user.creditAccount?.id,
+        ModuleType.INSIGHTS,
+        [
+          ActionType.INFLUENCER_INSIGHT,
+          ActionType.INSIGHT_UNLOCK,
+          ActionType.INSIGHT_REFRESH,
+        ],
+      );
+
       data.push({
         userId: user.id,
         userName: user.name,
@@ -739,8 +768,8 @@ export class TeamService {
         currentBalance: Number(user.creditAccount?.unifiedBalance || 0),
         totalCreditsAdded: Number(creditSum?.total || 0),
         totalCreditsUsed: Number(debitSum?.total || 0),
-        discoveryCreditsUsed: 0, // Calculate from specific action types
-        insightsCreditsUsed: 0,
+        discoveryCreditsUsed,
+        insightsCreditsUsed,
         lastActiveAt: user.updatedAt,
       });
     }
@@ -827,6 +856,36 @@ export class TeamService {
       })),
       total,
     };
+  }
+
+  /**
+   * Sums DEBIT amounts for credit_transactions on an account where module matches
+   * the discovery/insights module enum, or (for legacy rows) module is UNIFIED_BALANCE
+   * and action_type is in the given set — matching usage in credit analytics.
+   */
+  private async sumDebitByModuleAndActions(
+    accountId: string | undefined,
+    module: ModuleType,
+    unifiedBalanceActions: ActionType[],
+  ): Promise<number> {
+    if (!accountId) return 0;
+
+    const qb = this.transactionRepository
+      .createQueryBuilder('txn')
+      .select('COALESCE(SUM(txn.amount), 0)', 'total')
+      .where('txn.account_id = :accountId', { accountId })
+      .andWhere('txn.transaction_type = :tt', { tt: TransactionType.DEBIT })
+      .andWhere(
+        '(txn.module_type = :module OR (txn.module_type = :unified AND txn.action_type IN (:...actions)))',
+        {
+          module,
+          unified: ModuleType.UNIFIED_BALANCE,
+          actions: unifiedBalanceActions,
+        },
+      );
+
+    const raw = await qb.getRawOne();
+    return Number(raw?.total || 0);
   }
 
   // Helper methods

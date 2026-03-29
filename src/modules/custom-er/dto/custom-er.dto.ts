@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsUUID, IsEnum, IsBoolean, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsEnum, IsBoolean, IsDateString, MinLength, MaxLength } from 'class-validator';
 import { CustomErReportStatus, SharePermission } from '../entities';
 
 // Create Report DTOs
@@ -27,6 +27,13 @@ export class UpdateCustomErReportDto {
   @IsOptional()
   @IsBoolean()
   isPublic?: boolean;
+
+  @ApiPropertyOptional({ description: 'Display name for the report (influencer name label)' })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
+  influencerName?: string;
 }
 
 // Share Report DTO

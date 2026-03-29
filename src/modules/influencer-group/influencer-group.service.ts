@@ -467,16 +467,36 @@ export class InfluencerGroupService {
 
     await this.checkGroupAccess(userId, group, 'edit');
 
-    const result = await this.memberRepo.delete({
-      id: In(dto.memberIds),
-      groupId,
+    const membersToRemove = await this.memberRepo.find({
+      where: {
+        id: In(dto.memberIds),
+        groupId,
+      },
     });
 
-    // Update influencer count
+    if (membersToRemove.length === 0) {
+      this.logger.warn(
+        `No matching members found for removal in group ${groupId}. Requested IDs: ${dto.memberIds.join(', ')}`,
+      );
+      return { removed: 0 };
+    }
+
+    try {
+      await this.memberRepo.remove(membersToRemove);
+    } catch (error) {
+      this.logger.error(
+        `Failed to remove members from group ${groupId}: ${error.message}`,
+        error.stack,
+      );
+      throw new BadRequestException(
+        `Failed to remove influencer(s): ${error.message}`,
+      );
+    }
+
     await this.updateGroupInfluencerCount(groupId);
 
-    this.logger.log(`Removed ${result.affected} influencers from group ${groupId}`);
-    return { removed: result.affected || 0 };
+    this.logger.log(`Removed ${membersToRemove.length} influencers from group ${groupId}`);
+    return { removed: membersToRemove.length };
   }
 
   async getMembers(userId: string, groupId: string, filters: MemberFilterDto): Promise<MemberListResponseDto> {

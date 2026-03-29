@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException 
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
+import * as XLSX from 'xlsx';
 import {
   AudienceOverlapReport,
   AudienceOverlapInfluencer,
@@ -377,6 +378,9 @@ export class AudienceOverlapService {
       await this.shareRepo.save(share);
     }
 
+    report.isPublic = true;
+    await this.reportRepo.save(report);
+
     // Generate share URL
     const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/audience-overlap/shared/${report.shareUrlToken}`;
 
@@ -484,6 +488,67 @@ export class AudienceOverlapService {
       createdAt: report.createdAt,
       createdById: report.createdById,
     };
+  }
+
+  /**
+   * Download report as XLSX
+   */
+  async downloadReportAsXlsx(userId: string, reportId: string): Promise<{ buffer: Buffer; filename: string }> {
+    const report = await this.reportRepo.findOne({
+      where: { id: reportId },
+      relations: ['influencers'],
+    });
+
+    if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+
+    await this.checkReportAccess(userId, report);
+
+    const workbook = XLSX.utils.book_new();
+
+    const summaryData = [
+      { Metric: 'Report Title', Value: report.title },
+      { Metric: 'Platform', Value: report.platform },
+      { Metric: 'Status', Value: report.status },
+      { Metric: 'Created', Value: report.createdAt ? new Date(report.createdAt).toLocaleDateString() : '' },
+      { Metric: '', Value: '' },
+      { Metric: 'Total Followers', Value: report.totalFollowers },
+      { Metric: 'Unique Followers', Value: report.uniqueFollowers },
+      { Metric: 'Overlapping Followers', Value: report.overlappingFollowers },
+      { Metric: 'Overlap Rate (%)', Value: report.overlapPercentage ? Number(report.overlapPercentage).toFixed(2) : '0' },
+      { Metric: 'Unique Rate (%)', Value: report.uniquePercentage ? Number(report.uniquePercentage).toFixed(2) : '0' },
+    ];
+
+    const summarySheet = XLSX.utils.json_to_sheet(summaryData);
+    summarySheet['!cols'] = [{ wch: 25 }, { wch: 40 }];
+    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+
+    const influencers = (report.influencers || []).sort((a, b) => a.displayOrder - b.displayOrder);
+    const influencerData = influencers.map(inf => ({
+      'Influencer Name': inf.influencerName,
+      'Username': inf.influencerUsername || '',
+      'Platform': inf.platform,
+      'Followers': inf.followerCount,
+      'Unique Followers': inf.uniqueFollowers,
+      'Unique (%)': inf.uniquePercentage ? Number(inf.uniquePercentage).toFixed(2) : '0',
+      'Overlapping Followers': inf.overlappingFollowers,
+      'Overlap (%)': inf.overlappingPercentage ? Number(inf.overlappingPercentage).toFixed(2) : '0',
+    }));
+
+    if (influencerData.length > 0) {
+      const infSheet = XLSX.utils.json_to_sheet(influencerData);
+      infSheet['!cols'] = [
+        { wch: 25 }, { wch: 20 }, { wch: 12 }, { wch: 15 },
+        { wch: 18 }, { wch: 12 }, { wch: 22 }, { wch: 12 },
+      ];
+      XLSX.utils.book_append_sheet(workbook, infSheet, 'Influencer Analysis');
+    }
+
+    const buffer = Buffer.from(XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }));
+    const filename = `Audience_Overlap_${report.title.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+    return { buffer, filename };
   }
 
   private toDetailDto(report: AudienceOverlapReport): OverlapReportDetailDto {

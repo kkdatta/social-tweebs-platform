@@ -44,6 +44,11 @@ export class BrandInputDto {
   @IsArray()
   @IsString({ each: true })
   keywords?: string[];
+
+  @ApiPropertyOptional({ description: 'Platform for this brand', example: 'INSTAGRAM' })
+  @IsOptional()
+  @IsString()
+  platform?: string;
 }
 
 // =============== Create/Update DTOs ===============
@@ -244,6 +249,9 @@ export class BrandSummaryDto {
   keywords?: string[];
 
   @ApiPropertyOptional()
+  platform?: string;
+
+  @ApiPropertyOptional()
   displayColor?: string;
 
   @ApiProperty()
@@ -401,10 +409,19 @@ export class CompetitionPostDto {
   postDate?: string;
 
   @ApiPropertyOptional()
+  influencerId?: string;
+
+  @ApiPropertyOptional()
   influencerName?: string;
 
   @ApiPropertyOptional()
   influencerUsername?: string;
+
+  @ApiPropertyOptional()
+  influencerFollowerCount?: number;
+
+  @ApiPropertyOptional()
+  influencerCredibility?: number;
 }
 
 export class CategoryStatsDto {
@@ -469,6 +486,45 @@ export class PostTypeStatsDto {
 
   @ApiProperty()
   reelPercentage: number;
+}
+
+export class TimelineDataPointDto {
+  @ApiProperty()
+  date: string;
+
+  @ApiProperty({ description: 'Count per brand', type: 'object' })
+  brands: Record<string, number>;
+
+  @ApiProperty()
+  total: number;
+}
+
+export class BrandShareDto {
+  @ApiProperty()
+  brandName: string;
+
+  @ApiProperty()
+  value: number;
+
+  @ApiProperty()
+  color: string;
+}
+
+export class EnhancedChartDataDto {
+  @ApiProperty({ type: [TimelineDataPointDto] })
+  postsOverTime: TimelineDataPointDto[];
+
+  @ApiProperty({ type: [TimelineDataPointDto] })
+  influencersOverTime: TimelineDataPointDto[];
+
+  @ApiProperty({ type: [BrandShareDto] })
+  postsShare: BrandShareDto[];
+
+  @ApiProperty({ type: [BrandShareDto] })
+  influencersShare: BrandShareDto[];
+
+  @ApiProperty({ type: [BrandShareDto] })
+  engagementShare: BrandShareDto[];
 }
 
 export class ChartDataDto {

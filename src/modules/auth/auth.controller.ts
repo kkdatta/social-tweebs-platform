@@ -4,6 +4,7 @@ import {
   Body,
   UseGuards,
   Req,
+  Param,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -26,8 +27,9 @@ import {
   RefreshTokenDto,
   TokenResponseDto,
 } from './dto';
-import { JwtAuthGuard } from '../../common/guards';
-import { CurrentUser, CurrentUserPayload } from '../../common/decorators';
+import { JwtAuthGuard, RolesGuard } from '../../common/guards';
+import { CurrentUser, CurrentUserPayload, Roles } from '../../common/decorators';
+import { UserRole } from '../../common/enums';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -91,6 +93,20 @@ export class AuthController {
     @Body() refreshTokenDto: RefreshTokenDto,
   ): Promise<TokenResponseDto> {
     return this.authService.refreshToken(refreshTokenDto);
+  }
+
+  @Post('approve-signup/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Approve a signup request (Super Admin only)' })
+  @ApiResponse({ status: 200, description: 'Signup approved and user activated' })
+  @ApiResponse({ status: 400, description: 'Invalid request' })
+  async approveSignup(
+    @Param('id') id: string,
+  ): Promise<{ success: boolean; message: string }> {
+    return this.authService.approveSignup(id);
   }
 
   @Post('logout')

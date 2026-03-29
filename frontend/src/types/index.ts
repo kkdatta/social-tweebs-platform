@@ -5,7 +5,14 @@ export interface User {
   name: string;
   role: 'SUPER_ADMIN' | 'ADMIN' | 'SUB_USER';
   credits: number;
+  /** Enabled feature keys from the API (e.g. INFLUENCER_DISCOVERY). Omitted for older stored sessions. */
+  featureAccess?: string[];
   parentId?: string;
+  phone?: string;
+  businessName?: string;
+  status?: string;
+  accountExpiresAt?: string;
+  daysRemaining?: number;
 }
 
 export interface AuthResponse {
@@ -14,6 +21,38 @@ export interface AuthResponse {
   creditBalance?: number;
   accountExpiresAt?: string;
   daysRemaining?: number;
+}
+
+// Profile Types
+export interface ProfileData {
+  id: string;
+  email: string;
+  name: string;
+  phone: string;
+  businessName: string;
+  role: string;
+  status: string;
+  creditBalance: number;
+  accountValidUntil: string | null;
+  daysRemaining: number;
+  createdAt: string;
+}
+
+export interface NotificationPreferences {
+  notifyDiscoveryExport: boolean;
+  notifyCollabExport: boolean;
+  notifyOverlapReport: boolean;
+  notifyContentDiscovery: boolean;
+  notifyGroupImport: boolean;
+  notifyCampaignImport: boolean;
+  notifyReportShared: boolean;
+}
+
+export interface AccountExpiry {
+  expiresAt: string;
+  daysRemaining: number;
+  isExpiringSoon: boolean;
+  isExpired: boolean;
 }
 
 // Influencer Types

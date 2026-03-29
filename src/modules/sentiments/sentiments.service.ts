@@ -84,9 +84,9 @@ export class SentimentsService {
         report.productName = dto.productName;
       }
 
-      // Extract influencer info from URL (simplified)
-      report.influencerName = 'Influencer';
-      report.influencerUsername = this.extractUsernameFromUrl(url);
+      report.influencerUsername = this.extractUsernameFromUrl(url, dto.platform);
+      report.influencerName =
+        report.influencerUsername !== 'unknown' ? `@${report.influencerUsername}` : 'Influencer';
 
       const savedReport = await this.reportRepo.save(report);
       reports.push(savedReport);
@@ -99,100 +99,206 @@ export class SentimentsService {
   }
 
   /**
-   * Extract username from URL (simplified)
+   * Extract handle / username from profile or post URL (best-effort).
    */
-  private extractUsernameFromUrl(url: string): string {
-    const match = url.match(/instagram\.com\/(?:p\/)?([^\/\?]+)/);
-    return match ? match[1] : 'unknown';
+  private extractUsernameFromUrl(url: string, platform: string): string {
+    const p = (platform || '').toUpperCase();
+    if (p === 'TIKTOK') {
+      const m = url.match(/tiktok\.com\/@?([^\/\?]+)/i);
+      return m ? m[1] : 'unknown';
+    }
+    const ig = url.match(/instagram\.com\/(?:p\/|reel\/|stories\/)?([^\/\?]+)/i);
+    return ig ? ig[1] : 'unknown';
   }
 
   /**
-   * Process report (simulate sentiment analysis)
+   * Process report (simulate sentiment analysis). PROFILE reports aggregate across simulated recent posts.
    */
   private async processReport(reportId: string): Promise<void> {
     const report = await this.reportRepo.findOne({ where: { id: reportId } });
     if (!report) return;
 
     try {
-      // Update status to AGGREGATING
       report.status = SentimentReportStatus.AGGREGATING;
       await this.reportRepo.save(report);
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // Update status to IN_PROCESS
       report.status = SentimentReportStatus.IN_PROCESS;
       await this.reportRepo.save(report);
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Generate dummy sentiment data
-      const positive = Math.random() * 50 + 30; // 30-80%
-      const neutral = Math.random() * 30 + 10; // 10-40%
-      const negative = 100 - positive - neutral;
-
-      report.overallSentimentScore = positive * 1.2 - negative * 0.5 + 20;
-      report.positivePercentage = Number(positive.toFixed(2));
-      report.neutralPercentage = Number(neutral.toFixed(2));
-      report.negativePercentage = Number(negative.toFixed(2));
-
-      // Create post data
-      const post = new SentimentPost();
-      post.reportId = reportId;
-      post.postId = `post_${Date.now()}`;
-      post.postUrl = report.targetUrl;
-      post.thumbnailUrl = `https://picsum.photos/400/400?random=${Date.now()}`;
-      post.description = 'Sample post description with #hashtags and @mentions';
-      post.likesCount = Math.floor(Math.random() * 10000) + 1000;
-      post.commentsCount = Math.floor(Math.random() * 500) + 50;
-      post.viewsCount = Math.floor(Math.random() * 50000) + 5000;
-      post.engagementRate = ((post.likesCount + post.commentsCount) / 50000) * 100;
-      post.sentimentScore = report.overallSentimentScore;
-      post.positivePercentage = report.positivePercentage;
-      post.neutralPercentage = report.neutralPercentage;
-      post.negativePercentage = report.negativePercentage;
-      post.commentsAnalyzed = post.commentsCount;
-      post.postDate = new Date();
-
-      const savedPost = await this.postRepo.save(post);
-
-      // Create emotions
-      const emotions = ['love', 'joy', 'admiration', 'neutral', 'disappointment', 'anger'];
-      let remainingPercentage = 100;
-      for (let i = 0; i < emotions.length; i++) {
-        const emotion = new SentimentEmotion();
-        emotion.reportId = reportId;
-        emotion.postId = savedPost.id;
-        emotion.emotion = emotions[i];
-        if (i === emotions.length - 1) {
-          emotion.percentage = remainingPercentage;
-        } else {
-          emotion.percentage = Math.floor(Math.random() * (remainingPercentage / 2));
-          remainingPercentage -= emotion.percentage;
-        }
-        emotion.count = Math.floor(emotion.percentage * post.commentsCount / 100);
-        await this.emotionRepo.save(emotion);
+      report.influencerUsername = this.extractUsernameFromUrl(report.targetUrl, report.platform);
+      if (report.influencerUsername !== 'unknown') {
+        report.influencerName = `@${report.influencerUsername}`;
       }
 
-      // Create word cloud
-      const words = ['amazing', 'love', 'beautiful', 'great', 'awesome', 'good', 'nice', 'perfect', 'bad', 'poor'];
-      const sentiments = ['POSITIVE', 'POSITIVE', 'POSITIVE', 'POSITIVE', 'POSITIVE', 'NEUTRAL', 'NEUTRAL', 'POSITIVE', 'NEGATIVE', 'NEGATIVE'];
-      for (let i = 0; i < words.length; i++) {
-        const wordCloud = new SentimentWordCloud();
-        wordCloud.reportId = reportId;
-        wordCloud.postId = savedPost.id;
-        wordCloud.word = words[i];
-        wordCloud.frequency = Math.floor(Math.random() * 100) + 20;
-        wordCloud.sentiment = sentiments[i];
-        await this.wordCloudRepo.save(wordCloud);
+      if (report.reportType === ReportType.PROFILE) {
+        await this.simulateProfileProcessing(report);
+      } else {
+        await this.simulateSinglePostProcessing(report);
       }
 
       report.status = SentimentReportStatus.COMPLETED;
       report.completedAt = new Date();
       await this.reportRepo.save(report);
-
     } catch (error) {
       report.status = SentimentReportStatus.FAILED;
       report.errorMessage = error.message || 'Processing failed';
       await this.reportRepo.save(report);
+    }
+  }
+
+  /** One URL = one post (legacy simulated flow). */
+  private async simulateSinglePostProcessing(report: SentimentReport): Promise<void> {
+    const reportId = report.id;
+    const positive = Math.random() * 50 + 30;
+    const neutral = Math.random() * 30 + 10;
+    const negative = 100 - positive - neutral;
+
+    report.overallSentimentScore = positive * 1.2 - negative * 0.5 + 20;
+    report.positivePercentage = Number(positive.toFixed(2));
+    report.neutralPercentage = Number(neutral.toFixed(2));
+    report.negativePercentage = Number(negative.toFixed(2));
+
+    const post = new SentimentPost();
+    post.reportId = reportId;
+    post.postId = `post_${Date.now()}`;
+    post.postUrl = report.targetUrl;
+    post.thumbnailUrl = `https://picsum.photos/400/400?random=${Date.now()}`;
+    post.description = 'Sample post description with #hashtags and @mentions';
+    post.likesCount = Math.floor(Math.random() * 10000) + 1000;
+    post.commentsCount = Math.floor(Math.random() * 500) + 50;
+    post.viewsCount = Math.floor(Math.random() * 50000) + 5000;
+    post.engagementRate = ((post.likesCount + post.commentsCount) / 50000) * 100;
+    post.sentimentScore = report.overallSentimentScore;
+    post.positivePercentage = report.positivePercentage;
+    post.neutralPercentage = report.neutralPercentage;
+    post.negativePercentage = report.negativePercentage;
+    post.commentsAnalyzed = post.commentsCount;
+    post.postDate = new Date();
+
+    const savedPost = await this.postRepo.save(post);
+    await this.saveEmotionsForPost(reportId, savedPost.id, post.commentsCount);
+    await this.saveWordCloudForPost(reportId, savedPost.id);
+  }
+
+  /**
+   * Simulates fetching recent posts from a profile URL and aggregates sentiment (weighted by comment volume).
+   */
+  private async simulateProfileProcessing(report: SentimentReport): Promise<void> {
+    const reportId = report.id;
+    const base = report.targetUrl.replace(/\/$/, '');
+    const recentPostCount = 6;
+    let weightedPos = 0;
+    let weightedNeu = 0;
+    let weightedNeg = 0;
+    let totalComments = 0;
+
+    for (let i = 0; i < recentPostCount; i++) {
+      const positive = Math.random() * 45 + 25;
+      const neutral = Math.random() * 28 + 12;
+      const negative = Math.max(0, 100 - positive - neutral);
+
+      const post = new SentimentPost();
+      post.reportId = reportId;
+      post.postId = `profile_post_${reportId}_${i}_${Date.now()}`;
+      post.postUrl = `${base}/p/sim_${i + 1}_${uuidv4().substring(0, 6)}`;
+      post.thumbnailUrl = `https://picsum.photos/400/400?random=${Date.now() + i}`;
+      post.description = `Recent post ${i + 1} from profile — simulated caption with #hashtags`;
+      post.likesCount = Math.floor(Math.random() * 8000) + 200;
+      post.commentsCount = Math.floor(Math.random() * 400) + 20;
+      post.viewsCount = Math.floor(Math.random() * 40000) + 2000;
+      post.engagementRate = ((post.likesCount + post.commentsCount) / Math.max(1, post.viewsCount)) * 100;
+      post.sentimentScore = positive * 1.1 - negative * 0.4 + 15;
+      post.positivePercentage = Number(positive.toFixed(2));
+      post.neutralPercentage = Number(neutral.toFixed(2));
+      post.negativePercentage = Number(negative.toFixed(2));
+      post.commentsAnalyzed = post.commentsCount;
+      post.postDate = new Date(Date.now() - i * 86400000 * 2);
+
+      await this.postRepo.save(post);
+
+      const w = Number(post.commentsCount) || 0;
+      totalComments += w;
+      weightedPos += positive * w;
+      weightedNeu += neutral * w;
+      weightedNeg += negative * w;
+    }
+
+    const tw = totalComments || 1;
+    report.positivePercentage = Number((weightedPos / tw).toFixed(2));
+    report.neutralPercentage = Number((weightedNeu / tw).toFixed(2));
+    report.negativePercentage = Number((weightedNeg / tw).toFixed(2));
+    report.overallSentimentScore =
+      report.positivePercentage * 1.2 - report.negativePercentage * 0.5 + 15;
+
+    await this.saveAggregatedEmotions(reportId, totalComments);
+    await this.saveAggregatedWordCloud(reportId);
+  }
+
+  private async saveEmotionsForPost(reportId: string, postId: string, commentsCount: number): Promise<void> {
+    const emotions = ['love', 'joy', 'admiration', 'neutral', 'disappointment', 'anger'];
+    let remainingPercentage = 100;
+    for (let i = 0; i < emotions.length; i++) {
+      const emotion = new SentimentEmotion();
+      emotion.reportId = reportId;
+      emotion.postId = postId;
+      emotion.emotion = emotions[i];
+      if (i === emotions.length - 1) {
+        emotion.percentage = remainingPercentage;
+      } else {
+        emotion.percentage = Math.floor(Math.random() * (remainingPercentage / 2));
+        remainingPercentage -= emotion.percentage;
+      }
+      emotion.count = Math.floor((emotion.percentage * commentsCount) / 100);
+      await this.emotionRepo.save(emotion);
+    }
+  }
+
+  private async saveWordCloudForPost(reportId: string, postId: string): Promise<void> {
+    const words = ['amazing', 'love', 'beautiful', 'great', 'awesome', 'good', 'nice', 'perfect', 'bad', 'poor'];
+    const sentiments = ['POSITIVE', 'POSITIVE', 'POSITIVE', 'POSITIVE', 'POSITIVE', 'NEUTRAL', 'NEUTRAL', 'POSITIVE', 'NEGATIVE', 'NEGATIVE'];
+    for (let i = 0; i < words.length; i++) {
+      const wordCloud = new SentimentWordCloud();
+      wordCloud.reportId = reportId;
+      wordCloud.postId = postId;
+      wordCloud.word = words[i];
+      wordCloud.frequency = Math.floor(Math.random() * 100) + 20;
+      wordCloud.sentiment = sentiments[i];
+      await this.wordCloudRepo.save(wordCloud);
+    }
+  }
+
+  /** Report-level emotions after profile aggregation (postId omitted). */
+  private async saveAggregatedEmotions(reportId: string, totalComments: number): Promise<void> {
+    const emotions = ['love', 'joy', 'admiration', 'neutral', 'disappointment', 'anger'];
+    let remainingPercentage = 100;
+    const tc = Math.max(1, totalComments);
+    for (let i = 0; i < emotions.length; i++) {
+      const emotion = new SentimentEmotion();
+      emotion.reportId = reportId;
+      emotion.emotion = emotions[i];
+      if (i === emotions.length - 1) {
+        emotion.percentage = remainingPercentage;
+      } else {
+        emotion.percentage = Math.floor(Math.random() * (remainingPercentage / 2));
+        remainingPercentage -= emotion.percentage;
+      }
+      emotion.count = Math.floor((emotion.percentage * tc) / 100);
+      await this.emotionRepo.save(emotion);
+    }
+  }
+
+  private async saveAggregatedWordCloud(reportId: string): Promise<void> {
+    const words = ['amazing', 'love', 'beautiful', 'great', 'awesome', 'good', 'nice', 'perfect', 'bad', 'poor'];
+    const sentiments = ['POSITIVE', 'POSITIVE', 'POSITIVE', 'POSITIVE', 'POSITIVE', 'NEUTRAL', 'NEUTRAL', 'POSITIVE', 'NEGATIVE', 'NEGATIVE'];
+    for (let i = 0; i < words.length; i++) {
+      const wordCloud = new SentimentWordCloud();
+      wordCloud.reportId = reportId;
+      wordCloud.word = `${words[i]}_all`;
+      wordCloud.frequency = Math.floor(Math.random() * 120) + 40;
+      wordCloud.sentiment = sentiments[i];
+      await this.wordCloudRepo.save(wordCloud);
     }
   }
 

@@ -3,8 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Edit3, RefreshCw, Trash2, Copy, MoreVertical,
   FileText, Heart, Eye, MessageCircle, Share, TrendingUp, Users,
-  CheckCircle, Clock, AlertCircle, Loader, ExternalLink, Calendar, Tag
+  CheckCircle, Clock, AlertCircle, Loader, ExternalLink, Calendar, Tag,
+  BarChart3, LineChart as LineChartIcon, Link2
 } from 'lucide-react';
+import {
+  ResponsiveContainer, BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from 'recharts';
 import { collabCheckApi } from '../../services/api';
 
 interface Post {
@@ -68,6 +73,7 @@ interface ChartData {
   postsCount: number;
   likesCount: number;
   viewsCount: number;
+  commentsCount?: number;
 }
 
 export const CollabCheckDetailPage = () => {
@@ -77,8 +83,11 @@ export const CollabCheckDetailPage = () => {
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
+  const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [shareWithTeam, setShareWithTeam] = useState(false);
+  const [shareUrl, setShareUrl] = useState('');
 
   useEffect(() => {
     loadReport();
@@ -107,33 +116,61 @@ export const CollabCheckDetailPage = () => {
     if (!id || !editTitle.trim()) return;
     
     try {
-      await collabCheckApi.update(id, { title: editTitle });
-      setReport(prev => prev ? { ...prev, title: editTitle } : null);
-      setEditing(false);
+      await collabCheckApi.update(id, { title: editTitle, isPublic: shareWithTeam });
+      setReport(prev => prev ? { ...prev, title: editTitle, isPublic: shareWithTeam } : null);
+      setEditModalOpen(false);
     } catch (err) {
       console.error('Failed to update title:', err);
     }
   };
 
+  const openEditModal = async () => {
+    if (!report) return;
+    setEditTitle(report.title);
+    setShareWithTeam(report.isPublic);
+    setEditModalOpen(true);
+    setMenuOpen(false);
+
+    if (report.shareUrl) {
+      setShareUrl(window.location.origin + report.shareUrl);
+    } else if (id) {
+      try {
+        const result = await collabCheckApi.share(id, {});
+        if (result.shareUrl) {
+          setShareUrl(window.location.origin + result.shareUrl);
+        }
+      } catch {
+        setShareUrl('');
+      }
+    }
+  };
+
+  const handleCopyShareUrl = () => {
+    if (shareUrl) {
+      navigator.clipboard.writeText(shareUrl);
+      alert('Shareable URL copied to clipboard!');
+    }
+  };
+
   const handleRetry = async () => {
-    if (!id || !confirm('Retry this report? This will cost credits.')) return;
+    if (!id || !confirm('Retrying will deduct 1 credit. Do you want to continue?')) return;
     
     try {
       await collabCheckApi.retry(id);
       loadReport();
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to retry');
+      alert(err.response?.data?.message || 'Report generation failed. Please try again.');
     }
   };
 
   const handleDelete = async () => {
-    if (!id || !confirm('Delete this report? This action cannot be undone.')) return;
+    if (!id || !confirm('Are you sure you want to delete this report? This action cannot be undone.')) return;
     
     try {
       await collabCheckApi.delete(id);
       navigate('/collab-check');
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to delete');
+      alert(err.response?.data?.message || 'Failed to delete report.');
     }
   };
 
@@ -225,26 +262,12 @@ export const CollabCheckDetailPage = () => {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            {editing ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="text-2xl font-bold border-b-2 border-purple-500 focus:outline-none"
-                  autoFocus
-                />
-                <button onClick={handleSaveTitle} className="text-green-600 hover:text-green-700">Save</button>
-                <button onClick={() => { setEditing(false); setEditTitle(report.title); }} className="text-gray-500">Cancel</button>
-              </div>
-            ) : (
-              <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                {report.title}
-                <button onClick={() => setEditing(true)} className="text-gray-400 hover:text-gray-600">
-                  <Edit3 className="w-4 h-4" />
-                </button>
-              </h1>
-            )}
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              {report.title}
+              <button onClick={openEditModal} className="text-gray-400 hover:text-gray-600">
+                <Edit3 className="w-4 h-4" />
+              </button>
+            </h1>
             <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
               <span>{new Date(report.createdAt).toLocaleDateString()}</span>
               <span>•</span>
@@ -270,13 +293,13 @@ export const CollabCheckDetailPage = () => {
           {menuOpen && (
             <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
               <button
-                onClick={() => { setEditing(true); setMenuOpen(false); }}
+                onClick={openEditModal}
                 className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
               >
                 <Edit3 className="w-4 h-4" />
                 Edit Report
               </button>
-              {report.status === 'FAILED' && (
+              {(report.status === 'COMPLETED' || report.status === 'FAILED') && (
                 <button
                   onClick={() => { handleRetry(); setMenuOpen(false); }}
                   className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
@@ -290,7 +313,7 @@ export const CollabCheckDetailPage = () => {
                 className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
               >
                 <Copy className="w-4 h-4" />
-                Copy URL
+                Copy Report URL
               </button>
               <hr className="my-1" />
               <button
@@ -431,14 +454,118 @@ export const CollabCheckDetailPage = () => {
         </div>
       )}
 
-      {/* Chart Placeholder */}
+      {/* Posts vs Date Chart */}
       {chartData.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="text-lg font-semibold mb-4">Posts Over Time</h2>
-          <div className="h-64 flex items-center justify-center bg-gray-50 rounded-lg">
-            <div className="text-gray-400">
-              Chart visualization (showing {chartData.length} data points)
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Posts vs Date</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setChartType('bar')}
+                className={`p-2 rounded-lg ${chartType === 'bar' ? 'bg-purple-100 text-purple-700' : 'text-gray-400 hover:text-gray-600'}`}
+                title="Bar Chart"
+              >
+                <BarChart3 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setChartType('line')}
+                className={`p-2 rounded-lg ${chartType === 'line' ? 'bg-purple-100 text-purple-700' : 'text-gray-400 hover:text-gray-600'}`}
+                title="Line Chart"
+              >
+                <LineChartIcon className="w-4 h-4" />
+              </button>
             </div>
+          </div>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              {chartType === 'bar' ? (
+                <BarChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 12 }}
+                    tickFormatter={(val) => {
+                      const d = new Date(val);
+                      return `${d.getMonth() + 1}/${d.getDate()}`;
+                    }}
+                  />
+                  <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null;
+                      const data = payload[0]?.payload as ChartData;
+                      return (
+                        <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+                          <div className="font-medium text-gray-900 mb-2">{new Date(label).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="w-3 h-3 rounded-full bg-purple-500 inline-block"></span>
+                              <span className="text-gray-600">Posts:</span>
+                              <span className="font-medium">{data.postsCount}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-3 h-3 rounded-full bg-pink-500 inline-block"></span>
+                              <span className="text-gray-600">Likes:</span>
+                              <span className="font-medium">{data.likesCount?.toLocaleString()}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
+                              <span className="text-gray-600">Comments:</span>
+                              <span className="font-medium">{data.commentsCount?.toLocaleString() || '0'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Legend />
+                  <Bar dataKey="postsCount" name="Posts" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              ) : (
+                <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 12 }}
+                    tickFormatter={(val) => {
+                      const d = new Date(val);
+                      return `${d.getMonth() + 1}/${d.getDate()}`;
+                    }}
+                  />
+                  <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null;
+                      const data = payload[0]?.payload as ChartData;
+                      return (
+                        <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+                          <div className="font-medium text-gray-900 mb-2">{new Date(label).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="w-3 h-3 rounded-full bg-purple-500 inline-block"></span>
+                              <span className="text-gray-600">Posts:</span>
+                              <span className="font-medium">{data.postsCount}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-3 h-3 rounded-full bg-pink-500 inline-block"></span>
+                              <span className="text-gray-600">Likes:</span>
+                              <span className="font-medium">{data.likesCount?.toLocaleString()}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
+                              <span className="text-gray-600">Comments:</span>
+                              <span className="font-medium">{data.commentsCount?.toLocaleString() || '0'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="postsCount" name="Posts" stroke="#8b5cf6" strokeWidth={2} dot={{ fill: '#8b5cf6', r: 4 }} activeDot={{ r: 6 }} />
+                </LineChart>
+              )}
+            </ResponsiveContainer>
           </div>
         </div>
       )}
@@ -532,9 +659,80 @@ export const CollabCheckDetailPage = () => {
           </h3>
           <p className="text-gray-500">
             {report.status === 'PENDING' 
-              ? 'Your report is in the queue and will be processed shortly.'
+              ? 'Your collab report has been created successfully.'
               : 'Analyzing posts and calculating metrics. This may take a few minutes.'}
           </p>
+        </div>
+      )}
+
+      {/* Edit Report Modal */}
+      {editModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setEditModalOpen(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold text-gray-900 mb-6">Edit Report</h2>
+
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Report Title</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="Report title"
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium text-gray-700">Share with Team</div>
+                  <div className="text-xs text-gray-500">Allow team members to view this report</div>
+                </div>
+                <button
+                  onClick={() => setShareWithTeam(!shareWithTeam)}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${shareWithTeam ? 'bg-purple-600' : 'bg-gray-300'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${shareWithTeam ? 'translate-x-5' : ''}`} />
+                </button>
+              </div>
+
+              {shareUrl && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Shareable URL</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={shareUrl}
+                      readOnly
+                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-600 truncate"
+                    />
+                    <button
+                      onClick={handleCopyShareUrl}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 text-sm font-medium whitespace-nowrap"
+                    >
+                      <Link2 className="w-4 h-4" />
+                      Copy
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
+              <button
+                onClick={() => setEditModalOpen(false)}
+                className="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveTitle}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

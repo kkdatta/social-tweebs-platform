@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# SocialTweebs Development Server Startup Script
-# This script starts both the backend (NestJS) and frontend (React + Vite) servers
+# SocialTweebs Development Server Startup Script (Local Only)
+# This script starts both backend and frontend for local development
 
 echo "🚀 Starting SocialTweebs Development Servers..."
 echo ""
@@ -18,6 +18,16 @@ if [ ! -d "frontend/node_modules" ]; then
     cd frontend && npm install && cd ..
 fi
 
+# Ensure frontend .env uses localhost
+if [ -f "frontend/.env" ]; then
+    # Check if it's pointing to a tunnel URL and change it to localhost
+    if grep -q "trycloudflare.com" frontend/.env; then
+        echo "🔧 Resetting frontend to use localhost..."
+        sed -i.bak 's|VITE_API_URL=https://.*trycloudflare.com|VITE_API_URL=http://localhost:3000|g' frontend/.env
+        rm -f frontend/.env.bak
+    fi
+fi
+
 echo ""
 echo "✨ Starting backend and frontend servers..."
 echo ""
@@ -27,5 +37,5 @@ echo ""
 echo "Press Ctrl+C to stop both servers"
 echo ""
 
-# Run both servers concurrently
+# Start both services using concurrently
 npm run dev

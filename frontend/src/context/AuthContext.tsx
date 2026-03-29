@@ -1,15 +1,17 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import type { User } from '../types';
-import { authApi } from '../services/api';
+import { authApi, teamApi } from '../services/api';
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isImpersonating: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   updateUser: (user: User) => void;
+  exitImpersonation: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,11 +21,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const isImpersonating = !!localStorage.getItem('impersonation_id');
+
   useEffect(() => {
-    // Check for stored auth data
     const storedToken = localStorage.getItem('token');
     const storedUser = localStorage.getItem('user');
-    
+
     if (storedToken && storedUser) {
       setToken(storedToken);
       setUser(JSON.parse(storedUser));
@@ -34,16 +37,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (email: string, password: string) => {
     const response = await authApi.login(email, password);
     const { accessToken, user: userData, creditBalance } = response as any;
-    
-    // Include credits in the user object
+
     const userWithCredits = {
       ...userData,
       credits: creditBalance || 0,
     };
-    
+
     localStorage.setItem('token', accessToken);
     localStorage.setItem('user', JSON.stringify(userWithCredits));
-    
+
     setToken(accessToken);
     setUser(userWithCredits);
   };
@@ -51,6 +53,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('impersonation_id');
+    localStorage.removeItem('impersonation_original_token');
+    localStorage.removeItem('impersonation_original_user');
     setToken(null);
     setUser(null);
   };
@@ -60,6 +65,35 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUser(updatedUser);
   };
 
+  const exitImpersonation = async () => {
+    const impersonationId = localStorage.getItem('impersonation_id');
+    const originalToken = localStorage.getItem('impersonation_original_token');
+    const originalUser = localStorage.getItem('impersonation_original_user');
+
+    if (impersonationId) {
+      try {
+        await teamApi.exitImpersonation(impersonationId);
+      } catch {
+        // continue even if the API call fails
+      }
+    }
+
+    localStorage.removeItem('impersonation_id');
+    localStorage.removeItem('impersonation_original_token');
+    localStorage.removeItem('impersonation_original_user');
+
+    if (originalToken && originalUser) {
+      localStorage.setItem('token', originalToken);
+      localStorage.setItem('user', originalUser);
+      setToken(originalToken);
+      setUser(JSON.parse(originalUser));
+    } else {
+      logout();
+    }
+
+    window.location.href = '/team';
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -67,9 +101,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         token,
         isAuthenticated: !!token && !!user,
         isLoading,
+        isImpersonating,
         login,
         logout,
         updateUser,
+        exitImpersonation,
       }}
     >
       {children}

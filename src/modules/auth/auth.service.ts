@@ -12,6 +12,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { User } from '../users/entities/user.entity';
 import { CreditAccount } from '../credits/entities/credit-account.entity';
+import { FeatureAccess } from '../team/entities/feature-access.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { LoginHistory } from './entities/login-history.entity';
 import { SignupRequest } from './entities/signup-request.entity';
@@ -25,7 +26,8 @@ import {
   RefreshTokenDto,
   TokenResponseDto,
 } from './dto';
-import { UserStatus, SignupRequestStatus } from '../../common/enums';
+import { UserStatus, UserRole, SignupRequestStatus, FeatureName } from '../../common/enums';
+import { MailService } from '../../common/services/mail.service';
 
 @Injectable()
 export class AuthService {
@@ -34,6 +36,8 @@ export class AuthService {
     private userRepository: Repository<User>,
     @InjectRepository(CreditAccount)
     private creditAccountRepository: Repository<CreditAccount>,
+    @InjectRepository(FeatureAccess)
+    private featureAccessRepository: Repository<FeatureAccess>,
     @InjectRepository(PasswordResetToken)
     private resetTokenRepository: Repository<PasswordResetToken>,
     @InjectRepository(LoginHistory)
@@ -44,6 +48,7 @@ export class AuthService {
     private sessionRepository: Repository<UserSession>,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private mailService: MailService,
   ) {}
 
   async login(
@@ -95,6 +100,8 @@ export class AuthService {
     // Record successful login
     await this.recordLoginAttempt(user.id, email, ipAddress, userAgent, true, null);
 
+    const featureAccess = await this.getEnabledFeatureNames(user.id, user.role);
+
     return {
       ...tokens,
       user: {
@@ -102,6 +109,7 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
+        featureAccess,
       },
       creditBalance: creditAccount ? Number(creditAccount.unifiedBalance) : 0,
       accountExpiresAt: creditAccount?.validityEnd || null,
@@ -148,6 +156,13 @@ export class AuthService {
 
     await this.signupRequestRepository.save(signupRequest);
 
+    await this.mailService.sendSignupConfirmation(email, signupDto.fullName);
+
+    const superAdmins = await this.userRepository.find({ where: { role: UserRole.SUPER_ADMIN } });
+    for (const admin of superAdmins) {
+      await this.mailService.sendSignupNotificationToAdmin(admin.email, signupDto.fullName, email);
+    }
+
     return {
       success: true,
       message: 'Signup request submitted successfully. You will be contacted shortly for verification.',
@@ -182,9 +197,7 @@ export class AuthService {
 
       await this.resetTokenRepository.save(resetToken);
 
-      // TODO: Send email with reset link
-      // const resetLink = `${this.configService.get('app.frontendUrl')}/reset-password?token=${rawToken}`;
-      console.log(`Password reset token for ${email}: ${rawToken}`);
+      await this.mailService.sendPasswordResetEmail(email, rawToken);
     }
 
     return {
@@ -193,11 +206,62 @@ export class AuthService {
     };
   }
 
+  async approveSignup(signupRequestId: string): Promise<{ success: boolean; message: string }> {
+    const signupRequest = await this.signupRequestRepository.findOne({
+      where: { id: signupRequestId },
+    });
+
+    if (!signupRequest) {
+      throw new BadRequestException('Signup request not found');
+    }
+
+    if (signupRequest.status !== SignupRequestStatus.PENDING) {
+      throw new BadRequestException('Signup request is not in pending state');
+    }
+
+    const existingUser = await this.userRepository.findOne({ where: { email: signupRequest.email } });
+    if (existingUser) {
+      throw new ConflictException('User with this email already exists');
+    }
+
+    const user = this.userRepository.create({
+      email: signupRequest.email,
+      name: signupRequest.name,
+      passwordHash: signupRequest.passwordHash,
+      phone: signupRequest.phone,
+      role: UserRole.ADMIN,
+      status: UserStatus.ACTIVE,
+    });
+
+    await this.userRepository.save(user);
+
+    const creditAccount = this.creditAccountRepository.create({
+      userId: user.id,
+      unifiedBalance: 0,
+      validityStart: new Date(),
+      validityEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+    });
+    await this.creditAccountRepository.save(creditAccount);
+
+    signupRequest.status = SignupRequestStatus.APPROVED;
+    await this.signupRequestRepository.save(signupRequest);
+
+    await this.mailService.sendAccountActivation(signupRequest.email, signupRequest.name);
+
+    return {
+      success: true,
+      message: 'Signup request approved and user account activated.',
+    };
+  }
+
   async resetPassword(dto: ResetPasswordDto): Promise<{ success: boolean; message: string }> {
-    const { token, newPassword } = dto;
+    const newPassword = dto.newPassword || dto.password;
+    if (!newPassword) {
+      throw new BadRequestException('New password is required');
+    }
 
     // Hash the token to find it
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const tokenHash = crypto.createHash('sha256').update(dto.token).digest('hex');
 
     const resetToken = await this.resetTokenRepository.findOne({
       where: { tokenHash },
@@ -349,5 +413,19 @@ export class AuthService {
       user.status = UserStatus.LOCKED;
       await this.userRepository.save(user);
     }
+  }
+
+  private async getEnabledFeatureNames(
+    userId: string,
+    role: UserRole,
+  ): Promise<FeatureName[]> {
+    if (role === UserRole.SUPER_ADMIN) {
+      return Object.values(FeatureName);
+    }
+    const rows = await this.featureAccessRepository.find({
+      where: { userId, isEnabled: true },
+      select: ['featureName'],
+    });
+    return rows.map((r) => r.featureName);
   }
 }

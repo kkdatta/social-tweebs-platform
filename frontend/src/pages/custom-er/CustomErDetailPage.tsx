@@ -3,9 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Share2, Trash2, ExternalLink,
   CheckCircle, Clock, AlertCircle, Loader, Instagram,
-  Heart, Eye, MessageSquare, Send, Calendar, Users, TrendingUp
+  Heart, Eye, MessageSquare, Send, Calendar, Users, TrendingUp,
+  Download, MoreVertical, Link2, Pencil,
 } from 'lucide-react';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, ResponsiveContainer
+} from 'recharts';
 import { customErApi } from '../../services/api';
+import { saveAs } from 'file-saver';
 
 interface Post {
   id: string;
@@ -63,6 +69,12 @@ export const CustomErDetailPage = () => {
   const [report, setReport] = useState<ReportDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSponsoredOnly, setShowSponsoredOnly] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editReportName, setEditReportName] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [downloadingXlsx, setDownloadingXlsx] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (id) loadReport();
@@ -77,6 +89,27 @@ export const CustomErDetailPage = () => {
       console.error('Failed to load report:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openEditModal = () => {
+    if (!report) return;
+    setEditReportName(report.influencerName);
+    setShowEditModal(true);
+    setShowMenu(false);
+  };
+
+  const handleSaveReportName = async () => {
+    if (!report || !editReportName.trim()) return;
+    try {
+      setSavingEdit(true);
+      await customErApi.update(report.id, { influencerName: editReportName.trim() });
+      await loadReport();
+      setShowEditModal(false);
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to rename report');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -102,6 +135,34 @@ export const CustomErDetailPage = () => {
     }
   };
 
+  const handleCopyUrl = () => {
+    const url = report?.shareUrl
+      ? `${window.location.origin}${report.shareUrl}`
+      : window.location.href;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownloadXlsx = async () => {
+    if (!report) return;
+    try {
+      setDownloadingXlsx(true);
+      const response = await customErApi.downloadReport(report.id);
+      const disposition = response.headers?.['content-disposition'];
+      let filename = `ER_Report_${report.influencerUsername || report.influencerName}.xlsx`;
+      if (disposition) {
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        if (match) filename = match[1];
+      }
+      saveAs(response.data, filename);
+    } catch (err: any) {
+      alert('Failed to download report');
+    } finally {
+      setDownloadingXlsx(false);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       COMPLETED: 'bg-green-100 text-green-800',
@@ -123,13 +184,13 @@ export const CustomErDetailPage = () => {
     );
   };
 
-  const formatNumber = (num: number) => {
+  const fmtNum = (num: number) => {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
     return num.toString();
   };
 
-  const filteredPosts = report?.posts.filter(p => 
+  const filteredPosts = report?.posts.filter(p =>
     showSponsoredOnly ? p.isSponsored : true
   ) || [];
 
@@ -155,12 +216,12 @@ export const CustomErDetailPage = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <button onClick={() => navigate('/custom-er')} className="p-2 hover:bg-gray-100 rounded-lg">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <button onClick={() => navigate('/custom-er')} className="p-2 hover:bg-gray-100 rounded-lg self-start">
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <div className="flex items-center gap-4 flex-1">
-          <div className="relative">
+        <div className="flex items-center gap-4 flex-1 min-w-0">
+          <div className="relative shrink-0">
             <img
               src={report.influencerAvatarUrl || `https://ui-avatars.com/api/?name=${report.influencerName}`}
               alt={report.influencerName}
@@ -168,32 +229,74 @@ export const CustomErDetailPage = () => {
             />
             <Instagram className="absolute -bottom-1 -right-1 w-5 h-5 text-pink-500 bg-white rounded-full p-0.5" />
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">{report.influencerName}</h1>
-            <div className="flex items-center gap-4 text-sm text-gray-500">
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">{report.influencerName}</h1>
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-sm text-gray-500">
               {report.influencerUsername && <span>@{report.influencerUsername}</span>}
               <span className="flex items-center gap-1">
                 <Users className="w-4 h-4" />
-                {formatNumber(report.followerCount)} followers
+                {fmtNum(report.followerCount)} followers
               </span>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {getStatusBadge(report.status)}
-          <button onClick={handleShare} className="flex items-center gap-1 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">
-            <Share2 className="w-4 h-4" />
-            Share
-          </button>
-          <button onClick={handleDelete} className="flex items-center gap-1 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg">
-            <Trash2 className="w-4 h-4" />
-            Delete
-          </button>
+
+          {/* Three-dots menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
+            {showMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
+                <div className="absolute right-0 mt-1 w-52 bg-white rounded-lg shadow-lg border border-gray-200 z-20 py-1">
+                  <button
+                    type="button"
+                    onClick={openEditModal}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <Pencil className="w-4 h-4" /> Edit
+                  </button>
+                  <button
+                    onClick={() => { handleShare(); setShowMenu(false); }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <Share2 className="w-4 h-4" /> Share Report
+                  </button>
+                  <button
+                    onClick={() => { handleCopyUrl(); setShowMenu(false); }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <Link2 className="w-4 h-4" /> {copied ? 'Copied!' : 'Copy URL'}
+                  </button>
+                  <button
+                    onClick={() => { handleDownloadXlsx(); setShowMenu(false); }}
+                    disabled={downloadingXlsx || report.status !== 'COMPLETED'}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    <Download className="w-4 h-4" /> {downloadingXlsx ? 'Downloading...' : 'Download XLSX'}
+                  </button>
+                  <div className="border-t border-gray-100 my-1" />
+                  <button
+                    onClick={() => { handleDelete(); setShowMenu(false); }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 className="w-4 h-4" /> Delete Report
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Date Range */}
-      <div className="flex items-center gap-2 text-gray-600">
+      <div className="flex flex-wrap items-center gap-2 text-gray-600 text-sm sm:text-base">
         <Calendar className="w-5 h-5" />
         <span>
           Analysis Period: {new Date(report.dateRangeStart).toLocaleDateString()} - {new Date(report.dateRangeEnd).toLocaleDateString()}
@@ -209,25 +312,25 @@ export const CustomErDetailPage = () => {
         </div>
       )}
 
-      {/* Metrics Sections */}
+      {/* Metrics + Chart + Posts */}
       {report.status === 'COMPLETED' && (
         <>
           {/* All Posts Metrics */}
-          <div className="bg-white rounded-xl shadow-sm p-6">
+          <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">All Posts</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 sm:gap-4">
               <MetricCard icon={<TrendingUp />} label="Posts" value={report.allPostsMetrics.postsCount} />
-              <MetricCard icon={<Heart />} label="Likes" value={formatNumber(report.allPostsMetrics.likesCount)} color="text-red-500" />
-              <MetricCard icon={<Eye />} label="Views" value={formatNumber(report.allPostsMetrics.viewsCount)} color="text-blue-500" />
-              <MetricCard icon={<MessageSquare />} label="Comments" value={formatNumber(report.allPostsMetrics.commentsCount)} color="text-green-500" />
-              <MetricCard icon={<Send />} label="Shares" value={formatNumber(report.allPostsMetrics.sharesCount)} color="text-purple-500" />
-              <MetricCard 
-                label="Avg ER" 
-                value={`${report.allPostsMetrics.avgEngagementRate?.toFixed(2) || '0'}%`} 
-                highlight 
+              <MetricCard icon={<Heart />} label="Likes" value={fmtNum(report.allPostsMetrics.likesCount)} color="text-red-500" />
+              <MetricCard icon={<Eye />} label="Views" value={fmtNum(report.allPostsMetrics.viewsCount)} color="text-blue-500" />
+              <MetricCard icon={<MessageSquare />} label="Comments" value={fmtNum(report.allPostsMetrics.commentsCount)} color="text-green-500" />
+              <MetricCard icon={<Send />} label="Shares" value={fmtNum(report.allPostsMetrics.sharesCount)} color="text-purple-500" />
+              <MetricCard
+                label="Avg ER"
+                value={`${report.allPostsMetrics.avgEngagementRate?.toFixed(2) || '0'}%`}
+                highlight
               />
-              <MetricCard 
-                label="Eng/Views" 
+              <MetricCard
+                label="Eng/Views"
                 value={`${report.allPostsMetrics.engagementViewsRate?.toFixed(2) || '0'}%`}
               />
             </div>
@@ -235,41 +338,103 @@ export const CustomErDetailPage = () => {
 
           {/* Sponsored Posts Metrics */}
           {report.hasSponsoredPosts && report.sponsoredPostsMetrics && (
-            <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl shadow-sm p-6">
+            <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl shadow-sm p-4 sm:p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Sponsored Posts</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 sm:gap-4">
                 <MetricCard icon={<TrendingUp />} label="Posts" value={report.sponsoredPostsMetrics.postsCount} />
-                <MetricCard icon={<Heart />} label="Likes" value={formatNumber(report.sponsoredPostsMetrics.likesCount)} color="text-red-500" />
-                <MetricCard icon={<Eye />} label="Views" value={formatNumber(report.sponsoredPostsMetrics.viewsCount)} color="text-blue-500" />
-                <MetricCard icon={<MessageSquare />} label="Comments" value={formatNumber(report.sponsoredPostsMetrics.commentsCount)} color="text-green-500" />
-                <MetricCard icon={<Send />} label="Shares" value={formatNumber(report.sponsoredPostsMetrics.sharesCount)} color="text-purple-500" />
-                <MetricCard 
-                  label="Avg ER" 
-                  value={`${report.sponsoredPostsMetrics.avgEngagementRate?.toFixed(2) || '0'}%`} 
-                  highlight 
+                <MetricCard icon={<Heart />} label="Likes" value={fmtNum(report.sponsoredPostsMetrics.likesCount)} color="text-red-500" />
+                <MetricCard icon={<Eye />} label="Views" value={fmtNum(report.sponsoredPostsMetrics.viewsCount)} color="text-blue-500" />
+                <MetricCard icon={<MessageSquare />} label="Comments" value={fmtNum(report.sponsoredPostsMetrics.commentsCount)} color="text-green-500" />
+                <MetricCard icon={<Send />} label="Shares" value={fmtNum(report.sponsoredPostsMetrics.sharesCount)} color="text-purple-500" />
+                <MetricCard
+                  label="Avg ER"
+                  value={`${report.sponsoredPostsMetrics.avgEngagementRate?.toFixed(2) || '0'}%`}
+                  highlight
                 />
-                <MetricCard 
-                  label="Eng/Views" 
+                <MetricCard
+                  label="Eng/Views"
                   value={`${report.sponsoredPostsMetrics.engagementViewsRate?.toFixed(2) || '0'}%`}
                 />
               </div>
             </div>
           )}
 
-          {/* Posts List */}
-          <div className="bg-white rounded-xl shadow-sm p-6">
+          {/* Posts vs Dates Chart */}
+          {report.postsChartData && report.postsChartData.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Posts vs Dates</h2>
+              <div className="h-64 sm:h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={report.postsChartData}
+                    margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={(val: string) => {
+                        const d = new Date(val);
+                        return `${d.getMonth() + 1}/${d.getDate()}`;
+                      }}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      tick={{ fontSize: 12 }}
+                      allowDecimals={false}
+                    />
+                    <Tooltip
+                      labelFormatter={(label: string) => new Date(label).toLocaleDateString()}
+                      contentStyle={{ borderRadius: '8px', fontSize: '13px' }}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="regularPosts"
+                      name="Regular Posts"
+                      stroke="#ef4444"
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                      activeDot={{ r: 5 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="sponsoredPosts"
+                      name="Sponsored Posts"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* Posts List with Toggle */}
+          <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Posts</h2>
               {report.hasSponsoredPosts && (
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showSponsoredOnly}
-                    onChange={(e) => setShowSponsoredOnly(e.target.checked)}
-                    className="rounded text-purple-600 focus:ring-purple-500"
-                  />
-                  <span className="text-sm text-gray-600">Show Sponsored Only</span>
-                </label>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-600">All Posts</span>
+                  <button
+                    onClick={() => setShowSponsoredOnly(!showSponsoredOnly)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
+                      showSponsoredOnly ? 'bg-purple-600' : 'bg-gray-300'
+                    }`}
+                    role="switch"
+                    aria-checked={showSponsoredOnly}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        showSponsoredOnly ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                  <span className="text-sm text-gray-600">Sponsored Only</span>
+                </div>
               )}
             </div>
 
@@ -286,6 +451,58 @@ export const CustomErDetailPage = () => {
             )}
           </div>
         </>
+      )}
+
+      {showEditModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setShowEditModal(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4"
+            role="dialog"
+            aria-labelledby="edit-report-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="edit-report-title" className="text-lg font-semibold text-gray-900">
+              Rename report
+            </h2>
+            <div>
+              <label htmlFor="report-name-input" className="block text-sm font-medium text-gray-700 mb-1">
+                Report name
+              </label>
+              <input
+                id="report-name-input"
+                type="text"
+                value={editReportName}
+                onChange={(e) => setEditReportName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveReportName();
+                  if (e.key === 'Escape') setShowEditModal(false);
+                }}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowEditModal(false)}
+                className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveReportName}
+                disabled={savingEdit || !editReportName.trim()}
+                className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+              >
+                {savingEdit ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Processing Status */}
@@ -306,7 +523,6 @@ export const CustomErDetailPage = () => {
   );
 };
 
-// Metric Card Component
 const MetricCard = ({ icon, label, value, color, highlight }: {
   icon?: React.ReactNode;
   label: string;
@@ -314,18 +530,17 @@ const MetricCard = ({ icon, label, value, color, highlight }: {
   color?: string;
   highlight?: boolean;
 }) => (
-  <div className={`p-4 rounded-lg ${highlight ? 'bg-purple-100' : 'bg-gray-50'}`}>
+  <div className={`p-3 sm:p-4 rounded-lg ${highlight ? 'bg-purple-100' : 'bg-gray-50'}`}>
     <div className="flex items-center gap-2 mb-1">
       {icon && <span className={color || 'text-gray-400'}>{icon}</span>}
       <span className="text-xs text-gray-500 uppercase">{label}</span>
     </div>
-    <div className={`text-xl font-bold ${highlight ? 'text-purple-700' : 'text-gray-900'}`}>
+    <div className={`text-lg sm:text-xl font-bold ${highlight ? 'text-purple-700' : 'text-gray-900'}`}>
       {value}
     </div>
   </div>
 );
 
-// Post Card Component
 const PostCard = ({ post }: { post: Post }) => (
   <div className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
     <div className="aspect-square relative bg-gray-100">
@@ -354,15 +569,15 @@ const PostCard = ({ post }: { post: Post }) => (
       <div className="flex items-center gap-4 text-sm text-gray-500">
         <span className="flex items-center gap-1">
           <Heart className="w-4 h-4 text-red-500" />
-          {formatNumber(post.likesCount)}
+          {fmtNumHelper(post.likesCount)}
         </span>
         <span className="flex items-center gap-1">
           <MessageSquare className="w-4 h-4 text-blue-500" />
-          {formatNumber(post.commentsCount)}
+          {fmtNumHelper(post.commentsCount)}
         </span>
         <span className="flex items-center gap-1">
           <Eye className="w-4 h-4 text-gray-400" />
-          {formatNumber(post.viewsCount)}
+          {fmtNumHelper(post.viewsCount)}
         </span>
       </div>
       <div className="mt-2 text-xs text-gray-400">
@@ -382,9 +597,8 @@ const PostCard = ({ post }: { post: Post }) => (
   </div>
 );
 
-// Helper function for PostCard
-const formatNumber = (num: number) => {
+function fmtNumHelper(num: number) {
   if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
   if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
   return num.toString();
-};
+}

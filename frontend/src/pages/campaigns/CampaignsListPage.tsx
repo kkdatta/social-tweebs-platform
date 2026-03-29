@@ -4,14 +4,15 @@ import {
   Search, Plus, Calendar, Users, 
   FileText, DollarSign, TrendingUp,
   Edit, Trash2, Eye, Play, Pause, CheckCircle,
-  Filter, ChevronDown
+  Filter, ChevronDown, AlertTriangle, X
 } from 'lucide-react';
 import { campaignsApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
 const STATUS_CONFIG = {
   DRAFT: { label: 'Draft', color: 'bg-gray-100 text-gray-800', icon: FileText },
-  ACTIVE: { label: 'Active', color: 'bg-green-100 text-green-800', icon: Play },
+  PENDING: { label: 'Pending', color: 'bg-orange-100 text-orange-800', icon: FileText },
+  ACTIVE: { label: 'In Progress', color: 'bg-green-100 text-green-800', icon: Play },
   PAUSED: { label: 'Paused', color: 'bg-yellow-100 text-yellow-800', icon: Pause },
   COMPLETED: { label: 'Completed', color: 'bg-blue-100 text-blue-800', icon: CheckCircle },
   CANCELLED: { label: 'Cancelled', color: 'bg-red-100 text-red-800', icon: Trash2 },
@@ -33,7 +34,7 @@ export const CampaignsListPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'created_by_me' | 'created_by_team' | 'shared_with_me'>('created_by_me');
+  const [activeTab, setActiveTab] = useState<'created_by_me' | 'created_by_team' | 'shared_with_me' | 'sample_public'>('created_by_me');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [platformFilter, setPlatformFilter] = useState<string>('');
@@ -41,11 +42,23 @@ export const CampaignsListPage: React.FC = () => {
   const [totalCampaigns, setTotalCampaigns] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [creditNotification, setCreditNotification] = useState<{ showWarning: boolean; message: string; balance: number } | null>(null);
+  const [showCreditAlert, setShowCreditAlert] = useState(true);
 
   useEffect(() => {
     loadCampaigns();
     loadDashboard();
+    loadCreditNotification();
   }, [activeTab, statusFilter, platformFilter, searchQuery, page]);
+
+  const loadCreditNotification = async () => {
+    try {
+      const notification = await campaignsApi.getCreditNotification();
+      setCreditNotification(notification);
+    } catch (err) {
+      // Silently handle
+    }
+  };
 
   const loadCampaigns = async () => {
     try {
@@ -142,6 +155,22 @@ export const CampaignsListPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Credit Usage Limit Notification */}
+      {creditNotification?.showWarning && showCreditAlert && (
+        <div className="max-w-7xl mx-auto px-4 pt-4">
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex items-start gap-3">
+            <AlertTriangle size={20} className="text-orange-500 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-orange-800">Credit Usage Alert</p>
+              <p className="text-sm text-orange-700 mt-0.5">{creditNotification.message}</p>
+            </div>
+            <button onClick={() => setShowCreditAlert(false)} className="p-1 hover:bg-orange-100 rounded text-orange-500">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Dashboard Stats */}
       {dashboard && (
         <div className="max-w-7xl mx-auto px-4 py-4 sm:py-6">
@@ -228,7 +257,7 @@ export const CampaignsListPage: React.FC = () => {
           {/* Tabs - Scrollable on mobile */}
           <div className="border-b border-gray-200 overflow-x-auto">
             <div className="flex min-w-max">
-              {(['created_by_me', 'created_by_team', 'shared_with_me'] as const).map((tab) => (
+              {(['created_by_me', 'created_by_team', 'shared_with_me', 'sample_public'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => { setActiveTab(tab); setPage(0); }}
@@ -238,8 +267,9 @@ export const CampaignsListPage: React.FC = () => {
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}
                 >
-                  {tab === 'created_by_me' ? 'My Campaigns' : 
-                   tab === 'created_by_team' ? 'Team' : 'Shared'}
+                  {tab === 'created_by_me' ? 'Created by Me' :
+                   tab === 'created_by_team' ? 'Created by Team' :
+                   tab === 'shared_with_me' ? 'Shared to Me' : 'Sample Public Report'}
                 </button>
               ))}
             </div>
@@ -279,10 +309,10 @@ export const CampaignsListPage: React.FC = () => {
                   className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
                 >
                   <option value="">All Statuses</option>
-                  <option value="DRAFT">Draft</option>
-                  <option value="ACTIVE">Active</option>
-                  <option value="PAUSED">Paused</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="ACTIVE">In Progress</option>
                   <option value="COMPLETED">Completed</option>
+                  <option value="CANCELLED">Cancelled</option>
                 </select>
                 <select
                   value={platformFilter}
@@ -306,10 +336,10 @@ export const CampaignsListPage: React.FC = () => {
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 >
                   <option value="">All Statuses</option>
-                  <option value="DRAFT">Draft</option>
-                  <option value="ACTIVE">Active</option>
-                  <option value="PAUSED">Paused</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="ACTIVE">In Progress</option>
                   <option value="COMPLETED">Completed</option>
+                  <option value="CANCELLED">Cancelled</option>
                 </select>
                 <select
                   value={platformFilter}
@@ -403,27 +433,13 @@ export const CampaignsListPage: React.FC = () => {
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Campaign
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Platform
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Status
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Date Range
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Influencers
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Budget
-                        </th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Actions
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaign</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hashtags</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Range</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Influencers</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Posts</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -431,66 +447,44 @@ export const CampaignsListPage: React.FC = () => {
                         const StatusIcon = STATUS_CONFIG[campaign.status as keyof typeof STATUS_CONFIG]?.icon || FileText;
                         return (
                           <tr key={campaign.id} className="hover:bg-gray-50">
-                            <td className="px-6 py-4">
-                              <div>
-                                <div className="text-sm font-medium text-gray-900">{campaign.name}</div>
-                                {campaign.objective && (
-                                  <div className="text-xs text-gray-500">
-                                    {OBJECTIVE_LABELS[campaign.objective] || campaign.objective}
-                                  </div>
-                                )}
+                            <td className="px-4 py-4">
+                              <div className="text-sm font-medium text-gray-900">{campaign.name}</div>
+                              <div className="text-xs text-gray-500">{campaign.platform}</div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex flex-wrap gap-1">
+                                {(campaign.hashtags || []).slice(0, 2).map((tag: string) => (
+                                  <span key={tag} className="px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded text-xs">{tag}</span>
+                                ))}
+                                {(campaign.hashtags || []).length > 2 && <span className="text-xs text-gray-400">+{campaign.hashtags.length - 2}</span>}
                               </div>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-700 rounded-full">
-                                {campaign.platform}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_CONFIG[campaign.status as keyof typeof STATUS_CONFIG]?.color}`}>
-                                <StatusIcon size={12} />
-                                {STATUS_CONFIG[campaign.status as keyof typeof STATUS_CONFIG]?.label || campaign.status}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                               <div className="flex items-center gap-1">
                                 <Calendar size={14} />
                                 {formatDate(campaign.startDate)} - {formatDate(campaign.endDate)}
                               </div>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="flex items-center gap-1 text-sm text-gray-600">
+                            <td className="px-4 py-4 text-center">
+                              <div className="flex items-center justify-center gap-1 text-sm text-gray-600">
                                 <Users size={14} />
                                 {campaign.influencerCount}
                               </div>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                              {campaign.budget ? formatCurrency(campaign.budget, campaign.currency) : '-'}
+                            <td className="px-4 py-4 text-center text-sm text-gray-600">{campaign.postsCount || 0}</td>
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_CONFIG[campaign.status as keyof typeof STATUS_CONFIG]?.color}`}>
+                                <StatusIcon size={12} />
+                                {STATUS_CONFIG[campaign.status as keyof typeof STATUS_CONFIG]?.label || campaign.status}
+                              </span>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                              <div className="flex items-center justify-end gap-2">
-                                <button
-                                  onClick={() => navigate(`/campaigns/${campaign.id}`)}
-                                  className="text-purple-600 hover:text-purple-900"
-                                  title="View"
-                                >
-                                  <Eye size={18} />
-                                </button>
-                                <button
-                                  onClick={() => navigate(`/campaigns/${campaign.id}/edit`)}
-                                  className="text-blue-600 hover:text-blue-900"
-                                  title="Edit"
-                                >
-                                  <Edit size={18} />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteCampaign(campaign.id, campaign.name)}
-                                  className="text-red-600 hover:text-red-900"
-                                  title="Delete"
-                                >
-                                  <Trash2 size={18} />
-                                </button>
-                              </div>
+                            <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
+                              <button
+                                onClick={() => navigate(`/campaigns/${campaign.id}`)}
+                                className="text-purple-600 hover:text-purple-900 font-medium"
+                              >
+                                View Report
+                              </button>
                             </td>
                           </tr>
                         );

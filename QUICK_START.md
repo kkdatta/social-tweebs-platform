@@ -1,161 +1,272 @@
-# SocialTweebs - Quick Start Guide
+# 🚀 SocialTweebs Quick Start Guide
 
-## 🚀 Local Development
+Get your SocialTweebs development environment up and running in minutes!
 
-Start both frontend and backend servers on your local machine:
+## 📋 Prerequisites
+
+Before you begin, make sure you have:
+
+- ✅ Node.js (v18 or higher)
+- ✅ PostgreSQL (running locally or accessible)
+- ✅ Git
+
+## 🎯 Three Ways to Start
+
+### Option 1: Local Development Only (Recommended for Development)
+
+Perfect for day-to-day development work. Everything runs locally on your machine.
 
 ```bash
-npm run dev
+./start-dev.sh
 ```
 
-Access your app:
+**What it does:**
+- ✅ Starts backend on `http://localhost:3000`
+- ✅ Starts frontend on `http://localhost:5173`
+- ✅ Frontend automatically connects to local backend
+- ✅ No internet required for API calls
+
+**Access your app:**
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:3000
-- API Docs: http://localhost:3000/docs
-
-## 🌐 Public Access (Cloudflare Tunnel)
-
-Share your local app with the world:
-
-### 1. Install Cloudflare Tunnel (one-time)
-
-**macOS:**
-```bash
-brew install cloudflared
-```
-
-**Linux:**
-```bash
-wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-sudo dpkg -i cloudflared-linux-amd64.deb
-```
-
-### 2. Start with Tunnel
-
-```bash
-npm run dev:tunnel
-```
-
-You'll see public URLs like:
-```
-[tunnel-api] https://abc-xyz-1234.trycloudflare.com  ← Backend
-[tunnel-web] https://def-uvw-5678.trycloudflare.com  ← Frontend
-```
-
-### 3. Configure Frontend
-
-Edit `frontend/.env`:
-```env
-VITE_API_URL=https://abc-xyz-1234.trycloudflare.com
-```
-(Use YOUR backend tunnel URL from step 2)
-
-### 4. Restart Frontend
-
-```bash
-# Press Ctrl+C to stop, then:
-npm run dev:tunnel
-```
-
-### 5. Share Your App 🎉
-
-Share the frontend URL (e.g., `https://def-uvw-5678.trycloudflare.com`) with anyone!
-
-They can access your local app from anywhere in the world.
-
-## 📋 Command Reference
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Local development (recommended) |
-| `npm run dev:tunnel` | Local + public URLs via tunnel |
-| `npm run tunnel` | Add tunnels to running servers |
-| `npm run tunnel:backend` | Tunnel backend API only |
-| `npm run tunnel:frontend` | Tunnel frontend only |
-| `./start-dev.sh` | Alternative: start local servers |
-| `./start-dev-with-tunnel.sh` | Alternative: start with tunnels |
-
-## 🔧 Environment Setup
-
-### Backend (.env in root)
-```env
-NODE_ENV=development
-PORT=3000
-DB_HOST=localhost
-DB_PORT=5432
-DB_USERNAME=postgres
-DB_PASSWORD=your_password
-DB_NAME=postgres
-DB_SCHEMA=zorbitads
-JWT_SECRET=your-super-secret-jwt-key
-FRONTEND_URL=http://localhost:5173
-```
-
-### Frontend (frontend/.env)
-```env
-# For local development
-VITE_API_URL=http://localhost:3000
-
-# For public access (use your tunnel URL)
-VITE_API_URL=https://your-tunnel-url.trycloudflare.com
-```
-
-## 📚 Documentation
-
-- **[README.md](./README.md)** - Full project documentation
-- **[CLOUDFLARE_TUNNEL_GUIDE.md](./CLOUDFLARE_TUNNEL_GUIDE.md)** - Detailed tunnel setup and troubleshooting
-- **[DATABASE_DESIGN.md](./DATABASE_DESIGN.md)** - Database schema and design
-- **[docs/HLD.md](./docs/HLD.md)** - High-level design
-- **[docs/LLD.md](./docs/LLD.md)** - Low-level design
-
-## 🆘 Troubleshooting
-
-### Servers not starting?
-```bash
-# Check if ports are in use
-lsof -i:3000  # Backend
-lsof -i:5173  # Frontend
-
-# Kill processes if needed
-lsof -ti:3000 | xargs kill -9
-lsof -ti:5173 | xargs kill -9
-```
-
-### Tunnel not working?
-```bash
-# Verify cloudflared is installed
-cloudflared --version
-
-# Test manual tunnel
-cloudflared tunnel --url http://localhost:3000
-```
-
-### Frontend can't reach backend via tunnel?
-1. Check `frontend/.env` has correct tunnel URL
-2. Ensure URL doesn't end with `/api/v1` (just the base URL)
-3. Restart frontend after changing `.env`
-4. Check browser console for errors
-
-### Database connection issues?
-1. Ensure PostgreSQL is running
-2. Check credentials in root `.env`
-3. Verify `zorbitads` schema exists
-4. Check network/firewall settings
-
-## 💡 Tips
-
-- **Development**: Use `npm run dev` for faster local development
-- **Demos**: Use `npm run dev:tunnel` when sharing with others
-- **URLs Change**: Tunnel URLs are temporary and change on restart
-- **HTTPS**: Tunnel URLs automatically get HTTPS
-- **No Account Needed**: Cloudflare Tunnel is free, no signup required
-
-## 🔗 Quick Links
-
-- API Documentation: http://localhost:3000/docs (when running)
-- Cloudflare Tunnel Docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/
-- GitHub: [Your Repository URL]
+- Swagger Docs: http://localhost:3000/docs
 
 ---
 
-**Need help?** Check the detailed guides or create an issue on GitHub.
+### Option 2: With Public URLs (For Sharing & Testing)
+
+Start everything with Cloudflare tunnels for public access. **Best for demos, testing, and sharing.**
+
+```bash
+./start-dev-with-tunnel.sh
+```
+
+**What it does:**
+- ✅ Starts backend locally
+- ✅ Creates public tunnel for backend
+- ✅ Automatically updates frontend config to use public backend
+- ✅ Starts frontend locally
+- ✅ Creates public tunnel for frontend
+- ✅ Everything is configured automatically!
+
+**You'll get:**
+```
+🌐 PUBLIC ACCESS (share these URLs):
+   Frontend:  https://your-random-url.trycloudflare.com
+   Backend:   https://another-random-url.trycloudflare.com
+```
+
+**Perfect for:**
+- 🎬 Demoing to clients
+- 📱 Testing on mobile devices
+- 🔗 Webhook integrations
+- 👥 Sharing with team members
+- 🌍 Accessing from anywhere
+
+**Important:**
+- URLs change on each restart (see Cloudflare Guide for persistent URLs)
+- When you stop (Ctrl+C), config automatically resets to localhost
+- Frontend automatically uses the public backend
+
+---
+
+### Option 3: Add Tunnels to Running Servers
+
+If your servers are already running and you just want to add public URLs:
+
+```bash
+./tunnel-only.sh
+```
+
+**What it does:**
+- ✅ Creates public tunnels for existing servers
+- ✅ Shows you the URLs
+- ✅ Provides instructions to update frontend config
+
+**Manual configuration needed:**
+After running this, you'll need to manually update `frontend/.env` with the backend tunnel URL and restart the frontend.
+
+---
+
+## 📦 First Time Setup
+
+### 1. Install Dependencies
+
+```bash
+# Install backend dependencies
+npm install
+
+# Install frontend dependencies
+cd frontend
+npm install
+cd ..
+```
+
+### 2. Configure Environment
+
+Create a `.env` file in the root directory:
+
+```env
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=your_username
+DB_PASSWORD=your_password
+DB_NAME=socialtweebs
+
+# JWT
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+JWT_EXPIRES_IN=7d
+REFRESH_TOKEN_SECRET=your-super-secret-refresh-token-key
+REFRESH_TOKEN_EXPIRES_IN=30d
+
+# App
+PORT=3000
+NODE_ENV=development
+```
+
+### 3. Set Up Database
+
+```bash
+# Create the database
+createdb socialtweebs
+
+# Run migrations (if any)
+npm run typeorm migration:run
+```
+
+### 4. Start Development
+
+Choose your preferred option from above:
+
+```bash
+# Local only
+./start-dev.sh
+
+# Or with public URLs
+./start-dev-with-tunnel.sh
+```
+
+---
+
+## 🛠️ Available Scripts
+
+| Script | Command | Description |
+|--------|---------|-------------|
+| **Start Local Dev** | `./start-dev.sh` | Start backend + frontend locally |
+| **Start with Tunnels** | `./start-dev-with-tunnel.sh` | Start everything with public URLs |
+| **Add Tunnels Only** | `./tunnel-only.sh` | Add tunnels to running servers |
+| **Backend Only** | `npm run start:dev` | Start backend only |
+| **Frontend Only** | `npm run frontend:dev` | Start frontend only |
+| **Build Backend** | `npm run build` | Build backend for production |
+| **Build Frontend** | `npm run frontend:build` | Build frontend for production |
+
+---
+
+## 🔧 Troubleshooting
+
+### Port Already in Use
+
+```bash
+# Kill process on port 3000 (backend)
+lsof -ti :3000 | xargs kill -9
+
+# Kill process on port 5173 (frontend)
+lsof -ti :5173 | xargs kill -9
+
+# Then restart
+./start-dev.sh
+```
+
+### Frontend Can't Connect to Backend
+
+**Local Development:**
+Check `frontend/.env` - it should be:
+```env
+VITE_API_URL=http://localhost:3000
+```
+
+**With Tunnels:**
+Use `./start-dev-with-tunnel.sh` - it configures everything automatically!
+
+### Tunnel URLs Not Working
+
+1. **Install cloudflared:**
+   ```bash
+   brew install cloudflared  # macOS
+   ```
+
+2. **Check tunnel status:**
+   ```bash
+   ps aux | grep cloudflared
+   ```
+
+3. **Use the automatic script:**
+   ```bash
+   ./start-dev-with-tunnel.sh
+   ```
+
+### Database Connection Error
+
+1. Check PostgreSQL is running:
+   ```bash
+   pg_isready
+   ```
+
+2. Verify credentials in `.env`
+
+3. Ensure database exists:
+   ```bash
+   createdb socialtweebs
+   ```
+
+---
+
+## 📚 Additional Resources
+
+- [Cloudflare Tunnel Guide](./CLOUDFLARE_TUNNEL_GUIDE.md) - Detailed tunnel setup
+- [Database Design](./DATABASE_DESIGN.md) - Schema documentation
+- [API Documentation](http://localhost:3000/docs) - Swagger docs (when backend is running)
+
+---
+
+## 💡 Pro Tips
+
+### 1. Use Local for Daily Development
+```bash
+./start-dev.sh  # Faster, no internet needed
+```
+
+### 2. Use Tunnels for Demos
+```bash
+./start-dev-with-tunnel.sh  # Get public URLs automatically
+```
+
+### 3. Keep Multiple Terminals
+- Terminal 1: Backend logs
+- Terminal 2: Frontend logs  
+- Terminal 3: Commands and testing
+
+### 4. Watch for Hot Reload
+Both backend and frontend support hot reload:
+- Edit backend code → auto-restarts
+- Edit frontend code → instant updates
+
+### 5. Persistent Tunnel URLs
+See [CLOUDFLARE_TUNNEL_GUIDE.md](./CLOUDFLARE_TUNNEL_GUIDE.md) for setting up named tunnels with persistent URLs.
+
+---
+
+## 🎉 You're Ready!
+
+Now you can start developing:
+
+```bash
+# For local development
+./start-dev.sh
+
+# For sharing and demos
+./start-dev-with-tunnel.sh
+```
+
+Happy coding! 🚀

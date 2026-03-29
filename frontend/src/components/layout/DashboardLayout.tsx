@@ -5,7 +5,7 @@ import Header from './Header';
 import { useAuth } from '../../context/AuthContext';
 
 const DashboardLayout: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isImpersonating, exitImpersonation, user } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
 
@@ -75,6 +75,19 @@ const DashboardLayout: React.FC = () => {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {isImpersonating && (
+          <div className="bg-amber-500 text-white px-4 py-2 flex items-center justify-between text-sm shrink-0">
+            <span className="font-medium">
+              You are logged in as {user?.name} ({user?.email}). This is an impersonation session.
+            </span>
+            <button
+              onClick={exitImpersonation}
+              className="px-3 py-1 bg-white text-amber-700 rounded-lg text-xs font-semibold hover:bg-amber-50 transition-colors"
+            >
+              Exit Impersonation
+            </button>
+          </div>
+        )}
         <Header onMenuClick={() => setIsSidebarOpen(true)} />
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
           <Outlet />

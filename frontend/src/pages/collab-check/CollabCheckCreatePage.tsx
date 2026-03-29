@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Plus, X, Search, Instagram, Hash, AtSign, Tag, Calendar, Users, AlertCircle
+  ArrowLeft, Plus, X, Search, Instagram, Hash, AtSign, Tag, Calendar, Users, AlertCircle, List
 } from 'lucide-react';
 import { collabCheckApi } from '../../services/api';
 
@@ -27,6 +27,8 @@ export const CollabCheckCreatePage = () => {
   const [selectedInfluencers, setSelectedInfluencers] = useState<string[]>([]);
   
   // Influencer search
+  const [multipleInfluencerMode, setMultipleInfluencerMode] = useState(false);
+  const [multiInfluencerText, setMultiInfluencerText] = useState('');
   const [influencerSearch, setInfluencerSearch] = useState('');
   const [searchResults, setSearchResults] = useState<InfluencerOption[]>([]);
   const [searching, setSearching] = useState(false);
@@ -80,6 +82,32 @@ export const CollabCheckCreatePage = () => {
     }
   };
 
+  const parseMultiInfluencerLines = (): string[] => {
+    const lines = multiInfluencerText
+      .split(/\r?\n/)
+      .map((line) => line.trim().replace(/^@/, '').split(/[/?\s]/)[0])
+      .filter(Boolean);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const u of lines) {
+      const key = u.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(u);
+      if (out.length >= 10) break;
+    }
+    return out;
+  };
+
+  const applyMultiInfluencerText = () => {
+    const parsed = parseMultiInfluencerLines();
+    if (parsed.length === 0) {
+      setSelectedInfluencers([]);
+      return;
+    }
+    setSelectedInfluencers(parsed);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -89,12 +117,22 @@ export const CollabCheckCreatePage = () => {
       return;
     }
 
-    if (selectedInfluencers.length === 0) {
+    let influencersForSubmit = selectedInfluencers;
+    if (multipleInfluencerMode) {
+      const parsed = parseMultiInfluencerLines();
+      if (parsed.length === 0) {
+        setError('Enter at least one influencer username (one per line)');
+        return;
+      }
+      influencersForSubmit = parsed;
+    }
+
+    if (influencersForSubmit.length === 0) {
       setError('At least one influencer is required');
       return;
     }
 
-    const creditCost = selectedInfluencers.length;
+    const creditCost = influencersForSubmit.length;
     if (!confirm(`This will cost ${creditCost} credit(s). Continue?`)) {
       return;
     }
@@ -106,8 +144,8 @@ export const CollabCheckCreatePage = () => {
         platform,
         timePeriod,
         queries,
-        influencers: selectedInfluencers,
-        multipleInfluencers: selectedInfluencers.length > 1,
+        influencers: influencersForSubmit,
+        multipleInfluencers: influencersForSubmit.length > 1,
       });
       navigate(`/collab-check/${result.report.id}`);
     } catch (err: any) {
@@ -117,7 +155,9 @@ export const CollabCheckCreatePage = () => {
     }
   };
 
-  const creditCost = selectedInfluencers.length;
+  const creditCost = multipleInfluencerMode
+    ? Math.min(parseMultiInfluencerLines().length || 0, 10)
+    : selectedInfluencers.length;
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -258,88 +298,139 @@ export const CollabCheckCreatePage = () => {
 
         {/* Influencer Search */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <Users className="w-4 h-4 inline mr-1" />
-            Select Influencers * (1-10)
-          </label>
-          <div className="flex gap-2 mb-3">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                value={influencerSearch}
-                onChange={(e) => setInfluencerSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleSearchInfluencers();
-                  }
-                }}
-                placeholder="Search by username or enter directly"
-                className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+            <label className="block text-sm font-medium text-gray-700">
+              <Users className="w-4 h-4 inline mr-1" />
+              Select Influencers * (1-10)
+            </label>
+            <div className="flex items-center justify-between gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100 sm:min-w-[260px]">
+              <div className="flex items-start gap-2 min-w-0">
+                <List className="w-4 h-4 text-purple-600 mt-0.5 shrink-0" />
+                <div>
+                  <span className="text-sm font-medium text-gray-900">Multiple influencers</span>
+                  <p className="text-xs text-gray-500">Enter one username per line instead of search</p>
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={multipleInfluencerMode}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setMultipleInfluencerMode(on);
+                    if (on) {
+                      setMultiInfluencerText(
+                        selectedInfluencers.length > 0 ? selectedInfluencers.join('\n') : '',
+                      );
+                      setInfluencerSearch('');
+                      setSearchResults([]);
+                    } else {
+                      setMultiInfluencerText('');
+                    }
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600" />
+              </label>
             </div>
-            <button
-              type="button"
-              onClick={handleSearchInfluencers}
-              disabled={searching}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
-            >
-              {searching ? <Loader className="w-5 h-5 animate-spin" /> : 'Search'}
-            </button>
-            <button
-              type="button"
-              onClick={addInfluencerFromInput}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-            >
-              <Plus className="w-5 h-5" />
-            </button>
           </div>
 
-          {/* Search Results */}
-          {searchResults.length > 0 && (
-            <div className="border border-gray-200 rounded-lg max-h-48 overflow-y-auto mb-3">
-              {searchResults.map((inf) => (
-                <button
-                  key={inf.id}
-                  type="button"
-                  onClick={() => toggleInfluencer(inf.username)}
-                  className={`w-full flex items-center gap-3 p-3 hover:bg-gray-50 ${
-                    selectedInfluencers.includes(inf.username) ? 'bg-purple-50' : ''
-                  }`}
-                >
-                  <img
-                    src={inf.profilePicture}
-                    alt={inf.username}
-                    className="w-10 h-10 rounded-full"
+          {multipleInfluencerMode ? (
+            <div className="space-y-2">
+              <textarea
+                value={multiInfluencerText}
+                onChange={(e) => setMultiInfluencerText(e.target.value)}
+                onBlur={applyMultiInfluencerText}
+                placeholder={'One Instagram username per line, e.g.\njane.doe\nbrand_official'}
+                rows={6}
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm"
+              />
+              <p className="text-xs text-gray-500">
+                Up to 10 accounts. Lines can include @ or profile URLs; only the username is used.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex gap-2 mb-3">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={influencerSearch}
+                    onChange={(e) => setInfluencerSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleSearchInfluencers();
+                      }
+                    }}
+                    placeholder="Search by username or enter directly"
+                    className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                   />
-                  <div className="flex-1 text-left">
-                    <div className="font-medium">@{inf.username}</div>
-                    <div className="text-sm text-gray-500">{inf.fullName} • {(inf.followers / 1000).toFixed(1)}K followers</div>
-                  </div>
-                  {selectedInfluencers.includes(inf.username) && (
-                    <span className="text-purple-600">✓</span>
-                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSearchInfluencers}
+                  disabled={searching}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                >
+                  {searching ? <Loader className="w-5 h-5 animate-spin" /> : 'Search'}
                 </button>
-              ))}
-            </div>
-          )}
+                <button
+                  type="button"
+                  onClick={addInfluencerFromInput}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
+              </div>
 
-          {/* Selected Influencers */}
-          {selectedInfluencers.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {selectedInfluencers.map((username, idx) => (
-                <span key={idx} className="inline-flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-700 rounded-full">
-                  @{username}
-                  <button type="button" onClick={() => toggleInfluencer(username)} className="ml-1 hover:text-gray-900">
-                    <X className="w-4 h-4" />
-                  </button>
-                </span>
-              ))}
-            </div>
+              {searchResults.length > 0 && (
+                <div className="border border-gray-200 rounded-lg max-h-48 overflow-y-auto mb-3">
+                  {searchResults.map((inf) => (
+                    <button
+                      key={inf.id}
+                      type="button"
+                      onClick={() => toggleInfluencer(inf.username)}
+                      className={`w-full flex items-center gap-3 p-3 hover:bg-gray-50 ${
+                        selectedInfluencers.includes(inf.username) ? 'bg-purple-50' : ''
+                      }`}
+                    >
+                      <img
+                        src={inf.profilePicture}
+                        alt={inf.username}
+                        className="w-10 h-10 rounded-full"
+                      />
+                      <div className="flex-1 text-left">
+                        <div className="font-medium">@{inf.username}</div>
+                        <div className="text-sm text-gray-500">{inf.fullName} • {(inf.followers / 1000).toFixed(1)}K followers</div>
+                      </div>
+                      {selectedInfluencers.includes(inf.username) && (
+                        <span className="text-purple-600">✓</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selectedInfluencers.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {selectedInfluencers.map((username, idx) => (
+                    <span key={idx} className="inline-flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-700 rounded-full">
+                      @{username}
+                      <button type="button" onClick={() => toggleInfluencer(username)} className="ml-1 hover:text-gray-900">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
           )}
           <p className="text-xs text-gray-500 mt-2">
-            {selectedInfluencers.length}/10 influencers selected
+            {multipleInfluencerMode
+              ? `${Math.min(parseMultiInfluencerLines().length, 10)}/10 influencers (from list)`
+              : `${selectedInfluencers.length}/10 influencers selected`}
           </p>
         </div>
 
@@ -365,7 +456,11 @@ export const CollabCheckCreatePage = () => {
           </button>
           <button
             type="submit"
-            disabled={loading || queries.length === 0 || selectedInfluencers.length === 0}
+            disabled={
+              loading ||
+              queries.length === 0 ||
+              (multipleInfluencerMode ? parseMultiInfluencerLines().length === 0 : selectedInfluencers.length === 0)
+            }
             className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {loading && <Loader className="w-4 h-4 animate-spin" />}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   Download, 
@@ -33,6 +33,10 @@ import {
   Target,
   Info,
   SlidersHorizontal,
+  FileText,
+  CreditCard,
+  CheckCircle2,
+  Coins,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { 
@@ -54,6 +58,11 @@ import {
 import { discoveryApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
+const PAGE_SIZE = 10;
+const CREDIT_PER_UNBLUR = 0.04;
+const CREDIT_PER_EXPORT = 0.04; // 1 credit / 25 influencers
+const CREDIT_PER_INSIGHT = 1;
+
 // Debounce hook
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -64,11 +73,17 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
-const platforms = [
+const platforms: {
+  id: Platform;
+  name: string;
+  icon: typeof Instagram;
+  color: string;
+  disabled?: boolean;
+}[] = [
   { id: 'INSTAGRAM', name: 'Instagram', icon: Instagram, color: 'bg-gradient-to-r from-purple-500 to-pink-500' },
   { id: 'YOUTUBE', name: 'YouTube', icon: Youtube, color: 'bg-red-500' },
-  { id: 'TIKTOK', name: 'TikTok', icon: Music2, color: 'bg-black' },
-  { id: 'LINKEDIN', name: 'LinkedIn', icon: Linkedin, color: 'bg-blue-600' },
+  { id: 'TIKTOK', name: 'TikTok', icon: Music2, color: 'bg-black', disabled: true },
+  { id: 'LINKEDIN', name: 'LinkedIn', icon: Linkedin, color: 'bg-blue-600', disabled: true },
 ];
 
 // ============ REUSABLE FILTER COMPONENTS ============
@@ -305,6 +320,23 @@ const DiscoveryPage: React.FC = () => {
   const [isExactMatch, setIsExactMatch] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
 
+  // Export Modal State
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportFileName, setExportFileName] = useState('');
+  const [exportFormat, setExportFormat] = useState<'csv' | 'xlsx' | 'json'>('csv');
+  const [excludePreviouslyExported, setExcludePreviouslyExported] = useState(false);
+  const [exportCount, setExportCount] = useState(0);
+  const [exportCostEstimate, setExportCostEstimate] = useState<{ creditCost: number; previouslyExportedCount: number; newExportCount: number } | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [previouslyExportedIds, setPreviouslyExportedIds] = useState<Set<string>>(new Set());
+
+  // Insights Confirmation Modal State
+  const [showInsightsModal, setShowInsightsModal] = useState(false);
+  const [insightsTargetProfile, setInsightsTargetProfile] = useState<InfluencerProfile | null>(null);
+  const [insightsHasAccess, setInsightsHasAccess] = useState(false);
+  const [isCheckingInsights, setIsCheckingInsights] = useState(false);
+
+
   // Complete filters state
   const [filters, setFilters] = useState<SearchFilters>({
     platform: selectedPlatform,
@@ -350,12 +382,11 @@ const DiscoveryPage: React.FC = () => {
     
     setIsLoading(true);
     setError(null);
-    setShowFilters(false); // Close mobile filters after search
+    setShowFilters(false);
     
     try {
       const searchFilters: SearchFilters = { ...filters, platform: selectedPlatform, page };
 
-      // Clean empty values
       if (searchFilters.influencer) {
         Object.keys(searchFilters.influencer).forEach((key) => {
           const val = (searchFilters.influencer as any)[key];
@@ -375,16 +406,25 @@ const DiscoveryPage: React.FC = () => {
       }
 
       const response = await discoveryApi.search(searchFilters);
-      
+
+      const applyFirstThreeFree = (list: InfluencerProfile[], globalOffset: number) =>
+        list.map((inf, i) => ({
+          ...inf,
+          isBlurred: globalOffset + i < 3 ? false : inf.isBlurred,
+        }));
+
       if (page === 0) {
-        setInfluencers(response.influencers);
+        setInfluencers(applyFirstThreeFree(response.influencers, 0));
       } else {
-        setInfluencers((prev) => [...prev, ...response.influencers]);
+        setInfluencers((prev) => {
+          const offset = prev.length;
+          return [...prev, ...applyFirstThreeFree(response.influencers, offset)];
+        });
       }
       
       setTotalResults(response.total);
       setCurrentPage(page);
-      setHasMore((page + 1) * 15 < response.total);
+      setHasMore((page + 1) * PAGE_SIZE < response.total);
       setIsExactMatch(response.isExactMatch !== false);
       
       if (user && response.creditsUsed > 0) {
@@ -394,6 +434,136 @@ const DiscoveryPage: React.FC = () => {
       setError(err.response?.data?.message || 'Search failed. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Load export history on mount to know previously exported IDs
+  useEffect(() => {
+    discoveryApi.getExportHistory().then((history) => {
+      setPreviouslyExportedIds(new Set(history.allExportedProfileIds));
+    }).catch(() => {});
+  }, []);
+
+  // Blur Gate: check if blurred influencers exist before allowing load more
+  const hasBlurredInCurrentBatch = influencers.some((i) => i.isBlurred);
+
+  const handleLoadMore = () => {
+    handleSearch(currentPage + 1);
+  };
+
+  // ============ INSIGHTS CONFIRMATION ============
+  const handleViewInsights = async (profile: InfluencerProfile) => {
+    if (profile.isBlurred) return;
+    
+    setIsCheckingInsights(true);
+    setInsightsTargetProfile(profile);
+
+    try {
+      const access = await discoveryApi.checkInsightsAccess(profile.id);
+      if (access.hasAccess) {
+        const insightNavId = access.insightId ?? profile.id;
+        navigate(`/insights/${insightNavId}`);
+        return;
+      }
+      setInsightsHasAccess(false);
+      setShowInsightsModal(true);
+    } catch {
+      navigate(`/insights/${profile.id}`);
+    } finally {
+      setIsCheckingInsights(false);
+    }
+  };
+
+  const confirmViewInsights = async () => {
+    if (!insightsTargetProfile) return;
+    
+    try {
+      const res = await discoveryApi.viewInsights(insightsTargetProfile.id);
+      if (user) {
+        updateUser({ ...user, credits: user.credits - CREDIT_PER_INSIGHT });
+      }
+      setShowInsightsModal(false);
+      const navId = res.insightId ?? insightsTargetProfile.id;
+      navigate(`/insights/${navId}`);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to unlock insights');
+      setShowInsightsModal(false);
+    }
+  };
+
+  // ============ EXPORT FLOW ============
+  const openExportModal = () => {
+    if (selectedInfluencers.length === 0) {
+      setError('Please select influencers to export');
+      return;
+    }
+    setExportCount(selectedInfluencers.length);
+    setExportFileName(`influencer_export_${new Date().toISOString().split('T')[0]}`);
+    setExcludePreviouslyExported(false);
+    setExportCostEstimate(null);
+    setShowExportModal(true);
+    updateExportEstimate(selectedInfluencers, false);
+  };
+
+  const updateExportEstimate = async (ids: string[], excludePrev: boolean) => {
+    try {
+      const estimate = await discoveryApi.getExportCostEstimate(ids, excludePrev);
+      setExportCostEstimate(estimate);
+    } catch {
+      const effectiveCount = excludePrev
+        ? ids.filter((id) => !previouslyExportedIds.has(id)).length
+        : ids.length;
+      setExportCostEstimate({
+        creditCost: effectiveCount * CREDIT_PER_EXPORT,
+        previouslyExportedCount: ids.length - effectiveCount,
+        newExportCount: effectiveCount,
+      });
+    }
+  };
+
+  const handleExcludePrevChange = (checked: boolean) => {
+    setExcludePreviouslyExported(checked);
+    updateExportEstimate(selectedInfluencers, checked);
+  };
+
+  const confirmExport = async () => {
+    setIsExporting(true);
+    const idsToExport = selectedInfluencers.slice(0, exportCount);
+    try {
+      const result = await discoveryApi.export({
+        profileIds: idsToExport,
+        format: exportFormat,
+        fileName: exportFileName,
+        excludePreviouslyExported,
+      });
+      
+      if (user) {
+        updateUser({ ...user, credits: user.credits - result.creditsUsed });
+      }
+
+      setPreviouslyExportedIds((prev) => {
+        const updated = new Set(prev);
+        idsToExport.forEach((id) => updated.add(id));
+        return updated;
+      });
+
+      setShowExportModal(false);
+      setSelectedInfluencers([]);
+      setError(null);
+
+      if (result.data && exportFormat === 'json') {
+        const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${exportFileName}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Export failed');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -437,13 +607,29 @@ const DiscoveryPage: React.FC = () => {
           {platforms.map((p) => (
             <button
               key={p.id}
-              onClick={() => { setSelectedPlatform(p.id as Platform); setCurrentPage(0); }}
-              className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                selectedPlatform === p.id ? `${p.color} text-white shadow` : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              type="button"
+              disabled={p.disabled}
+              title={p.disabled ? 'Coming soon' : undefined}
+              onClick={() => {
+                if (p.disabled) return;
+                setSelectedPlatform(p.id as Platform);
+                setCurrentPage(0);
+              }}
+              className={`relative flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                p.disabled
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-70 grayscale'
+                  : selectedPlatform === p.id
+                    ? `${p.color} text-white shadow`
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              <p.icon className="w-4 h-4" />
+              <p.icon className="w-4 h-4 shrink-0" />
               <span className="hidden xs:inline">{p.name}</span>
+              {p.disabled && (
+                <span className="text-[10px] leading-none font-semibold uppercase tracking-wide text-gray-500">
+                  Coming soon
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -787,7 +973,7 @@ const DiscoveryPage: React.FC = () => {
             Filters
           </button>
           {selectedInfluencers.length > 0 && (
-            <button className="btn btn-secondary">
+            <button onClick={openExportModal} className="btn btn-primary">
               <Download className="w-4 h-4 mr-2" />
               <span className="hidden sm:inline">Export </span>({selectedInfluencers.length})
             </button>
@@ -920,7 +1106,7 @@ const DiscoveryPage: React.FC = () => {
                       {inf.hasSponsoredPosts && <span className="px-2 py-0.5 rounded-full text-xs bg-green-50 text-green-700 flex items-center gap-0.5"><ShoppingBag className="w-3 h-3" />Sponsored</span>}
                     </div>
                   )}
-                  <button onClick={() => navigate(`/insights/${inf.id}`)} disabled={inf.isBlurred} className="btn btn-secondary w-full mt-3 py-1.5 text-sm">
+                  <button onClick={() => handleViewInsights(inf)} disabled={inf.isBlurred || isCheckingInsights} className="btn btn-secondary w-full mt-3 py-1.5 text-sm">
                     <Sparkles className="w-4 h-4 mr-1" /> View Insights
                   </button>
                 </div>
@@ -943,7 +1129,7 @@ const DiscoveryPage: React.FC = () => {
                   {inf.isBlurred ? (
                     <button onClick={() => handleUnblur([inf.id])} className="btn btn-secondary text-xs sm:text-sm py-1 shrink-0"><Unlock className="w-3 h-3 mr-1" />Unblur</button>
                   ) : (
-                    <button onClick={() => navigate(`/insights/${inf.id}`)} className="btn btn-primary text-xs sm:text-sm py-1 shrink-0"><Eye className="w-3 h-3 mr-1" />View</button>
+                    <button onClick={() => handleViewInsights(inf)} disabled={isCheckingInsights} className="btn btn-primary text-xs sm:text-sm py-1 shrink-0"><Eye className="w-3 h-3 mr-1" />View</button>
                   )}
                 </div>
               ))}
@@ -963,10 +1149,18 @@ const DiscoveryPage: React.FC = () => {
             </div>
           )}
 
-          {/* Load More */}
+          {/* Load More (no auto-scroll; disabled while any profile in the list is blurred) */}
           {hasMore && !isLoading && (
-            <div className="text-center">
-              <button onClick={() => handleSearch(currentPage + 1)} className="btn btn-secondary">Load More</button>
+            <div className="text-center py-2">
+              <button
+                type="button"
+                onClick={() => handleLoadMore()}
+                disabled={hasBlurredInCurrentBatch}
+                title={hasBlurredInCurrentBatch ? 'Unblur all profiles in this list to load more' : undefined}
+                className="btn btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Load More
+              </button>
             </div>
           )}
           {isLoading && influencers.length > 0 && (
@@ -980,14 +1174,237 @@ const DiscoveryPage: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 max-w-md w-full">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Unblur Profiles</h3>
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Unlock className="w-5 h-5 text-primary-600" /> Unblur Profiles
+              </h3>
               <button onClick={() => setShowUnblurModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
             </div>
-            <p className="text-gray-600 mb-4">Unblur <strong>{blurredCount}</strong> profiles for <strong>{unblurCost.toFixed(2)} credits</strong>?</p>
+            <div className="bg-gray-50 rounded-lg p-4 mb-4">
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-gray-600">Blurred profiles</span>
+                <span className="font-semibold">{blurredCount}</span>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-gray-600">Cost per profile</span>
+                <span className="font-semibold">{CREDIT_PER_UNBLUR} credits</span>
+              </div>
+              <div className="border-t border-gray-200 mt-2 pt-2 flex justify-between">
+                <span className="font-medium text-gray-700">Total cost</span>
+                <span className="font-bold text-primary-600">{unblurCost.toFixed(2)} credits</span>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              Once unblurred, profiles stay permanently accessible for you and your admin.
+            </p>
             <div className="flex gap-3">
               <button onClick={() => setShowUnblurModal(false)} className="btn btn-secondary flex-1">Cancel</button>
-              <button onClick={() => handleUnblur(influencers.filter((i) => i.isBlurred).map((i) => i.id))} className="btn btn-primary flex-1">Unblur All</button>
+              <button onClick={() => handleUnblur(influencers.filter((i) => i.isBlurred).map((i) => i.id))} className="btn btn-primary flex-1">
+                <Coins className="w-4 h-4 mr-1" /> Unblur All
+              </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Download className="w-5 h-5 text-primary-600" /> Export Influencers
+              </h3>
+              <button onClick={() => setShowExportModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+
+            <div className="space-y-4">
+              {/* File Name */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">File Name</label>
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-gray-400 shrink-0" />
+                  <input
+                    type="text"
+                    value={exportFileName}
+                    onChange={(e) => setExportFileName(e.target.value)}
+                    placeholder="Enter file name..."
+                    className="input text-sm flex-1"
+                  />
+                </div>
+              </div>
+
+              {/* Format */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Export Format</label>
+                <div className="flex gap-2">
+                  {(['csv', 'xlsx', 'json'] as const).map((fmt) => (
+                    <button
+                      key={fmt}
+                      onClick={() => setExportFormat(fmt)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        exportFormat === fmt
+                          ? 'bg-primary-600 text-white shadow'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {fmt.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Number of Influencers */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">
+                  Number of influencers to export
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={1}
+                    max={selectedInfluencers.length}
+                    value={exportCount}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      setExportCount(val);
+                      updateExportEstimate(selectedInfluencers.slice(0, val), excludePreviouslyExported);
+                    }}
+                    className="flex-1"
+                  />
+                  <span className="font-bold text-primary-600 min-w-[3ch] text-right">{exportCount}</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  {selectedInfluencers.length} influencer{selectedInfluencers.length !== 1 ? 's' : ''} selected
+                </p>
+              </div>
+
+              {/* Exclude Previously Exported */}
+              <label className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition">
+                <input
+                  type="checkbox"
+                  checked={excludePreviouslyExported}
+                  onChange={(e) => handleExcludePrevChange(e.target.checked)}
+                  className="w-4 h-4 text-primary-600 rounded mt-0.5"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-700">Exclude previously exported influencers</span>
+                  {exportCostEstimate && exportCostEstimate.previouslyExportedCount > 0 && excludePreviouslyExported && (
+                    <p className="text-xs text-amber-600 mt-0.5">
+                      {exportCostEstimate.previouslyExportedCount} already exported will be excluded
+                    </p>
+                  )}
+                </div>
+              </label>
+
+              {/* Credit Summary */}
+              <div className="bg-primary-50 border border-primary-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <CreditCard className="w-5 h-5 text-primary-600" />
+                  <span className="font-semibold text-primary-800">Credit Utilization</span>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Influencers to export</span>
+                    <span className="font-medium">{exportCostEstimate?.newExportCount ?? exportCount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Rate</span>
+                    <span className="font-medium">1 credit per 25 influencers</span>
+                  </div>
+                  {exportCostEstimate && excludePreviouslyExported && exportCostEstimate.previouslyExportedCount > 0 && (
+                    <div className="flex justify-between text-amber-600">
+                      <span>Previously exported (excluded)</span>
+                      <span>-{exportCostEstimate.previouslyExportedCount}</span>
+                    </div>
+                  )}
+                  <div className="border-t border-primary-200 pt-2 flex justify-between">
+                    <span className="font-semibold text-primary-800">Total Credit Cost</span>
+                    <span className="font-bold text-primary-600 text-lg">
+                      {exportCostEstimate?.creditCost.toFixed(2) ?? (exportCount * CREDIT_PER_EXPORT).toFixed(2)} credits
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>Your balance</span>
+                    <span>{user?.credits?.toFixed(2) ?? '0.00'} credits</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              <button onClick={() => setShowExportModal(false)} className="btn btn-secondary flex-1">Cancel</button>
+              <button
+                onClick={confirmExport}
+                disabled={isExporting || (exportCostEstimate?.newExportCount ?? 0) === 0}
+                className="btn btn-primary flex-1"
+              >
+                {isExporting ? (
+                  <><RefreshCw className="w-4 h-4 animate-spin mr-1" /> Exporting...</>
+                ) : (
+                  <><Download className="w-4 h-4 mr-1" /> Export & Deduct Credits</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Insights Credit Confirmation Modal */}
+      {showInsightsModal && insightsTargetProfile && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-primary-600" /> View Influencer Report
+              </h3>
+              <button onClick={() => setShowInsightsModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+
+            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg mb-4">
+              <img
+                src={insightsTargetProfile.profilePictureUrl || `https://ui-avatars.com/api/?name=${insightsTargetProfile.username}&background=6366f1&color=fff`}
+                alt={insightsTargetProfile.username}
+                className="w-12 h-12 rounded-full object-cover"
+              />
+              <div>
+                <p className="font-semibold text-gray-900">{insightsTargetProfile.fullName || insightsTargetProfile.username}</p>
+                <p className="text-sm text-gray-500">@{insightsTargetProfile.username}</p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+              <div className="flex items-start gap-2">
+                <Coins className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-amber-800">
+                    This will cost <span className="font-bold">{CREDIT_PER_INSIGHT} credit</span> to view the detailed report.
+                  </p>
+                  <p className="text-sm text-amber-700 mt-1">
+                    Once purchased, you can access this report anytime without additional charges. 
+                    It will also appear in your Influencer Insights menu.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-between text-sm text-gray-600 mb-4">
+              <span>Your balance</span>
+              <span className="font-semibold">{user?.credits?.toFixed(2) ?? '0.00'} credits</span>
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={() => setShowInsightsModal(false)} className="btn btn-secondary flex-1">Cancel</button>
+              <button
+                onClick={confirmViewInsights}
+                disabled={(user?.credits ?? 0) < CREDIT_PER_INSIGHT}
+                className="btn btn-primary flex-1"
+              >
+                <CheckCircle2 className="w-4 h-4 mr-1" /> Pay {CREDIT_PER_INSIGHT} Credit & View
+              </button>
+            </div>
+            {(user?.credits ?? 0) < CREDIT_PER_INSIGHT && (
+              <p className="text-xs text-red-500 text-center mt-2">Insufficient credits</p>
+            )}
           </div>
         </div>
       )}
