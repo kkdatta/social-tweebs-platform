@@ -13,6 +13,7 @@ const insights_controller_1 = require("./insights.controller");
 const insights_service_1 = require("./insights.service");
 const entities_1 = require("./entities");
 const influencer_profile_entity_1 = require("../discovery/entities/influencer-profile.entity");
+const user_entity_1 = require("../users/entities/user.entity");
 const credits_module_1 = require("../credits/credits.module");
 const discovery_module_1 = require("../discovery/discovery.module");
 let InsightsModule = class InsightsModule {
@@ -26,9 +27,10 @@ exports.InsightsModule = InsightsModule = __decorate([
                 entities_1.SystemConfig,
                 entities_1.InsightAccessLog,
                 influencer_profile_entity_1.InfluencerProfile,
+                user_entity_1.User,
             ]),
             credits_module_1.CreditsModule,
-            discovery_module_1.DiscoveryModule,
+            (0, common_1.forwardRef)(() => discovery_module_1.DiscoveryModule),
         ],
         controllers: [insights_controller_1.InsightsController],
         providers: [insights_service_1.InsightsService],

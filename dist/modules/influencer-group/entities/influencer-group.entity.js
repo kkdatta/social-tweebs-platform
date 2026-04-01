@@ -169,7 +169,7 @@ __decorate([
     __metadata("design:type", Number)
 ], InfluencerGroupMember.prototype, "audienceCredibility", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], InfluencerGroupMember.prototype, "engagementRate", void 0);
 __decorate([

@@ -30,10 +30,14 @@ const paid_collaboration_module_1 = require("./modules/paid-collaboration/paid-c
 const influencer_group_module_1 = require("./modules/influencer-group/influencer-group.module");
 const mention_tracking_module_1 = require("./modules/mention-tracking/mention-tracking.module");
 const competition_analysis_module_1 = require("./modules/competition-analysis/competition-analysis.module");
+const scheduler_module_1 = require("./modules/scheduler/scheduler.module");
+const mail_module_1 = require("./common/services/mail.module");
+const schedule_1 = require("@nestjs/schedule");
 const database_config_1 = require("./config/database.config");
 const jwt_config_1 = require("./config/jwt.config");
 const app_config_1 = require("./config/app.config");
 const modash_config_1 = require("./config/modash.config");
+const mail_config_1 = require("./config/mail.config");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -42,7 +46,7 @@ exports.AppModule = AppModule = __decorate([
         imports: [
             config_1.ConfigModule.forRoot({
                 isGlobal: true,
-                load: [database_config_1.default, jwt_config_1.default, app_config_1.default, modash_config_1.default],
+                load: [database_config_1.default, jwt_config_1.default, app_config_1.default, modash_config_1.default, mail_config_1.default],
             }),
             typeorm_1.TypeOrmModule.forRootAsync({
                 imports: [config_1.ConfigModule],
@@ -72,6 +76,8 @@ exports.AppModule = AppModule = __decorate([
                 }),
                 inject: [config_1.ConfigService],
             }),
+            mail_module_1.MailModule,
+            schedule_1.ScheduleModule.forRoot(),
             auth_module_1.AuthModule,
             users_module_1.UsersModule,
             credits_module_1.CreditsModule,
@@ -91,6 +97,7 @@ exports.AppModule = AppModule = __decorate([
             influencer_group_module_1.InfluencerGroupModule,
             mention_tracking_module_1.MentionTrackingModule,
             competition_analysis_module_1.CompetitionAnalysisModule,
+            scheduler_module_1.SchedulerModule,
         ],
     })
 ], AppModule);

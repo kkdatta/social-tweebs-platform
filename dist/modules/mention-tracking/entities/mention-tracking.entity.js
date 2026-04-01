@@ -107,11 +107,11 @@ __decorate([
     __metadata("design:type", Number)
 ], MentionTrackingReport.prototype, "totalShares", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], MentionTrackingReport.prototype, "avgEngagementRate", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'engagement_views_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'engagement_views_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], MentionTrackingReport.prototype, "engagementViewsRate", void 0);
 __decorate([
@@ -256,7 +256,7 @@ __decorate([
     __metadata("design:type", Number)
 ], MentionTrackingInfluencer.prototype, "sharesCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], MentionTrackingInfluencer.prototype, "avgEngagementRate", void 0);
 __decorate([
@@ -348,7 +348,7 @@ __decorate([
     __metadata("design:type", Number)
 ], MentionTrackingPost.prototype, "sharesCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], MentionTrackingPost.prototype, "engagementRate", void 0);
 __decorate([

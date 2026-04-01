@@ -81,6 +81,7 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
             brand.hashtags = brandDto.hashtags || [];
             brand.username = brandDto.username;
             brand.keywords = brandDto.keywords || [];
+            brand.platform = brandDto.platform;
             brand.displayColor = BRAND_COLORS[i % BRAND_COLORS.length];
             brand.displayOrder = i;
             await this.brandRepo.save(brand);
@@ -123,9 +124,9 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
             report.totalComments = totalComments;
             report.totalShares = totalShares;
             report.totalFollowers = totalFollowers;
-            report.avgEngagementRate = totalPosts > 0 && totalFollowers > 0
-                ? ((totalLikes + totalComments) / (totalPosts * (totalFollowers / totalInfluencers))) * 100
-                : 0;
+            const avgFollowersPerInf = totalInfluencers > 0 ? totalFollowers / totalInfluencers : 0;
+            const reportEngDenom = totalPosts * avgFollowersPerInf;
+            report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
             report.status = entities_1.CompetitionReportStatus.COMPLETED;
             report.completedAt = new Date();
             await this.reportRepo.save(report);
@@ -171,7 +172,10 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
             const influencer = new entities_1.CompetitionInfluencer();
             influencer.reportId = reportId;
             influencer.brandId = brand.id;
-            influencer.platform = report.platforms[Math.floor(Math.random() * report.platforms.length)];
+            const platformPool = brand.platform?.trim()
+                ? [brand.platform.trim().toUpperCase()]
+                : (report.platforms?.length ? report.platforms : ['INSTAGRAM']);
+            influencer.platform = platformPool[Math.floor(Math.random() * platformPool.length)];
             influencer.influencerName = this.generateInfluencerName();
             influencer.influencerUsername = influencer.influencerName.toLowerCase().replace(/\s/g, '_');
             influencer.platformUserId = `user_${Date.now()}_${brand.id}_${i}`;
@@ -216,7 +220,8 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
                 post.commentsCount = Math.floor(Math.random() * 600) + 20;
                 post.viewsCount = Math.floor(Math.random() * 70000) + 2000;
                 post.sharesCount = Math.floor(Math.random() * 300) + 10;
-                post.engagementRate = ((post.likesCount + post.commentsCount) / savedInfluencer.followerCount) * 100;
+                const postFc = Number(savedInfluencer.followerCount) || 0;
+                post.engagementRate = postFc > 0 ? ((post.likesCount + post.commentsCount) / postFc) * 100 : 0;
                 post.isSponsored = Math.random() > 0.75;
                 const startMs = new Date(report.dateRangeStart).getTime();
                 const endMs = new Date(report.dateRangeEnd).getTime();
@@ -224,24 +229,26 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
                 post.postDate = new Date(randomMs);
                 post.postUrl = `https://instagram.com/p/${post.postId}`;
                 await this.postRepo.save(post);
-                infLikes += post.likesCount;
-                infViews += post.viewsCount;
-                infComments += post.commentsCount;
-                infShares += post.sharesCount;
+                infLikes += Number(post.likesCount) || 0;
+                infViews += Number(post.viewsCount) || 0;
+                infComments += Number(post.commentsCount) || 0;
+                infShares += Number(post.sharesCount) || 0;
             }
             savedInfluencer.postsCount = postsCount;
             savedInfluencer.likesCount = infLikes;
             savedInfluencer.viewsCount = infViews;
             savedInfluencer.commentsCount = infComments;
             savedInfluencer.sharesCount = infShares;
-            savedInfluencer.avgEngagementRate = ((infLikes + infComments) / (postsCount * savedInfluencer.followerCount)) * 100;
+            const infFc = Number(savedInfluencer.followerCount) || 0;
+            const infDenom = postsCount * infFc;
+            savedInfluencer.avgEngagementRate = infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
             await this.influencerRepo.save(savedInfluencer);
             brandPosts += postsCount;
             brandLikes += infLikes;
             brandViews += infViews;
             brandComments += infComments;
             brandShares += infShares;
-            brandFollowers += savedInfluencer.followerCount;
+            brandFollowers += Number(savedInfluencer.followerCount) || 0;
         }
         brand.influencerCount = influencerCount;
         brand.postsCount = brandPosts;
@@ -250,9 +257,9 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
         brand.totalComments = brandComments;
         brand.totalShares = brandShares;
         brand.totalFollowers = brandFollowers;
-        brand.avgEngagementRate = brandPosts > 0 && brandFollowers > 0
-            ? ((brandLikes + brandComments) / (brandPosts * (brandFollowers / influencerCount))) * 100
-            : 0;
+        const brandAvgFollowersPerInf = influencerCount > 0 ? brandFollowers / influencerCount : 0;
+        const brandEngDenom = brandPosts * brandAvgFollowersPerInf;
+        brand.avgEngagementRate = brandEngDenom > 0 ? ((brandLikes + brandComments) / brandEngDenom) * 100 : 0;
         brand.nanoCount = nanoCount;
         brand.microCount = microCount;
         brand.macroCount = macroCount;
@@ -349,7 +356,7 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
                 select: ['reportId'],
             });
             const reportIds = sharedReportIds.map(s => s.reportId);
-            queryBuilder.where('(report.createdById = :userId OR report.createdById IN (:...teamUserIds) OR report.id IN (:...reportIds) OR report.isPublic = true)', { userId, teamUserIds, reportIds: reportIds.length > 0 ? reportIds : ['none'] });
+            queryBuilder.where('(report.createdById = :userId OR report.createdById IN (:...teamUserIds) OR report.id IN (:...reportIds) OR report.isPublic = true)', { userId, teamUserIds, reportIds: reportIds.length > 0 ? reportIds : ['00000000-0000-0000-0000-000000000000'] });
         }
         if (filters.platform && filters.platform !== 'ALL') {
             queryBuilder.andWhere(':platform = ANY(report.platforms)', { platform: filters.platform });
@@ -563,6 +570,81 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
         })
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     }
+    async getEnhancedChartData(userId, reportId) {
+        const report = await this.reportRepo.findOne({
+            where: { id: reportId },
+            relations: ['brands'],
+        });
+        if (!report) {
+            throw new common_1.NotFoundException('Report not found');
+        }
+        await this.checkReportAccess(userId, report);
+        const posts = await this.postRepo.find({ where: { reportId } });
+        const brands = report.brands || [];
+        const brandNameMap = {};
+        const brandColorMap = {};
+        brands.forEach(b => {
+            brandNameMap[b.id] = b.brandName;
+            brandColorMap[b.id] = b.displayColor || '#6b7280';
+        });
+        const postsGrouped = {};
+        const influencersByDate = {};
+        posts.forEach(post => {
+            const dateStr = post.postDate
+                ? new Date(post.postDate).toISOString().split('T')[0]
+                : 'Unknown';
+            if (!postsGrouped[dateStr]) {
+                postsGrouped[dateStr] = {};
+                influencersByDate[dateStr] = {};
+                brands.forEach(b => {
+                    postsGrouped[dateStr][b.id] = 0;
+                    influencersByDate[dateStr][b.id] = new Set();
+                });
+            }
+            if (post.brandId && postsGrouped[dateStr][post.brandId] !== undefined) {
+                postsGrouped[dateStr][post.brandId] += 1;
+            }
+            if (post.brandId && post.influencerId && influencersByDate[dateStr][post.brandId]) {
+                influencersByDate[dateStr][post.brandId].add(post.influencerId);
+            }
+        });
+        const sortedDates = Object.keys(postsGrouped).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+        const postsOverTime = sortedDates.map(date => {
+            const namedBrands = {};
+            let total = 0;
+            Object.entries(postsGrouped[date]).forEach(([brandId, count]) => {
+                namedBrands[brandNameMap[brandId] || brandId] = count;
+                total += count;
+            });
+            return { date, brands: namedBrands, total };
+        });
+        const influencersOverTime = sortedDates.map(date => {
+            const namedBrands = {};
+            let total = 0;
+            Object.entries(influencersByDate[date]).forEach(([brandId, infSet]) => {
+                const count = infSet.size;
+                namedBrands[brandNameMap[brandId] || brandId] = count;
+                total += count;
+            });
+            return { date, brands: namedBrands, total };
+        });
+        const postsShare = brands.map(b => ({
+            brandName: b.brandName,
+            value: b.postsCount || 0,
+            color: b.displayColor || '#6b7280',
+        }));
+        const influencersShare = brands.map(b => ({
+            brandName: b.brandName,
+            value: b.influencerCount || 0,
+            color: b.displayColor || '#6b7280',
+        }));
+        const engagementShare = brands.map(b => ({
+            brandName: b.brandName,
+            value: (Number(b.totalLikes) || 0) + (Number(b.totalComments) || 0) + (Number(b.totalShares) || 0),
+            color: b.displayColor || '#6b7280',
+        }));
+        return { postsOverTime, influencersOverTime, postsShare, influencersShare, engagementShare };
+    }
     async getPosts(userId, reportId, filters) {
         const report = await this.reportRepo.findOne({
             where: { id: reportId },
@@ -593,7 +675,10 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
             'likes': 'post.likesCount',
             'views': 'post.viewsCount',
             'comments': 'post.commentsCount',
+            'shares': 'post.sharesCount',
             'engagement': 'post.engagementRate',
+            'credibility': 'influencer.audienceCredibility',
+            'followers': 'influencer.followerCount',
         };
         queryBuilder.orderBy(sortMap[sortField] || 'post.postDate', sortOrder);
         const [posts, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
@@ -686,8 +771,8 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
             title: report.title,
             platforms: report.platforms,
             status: report.status,
-            dateRangeStart: report.dateRangeStart?.toISOString().split('T')[0],
-            dateRangeEnd: report.dateRangeEnd?.toISOString().split('T')[0],
+            dateRangeStart: report.dateRangeStart instanceof Date ? report.dateRangeStart.toISOString().split('T')[0] : report.dateRangeStart,
+            dateRangeEnd: report.dateRangeEnd instanceof Date ? report.dateRangeEnd.toISOString().split('T')[0] : report.dateRangeEnd,
             totalBrands: report.totalBrands || 0,
             totalPosts: report.totalPosts || 0,
             totalInfluencers: report.totalInfluencers || 0,
@@ -704,8 +789,8 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
             platforms: report.platforms,
             status: report.status,
             errorMessage: report.errorMessage,
-            dateRangeStart: report.dateRangeStart?.toISOString().split('T')[0],
-            dateRangeEnd: report.dateRangeEnd?.toISOString().split('T')[0],
+            dateRangeStart: report.dateRangeStart instanceof Date ? report.dateRangeStart.toISOString().split('T')[0] : report.dateRangeStart,
+            dateRangeEnd: report.dateRangeEnd instanceof Date ? report.dateRangeEnd.toISOString().split('T')[0] : report.dateRangeEnd,
             autoRefreshEnabled: report.autoRefreshEnabled,
             totalBrands: report.totalBrands || 0,
             totalInfluencers: report.totalInfluencers || 0,
@@ -735,6 +820,7 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
             hashtags: brand.hashtags,
             username: brand.username,
             keywords: brand.keywords,
+            platform: brand.platform,
             displayColor: brand.displayColor,
             influencerCount: brand.influencerCount || 0,
             postsCount: brand.postsCount || 0,
@@ -794,8 +880,11 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
             engagementRate: post.engagementRate ? Number(post.engagementRate) : undefined,
             isSponsored: post.isSponsored,
             postDate: post.postDate ? (post.postDate instanceof Date ? post.postDate.toISOString().split('T')[0] : String(post.postDate).split('T')[0]) : undefined,
+            influencerId: post.influencerId,
             influencerName: post.influencer?.influencerName,
             influencerUsername: post.influencer?.influencerUsername,
+            influencerFollowerCount: post.influencer ? Number(post.influencer.followerCount) : undefined,
+            influencerCredibility: post.influencer ? Number(post.influencer.audienceCredibility) : undefined,
         };
     }
     calculateCategorization(influencers) {
@@ -840,7 +929,7 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
             viewsCount: data.views,
             commentsCount: data.comments,
             sharesCount: data.shares,
-            engagementRate: data.posts > 0 && data.followers > 0
+            engagementRate: data.posts > 0 && data.followers > 0 && data.count > 0
                 ? ((data.likes + data.comments) / (data.posts * (data.followers / data.count))) * 100
                 : 0,
         }));

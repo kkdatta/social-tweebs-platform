@@ -111,4 +111,5 @@ export declare class PostsChartDataDto {
     postsCount: number;
     likesCount: number;
     viewsCount: number;
+    commentsCount: number;
 }

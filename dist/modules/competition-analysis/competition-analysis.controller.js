@@ -41,6 +41,9 @@ let CompetitionAnalysisController = class CompetitionAnalysisController {
     async getChartData(userId, id) {
         return this.competitionAnalysisService.getChartData(userId, id);
     }
+    async getEnhancedChartData(userId, id) {
+        return this.competitionAnalysisService.getEnhancedChartData(userId, id);
+    }
     async getPosts(userId, id, filters) {
         return this.competitionAnalysisService.getPosts(userId, id, filters);
     }
@@ -138,6 +141,18 @@ __decorate([
     __metadata("design:paramtypes", [String, String]),
     __metadata("design:returntype", Promise)
 ], CompetitionAnalysisController.prototype, "getChartData", null);
+__decorate([
+    (0, common_1.Get)(':id/enhanced-charts'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, swagger_1.ApiOperation)({ summary: 'Get enhanced chart data including timelines and distributions' }),
+    (0, swagger_1.ApiResponse)({ status: 200, type: dto_1.EnhancedChartDataDto }),
+    __param(0, (0, decorators_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Param)('id', common_1.ParseUUIDPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], CompetitionAnalysisController.prototype, "getEnhancedChartData", null);
 __decorate([
     (0, common_1.Get)(':id/posts'),
     (0, common_1.UseGuards)(guards_1.JwtAuthGuard),

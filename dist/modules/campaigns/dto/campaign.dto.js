@@ -9,10 +9,11 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CampaignListResponseDto = exports.CampaignDetailDto = exports.CampaignSummaryDto = exports.CampaignMetricsSummary = exports.CampaignFilterDto = exports.ShareCampaignDto = exports.RecordMetricsDto = exports.UpdateDeliverableDto = exports.CreateDeliverableDto = exports.UpdateInfluencerDto = exports.AddInfluencerDto = exports.UpdateCampaignDto = exports.CreateCampaignDto = void 0;
+exports.CampaignListResponseDto = exports.CampaignDetailDto = exports.CampaignSummaryDto = exports.TimelineDataPoint = exports.CampaignMetricsSummary = exports.CampaignFilterDto = exports.ShareCampaignDto = exports.InfluencerFilterDto = exports.PostFilterDto = exports.AddPostDto = exports.RecordMetricsDto = exports.UpdateDeliverableDto = exports.CreateDeliverableDto = exports.UpdateInfluencerDto = exports.AddInfluencerDto = exports.UpdateCampaignDto = exports.CreateCampaignDto = exports.MIN_CREDITS_FOR_CAMPAIGN = void 0;
 const class_validator_1 = require("class-validator");
 const swagger_1 = require("@nestjs/swagger");
 const campaign_entity_1 = require("../entities/campaign.entity");
+exports.MIN_CREDITS_FOR_CAMPAIGN = 5;
 class CreateCampaignDto {
 }
 exports.CreateCampaignDto = CreateCampaignDto;
@@ -27,6 +28,12 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], CreateCampaignDto.prototype, "description", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Campaign logo URL' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateCampaignDto.prototype, "logoUrl", void 0);
 __decorate([
     (0, swagger_1.ApiProperty)({ description: 'Platform: INSTAGRAM, YOUTUBE, TIKTOK, MULTI' }),
     (0, class_validator_1.IsString)(),
@@ -385,6 +392,176 @@ __decorate([
     (0, class_validator_1.Min)(0),
     __metadata("design:type", Number)
 ], RecordMetricsDto.prototype, "clicks", void 0);
+class AddPostDto {
+}
+exports.AddPostDto = AddPostDto;
+__decorate([
+    (0, swagger_1.ApiProperty)({ description: 'Post URL' }),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], AddPostDto.prototype, "postUrl", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ enum: campaign_entity_1.PostType, default: campaign_entity_1.PostType.POST }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsEnum)(campaign_entity_1.PostType),
+    __metadata("design:type", String)
+], AddPostDto.prototype, "postType", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsUUID)(),
+    __metadata("design:type", String)
+], AddPostDto.prototype, "campaignInfluencerId", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], AddPostDto.prototype, "platform", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], AddPostDto.prototype, "influencerName", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], AddPostDto.prototype, "influencerUsername", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], AddPostDto.prototype, "postImageUrl", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], AddPostDto.prototype, "description", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsDateString)(),
+    __metadata("design:type", String)
+], AddPostDto.prototype, "postedDate", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], AddPostDto.prototype, "followerCount", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], AddPostDto.prototype, "likesCount", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], AddPostDto.prototype, "viewsCount", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], AddPostDto.prototype, "commentsCount", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], AddPostDto.prototype, "sharesCount", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], AddPostDto.prototype, "engagementRate", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], AddPostDto.prototype, "audienceCredibility", void 0);
+class PostFilterDto {
+}
+exports.PostFilterDto = PostFilterDto;
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], PostFilterDto.prototype, "platform", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], PostFilterDto.prototype, "search", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ enum: campaign_entity_1.PostType }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsEnum)(campaign_entity_1.PostType),
+    __metadata("design:type", String)
+], PostFilterDto.prototype, "postType", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'published / unpublished / all' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], PostFilterDto.prototype, "publishStatus", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], PostFilterDto.prototype, "sortBy", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ enum: ['asc', 'desc'] }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], PostFilterDto.prototype, "sortOrder", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], PostFilterDto.prototype, "page", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], PostFilterDto.prototype, "limit", void 0);
+class InfluencerFilterDto {
+}
+exports.InfluencerFilterDto = InfluencerFilterDto;
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], InfluencerFilterDto.prototype, "platform", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'published / unpublished / all' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], InfluencerFilterDto.prototype, "publishStatus", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], InfluencerFilterDto.prototype, "search", void 0);
 class ShareCampaignDto {
 }
 exports.ShareCampaignDto = ShareCampaignDto;
@@ -465,6 +642,14 @@ exports.CampaignMetricsSummary = CampaignMetricsSummary;
 __decorate([
     (0, swagger_1.ApiProperty)(),
     __metadata("design:type", Number)
+], CampaignMetricsSummary.prototype, "totalInfluencers", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], CampaignMetricsSummary.prototype, "totalPosts", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
 ], CampaignMetricsSummary.prototype, "totalImpressions", void 0);
 __decorate([
     (0, swagger_1.ApiProperty)(),
@@ -497,11 +682,46 @@ __decorate([
 __decorate([
     (0, swagger_1.ApiProperty)(),
     __metadata("design:type", Number)
+], CampaignMetricsSummary.prototype, "engagementToViewsRatio", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
 ], CampaignMetricsSummary.prototype, "totalSpent", void 0);
 __decorate([
     (0, swagger_1.ApiProperty)(),
     __metadata("design:type", Number)
 ], CampaignMetricsSummary.prototype, "budgetUtilization", void 0);
+class TimelineDataPoint {
+}
+exports.TimelineDataPoint = TimelineDataPoint;
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", String)
+], TimelineDataPoint.prototype, "date", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], TimelineDataPoint.prototype, "posts", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], TimelineDataPoint.prototype, "likes", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], TimelineDataPoint.prototype, "views", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], TimelineDataPoint.prototype, "comments", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], TimelineDataPoint.prototype, "shares", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], TimelineDataPoint.prototype, "engagement", void 0);
 class CampaignSummaryDto {
 }
 exports.CampaignSummaryDto = CampaignSummaryDto;
@@ -513,6 +733,10 @@ __decorate([
     (0, swagger_1.ApiProperty)(),
     __metadata("design:type", String)
 ], CampaignSummaryDto.prototype, "name", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    __metadata("design:type", String)
+], CampaignSummaryDto.prototype, "logoUrl", void 0);
 __decorate([
     (0, swagger_1.ApiProperty)(),
     __metadata("design:type", String)
@@ -542,9 +766,17 @@ __decorate([
     __metadata("design:type", String)
 ], CampaignSummaryDto.prototype, "currency", void 0);
 __decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    __metadata("design:type", Array)
+], CampaignSummaryDto.prototype, "hashtags", void 0);
+__decorate([
     (0, swagger_1.ApiProperty)(),
     __metadata("design:type", Number)
 ], CampaignSummaryDto.prototype, "influencerCount", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], CampaignSummaryDto.prototype, "postsCount", void 0);
 __decorate([
     (0, swagger_1.ApiProperty)(),
     __metadata("design:type", Number)
@@ -567,10 +799,6 @@ __decorate([
 __decorate([
     (0, swagger_1.ApiPropertyOptional)(),
     __metadata("design:type", Array)
-], CampaignDetailDto.prototype, "hashtags", void 0);
-__decorate([
-    (0, swagger_1.ApiPropertyOptional)(),
-    __metadata("design:type", Array)
 ], CampaignDetailDto.prototype, "mentions", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)(),
@@ -586,8 +814,16 @@ __decorate([
 ], CampaignDetailDto.prototype, "deliverables", void 0);
 __decorate([
     (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Array)
+], CampaignDetailDto.prototype, "posts", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
     __metadata("design:type", CampaignMetricsSummary)
 ], CampaignDetailDto.prototype, "metrics", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Array)
+], CampaignDetailDto.prototype, "timeline", void 0);
 class CampaignListResponseDto {
 }
 exports.CampaignListResponseDto = CampaignListResponseDto;

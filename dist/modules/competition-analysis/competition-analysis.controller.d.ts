@@ -1,5 +1,5 @@
 import { CompetitionAnalysisService } from './competition-analysis.service';
-import { CreateCompetitionReportDto, UpdateCompetitionReportDto, ShareCompetitionReportDto, CompetitionReportFilterDto, CompetitionReportListResponseDto, CompetitionReportDetailDto, DashboardStatsDto, ChartDataDto, PostsFilterDto, InfluencersFilterDto } from './dto';
+import { CreateCompetitionReportDto, UpdateCompetitionReportDto, ShareCompetitionReportDto, CompetitionReportFilterDto, CompetitionReportListResponseDto, CompetitionReportDetailDto, DashboardStatsDto, ChartDataDto, EnhancedChartDataDto, PostsFilterDto, InfluencersFilterDto } from './dto';
 export declare class CompetitionAnalysisController {
     private readonly competitionAnalysisService;
     constructor(competitionAnalysisService: CompetitionAnalysisService);
@@ -13,6 +13,7 @@ export declare class CompetitionAnalysisController {
     getDashboardStats(userId: string): Promise<DashboardStatsDto>;
     getReportById(userId: string, id: string): Promise<CompetitionReportDetailDto>;
     getChartData(userId: string, id: string): Promise<ChartDataDto[]>;
+    getEnhancedChartData(userId: string, id: string): Promise<EnhancedChartDataDto>;
     getPosts(userId: string, id: string, filters: PostsFilterDto): Promise<{
         posts: import("./dto").CompetitionPostDto[];
         total: number;

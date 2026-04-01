@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ExportResponseDto = exports.ExportInfluencersDto = exports.InfluencerProfileDto = exports.RefreshInsightsResponseDto = exports.ViewInsightsResponseDto = exports.InfluencerInsightsDto = exports.AudienceDataDto = exports.UnblurResponseDto = exports.UnblurInfluencersDto = void 0;
+exports.ExportCostEstimateDto = exports.InsightsCheckResponseDto = exports.ExportHistoryResponseDto = exports.ExportHistoryItemDto = exports.ExportResponseDto = exports.ExportInfluencersDto = exports.InfluencerProfileDto = exports.RefreshInsightsResponseDto = exports.ViewInsightsResponseDto = exports.InfluencerInsightsDto = exports.AudienceDataDto = exports.UnblurResponseDto = exports.UnblurInfluencersDto = void 0;
 const class_validator_1 = require("class-validator");
 const swagger_1 = require("@nestjs/swagger");
 const enums_1 = require("../../../common/enums");
@@ -189,6 +189,12 @@ __decorate([
     __metadata("design:type", Boolean)
 ], ViewInsightsResponseDto.prototype, "success", void 0);
 __decorate([
+    (0, swagger_1.ApiProperty)({
+        description: 'InfluencerInsight row id for /insights/:id navigation',
+    }),
+    __metadata("design:type", String)
+], ViewInsightsResponseDto.prototype, "insightId", void 0);
+__decorate([
     (0, swagger_1.ApiProperty)(),
     __metadata("design:type", Boolean)
 ], ViewInsightsResponseDto.prototype, "isFirstAccess", void 0);
@@ -301,6 +307,17 @@ __decorate([
     __metadata("design:type", String)
 ], ExportInfluencersDto.prototype, "format", void 0);
 __decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], ExportInfluencersDto.prototype, "fileName", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ default: false }),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Boolean)
+], ExportInfluencersDto.prototype, "excludePreviouslyExported", void 0);
+__decorate([
     (0, swagger_1.ApiPropertyOptional)({ type: [String] }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsArray)(),
@@ -334,4 +351,86 @@ __decorate([
     (0, swagger_1.ApiPropertyOptional)(),
     __metadata("design:type", Array)
 ], ExportResponseDto.prototype, "data", void 0);
+class ExportHistoryItemDto {
+}
+exports.ExportHistoryItemDto = ExportHistoryItemDto;
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", String)
+], ExportHistoryItemDto.prototype, "id", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", String)
+], ExportHistoryItemDto.prototype, "fileName", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], ExportHistoryItemDto.prototype, "exportedCount", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], ExportHistoryItemDto.prototype, "creditsUsed", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Date)
+], ExportHistoryItemDto.prototype, "createdAt", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)({ type: [String] }),
+    __metadata("design:type", Array)
+], ExportHistoryItemDto.prototype, "profileIds", void 0);
+class ExportHistoryResponseDto {
+}
+exports.ExportHistoryResponseDto = ExportHistoryResponseDto;
+__decorate([
+    (0, swagger_1.ApiProperty)({ type: [ExportHistoryItemDto] }),
+    __metadata("design:type", Array)
+], ExportHistoryResponseDto.prototype, "exports", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], ExportHistoryResponseDto.prototype, "total", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)({ type: [String], description: 'All previously exported profile IDs for this user' }),
+    __metadata("design:type", Array)
+], ExportHistoryResponseDto.prototype, "allExportedProfileIds", void 0);
+class InsightsCheckResponseDto {
+}
+exports.InsightsCheckResponseDto = InsightsCheckResponseDto;
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Boolean)
+], InsightsCheckResponseDto.prototype, "hasAccess", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], InsightsCheckResponseDto.prototype, "creditCost", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'InfluencerInsight id when the user has access (for /insights/:id)',
+    }),
+    __metadata("design:type", String)
+], InsightsCheckResponseDto.prototype, "insightId", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    __metadata("design:type", Date)
+], InsightsCheckResponseDto.prototype, "firstAccessedAt", void 0);
+class ExportCostEstimateDto {
+}
+exports.ExportCostEstimateDto = ExportCostEstimateDto;
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], ExportCostEstimateDto.prototype, "count", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], ExportCostEstimateDto.prototype, "creditCost", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], ExportCostEstimateDto.prototype, "previouslyExportedCount", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], ExportCostEstimateDto.prototype, "newExportCount", void 0);
 //# sourceMappingURL=influencer.dto.js.map

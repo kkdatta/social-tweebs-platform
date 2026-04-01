@@ -3,7 +3,8 @@ export declare class ForgotPasswordDto {
 }
 export declare class ResetPasswordDto {
     token: string;
-    newPassword: string;
+    newPassword?: string;
+    password?: string;
 }
 export declare class RefreshTokenDto {
     refreshToken: string;

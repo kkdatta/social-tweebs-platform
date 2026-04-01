@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const typeorm_1 = require("@nestjs/typeorm");
 const typeorm_2 = require("typeorm");
 const uuid_1 = require("uuid");
+const XLSX = require("xlsx");
 const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
 const credits_service_1 = require("../credits/credits.service");
@@ -252,6 +253,8 @@ let AudienceOverlapService = class AudienceOverlapService {
             share.permissionLevel = dto.permissionLevel || entities_1.OverlapSharePermission.VIEW;
             await this.shareRepo.save(share);
         }
+        report.isPublic = true;
+        await this.reportRepo.save(report);
         const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/audience-overlap/shared/${report.shareUrlToken}`;
         return { success: true, shareUrl };
     }
@@ -331,6 +334,54 @@ let AudienceOverlapService = class AudienceOverlapService {
             createdAt: report.createdAt,
             createdById: report.createdById,
         };
+    }
+    async downloadReportAsXlsx(userId, reportId) {
+        const report = await this.reportRepo.findOne({
+            where: { id: reportId },
+            relations: ['influencers'],
+        });
+        if (!report) {
+            throw new common_1.NotFoundException('Report not found');
+        }
+        await this.checkReportAccess(userId, report);
+        const workbook = XLSX.utils.book_new();
+        const summaryData = [
+            { Metric: 'Report Title', Value: report.title },
+            { Metric: 'Platform', Value: report.platform },
+            { Metric: 'Status', Value: report.status },
+            { Metric: 'Created', Value: report.createdAt ? new Date(report.createdAt).toLocaleDateString() : '' },
+            { Metric: '', Value: '' },
+            { Metric: 'Total Followers', Value: report.totalFollowers },
+            { Metric: 'Unique Followers', Value: report.uniqueFollowers },
+            { Metric: 'Overlapping Followers', Value: report.overlappingFollowers },
+            { Metric: 'Overlap Rate (%)', Value: report.overlapPercentage ? Number(report.overlapPercentage).toFixed(2) : '0' },
+            { Metric: 'Unique Rate (%)', Value: report.uniquePercentage ? Number(report.uniquePercentage).toFixed(2) : '0' },
+        ];
+        const summarySheet = XLSX.utils.json_to_sheet(summaryData);
+        summarySheet['!cols'] = [{ wch: 25 }, { wch: 40 }];
+        XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+        const influencers = (report.influencers || []).sort((a, b) => a.displayOrder - b.displayOrder);
+        const influencerData = influencers.map(inf => ({
+            'Influencer Name': inf.influencerName,
+            'Username': inf.influencerUsername || '',
+            'Platform': inf.platform,
+            'Followers': inf.followerCount,
+            'Unique Followers': inf.uniqueFollowers,
+            'Unique (%)': inf.uniquePercentage ? Number(inf.uniquePercentage).toFixed(2) : '0',
+            'Overlapping Followers': inf.overlappingFollowers,
+            'Overlap (%)': inf.overlappingPercentage ? Number(inf.overlappingPercentage).toFixed(2) : '0',
+        }));
+        if (influencerData.length > 0) {
+            const infSheet = XLSX.utils.json_to_sheet(influencerData);
+            infSheet['!cols'] = [
+                { wch: 25 }, { wch: 20 }, { wch: 12 }, { wch: 15 },
+                { wch: 18 }, { wch: 12 }, { wch: 22 }, { wch: 12 },
+            ];
+            XLSX.utils.book_append_sheet(workbook, infSheet, 'Influencer Analysis');
+        }
+        const buffer = Buffer.from(XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }));
+        const filename = `Audience_Overlap_${report.title.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
+        return { buffer, filename };
     }
     toDetailDto(report) {
         return {

@@ -144,23 +144,30 @@ export class PaidCollaborationService {
       };
 
       for (const infData of influencerData) {
+        const fc = Number(infData.followerCount) || 0;
+        const pc = Number(infData.postsCount) || 0;
+        const lc = Number(infData.likesCount) || 0;
+        const vc = Number(infData.viewsCount) || 0;
+        const cc = Number(infData.commentsCount) || 0;
+        const sc = Number(infData.sharesCount) || 0;
+
         totalInfluencers++;
-        totalFollowers += Number(infData.followerCount) || 0;
-        totalPosts += infData.postsCount;
-        totalLikes += infData.likesCount;
-        totalViews += infData.viewsCount;
-        totalComments += infData.commentsCount;
-        totalShares += infData.sharesCount;
+        totalFollowers += fc;
+        totalPosts += pc;
+        totalLikes += lc;
+        totalViews += vc;
+        totalComments += cc;
+        totalShares += sc;
 
         // Update category data
         const cat = infData.category;
         categoryData[cat].accounts++;
-        categoryData[cat].followers += infData.followerCount;
-        categoryData[cat].posts += infData.postsCount;
-        categoryData[cat].likes += infData.likesCount;
-        categoryData[cat].views += infData.viewsCount;
-        categoryData[cat].comments += infData.commentsCount;
-        categoryData[cat].shares += infData.sharesCount;
+        categoryData[cat].followers += fc;
+        categoryData[cat].posts += pc;
+        categoryData[cat].likes += lc;
+        categoryData[cat].views += vc;
+        categoryData[cat].comments += cc;
+        categoryData[cat].shares += sc;
       }
 
       // Update ALL category with totals
@@ -186,9 +193,12 @@ export class PaidCollaborationService {
         cat.viewsCount = data.views;
         cat.commentsCount = data.comments;
         cat.sharesCount = data.shares;
-        cat.engagementRate = data.followers > 0 
-          ? ((data.likes + data.comments) / (data.posts * (data.followers / data.accounts || 1))) * 100 
-          : 0;
+        const catDenom =
+          data.posts > 0 && data.accounts > 0 ? data.posts * (data.followers / data.accounts) : 0;
+        cat.engagementRate =
+          data.followers > 0 && catDenom > 0
+            ? ((data.likes + data.comments) / catDenom) * 100
+            : 0;
         await this.categorizationRepo.save(cat);
       }
 
@@ -199,9 +209,9 @@ export class PaidCollaborationService {
       report.totalViews = totalViews;
       report.totalComments = totalComments;
       report.totalShares = totalShares;
-      report.avgEngagementRate = totalPosts > 0 && totalFollowers > 0
-        ? ((totalLikes + totalComments) / (totalPosts * (totalFollowers / totalInfluencers))) * 100 
-        : 0;
+      const avgFollowersPerInf = totalInfluencers > 0 ? totalFollowers / totalInfluencers : 0;
+      const reportEngDenom = totalPosts * avgFollowersPerInf;
+      report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
       report.engagementViewsRate = totalViews > 0
         ? ((totalLikes + totalComments) / totalViews) * 100
         : 0;
@@ -245,10 +255,10 @@ export class PaidCollaborationService {
       // Generate posts for this influencer
       for (let j = 0; j < postsCount; j++) {
         const post = await this.generateDummyPost(report, inf, j);
-        infLikes += post.likesCount;
-        infViews += post.viewsCount;
-        infComments += post.commentsCount;
-        infShares += post.sharesCount;
+        infLikes += Number(post.likesCount) || 0;
+        infViews += Number(post.viewsCount) || 0;
+        infComments += Number(post.commentsCount) || 0;
+        infShares += Number(post.sharesCount) || 0;
       }
 
       inf.postsCount = postsCount;
@@ -256,9 +266,9 @@ export class PaidCollaborationService {
       inf.viewsCount = infViews;
       inf.commentsCount = infComments;
       inf.sharesCount = infShares;
-      inf.engagementRate = followerCount > 0 
-        ? ((infLikes + infComments) / (postsCount * followerCount)) * 100 
-        : 0;
+      const infDenom = postsCount * followerCount;
+      inf.engagementRate =
+        followerCount > 0 && infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
 
       const savedInf = await this.influencerRepo.save(inf);
       influencers.push(savedInf);
@@ -293,8 +303,8 @@ export class PaidCollaborationService {
       : 0;
     
     // Random date within the report's date range
-    const startTime = report.dateRangeStart.getTime();
-    const endTime = report.dateRangeEnd.getTime();
+    const startTime = new Date(report.dateRangeStart).getTime();
+    const endTime = new Date(report.dateRangeEnd).getTime();
     const randomTime = startTime + Math.random() * (endTime - startTime);
     post.postDate = new Date(randomTime);
     

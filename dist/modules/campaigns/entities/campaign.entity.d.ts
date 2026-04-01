@@ -1,6 +1,7 @@
 import { User } from '../../users/entities/user.entity';
 export declare enum CampaignStatus {
     DRAFT = "DRAFT",
+    PENDING = "PENDING",
     ACTIVE = "ACTIVE",
     PAUSED = "PAUSED",
     COMPLETED = "COMPLETED",
@@ -18,6 +19,7 @@ export declare class Campaign {
     id: string;
     name: string;
     description?: string;
+    logoUrl?: string;
     platform: string;
     status: CampaignStatus;
     objective?: CampaignObjective;
@@ -36,6 +38,7 @@ export declare class Campaign {
     updatedAt: Date;
     influencers: CampaignInfluencer[];
     deliverables: CampaignDeliverable[];
+    posts: CampaignPost[];
     shares: CampaignShare[];
 }
 export declare enum InfluencerStatus {
@@ -70,11 +73,18 @@ export declare class CampaignInfluencer {
     paymentStatus: PaymentStatus;
     paymentAmount: number;
     contractStatus: ContractStatus;
+    likesCount: number;
+    viewsCount: number;
+    commentsCount: number;
+    sharesCount: number;
+    postsCount: number;
+    audienceCredibility: number;
     notes: string;
     addedAt: Date;
     confirmedAt: Date;
     completedAt: Date;
     deliverables: CampaignDeliverable[];
+    posts: CampaignPost[];
     metrics: CampaignMetric[];
 }
 export declare enum DeliverableType {
@@ -134,6 +144,37 @@ export declare class CampaignMetric {
     costPerEngagement: number;
     costPerClick: number;
     costPerImpression: number;
+}
+export declare enum PostType {
+    POST = "POST",
+    STORY = "STORY",
+    REEL = "REEL",
+    VIDEO = "VIDEO"
+}
+export declare class CampaignPost {
+    id: string;
+    campaignId: string;
+    campaign: Campaign;
+    campaignInfluencerId: string;
+    campaignInfluencer: CampaignInfluencer;
+    postUrl: string;
+    postType: PostType;
+    platform: string;
+    influencerName: string;
+    influencerUsername: string;
+    postImageUrl: string;
+    description: string;
+    postedDate: Date;
+    followerCount: number;
+    likesCount: number;
+    viewsCount: number;
+    commentsCount: number;
+    sharesCount: number;
+    engagementRate: number;
+    audienceCredibility: number;
+    isPublished: boolean;
+    createdAt: Date;
+    updatedAt: Date;
 }
 export declare enum SharePermission {
     VIEW = "VIEW",

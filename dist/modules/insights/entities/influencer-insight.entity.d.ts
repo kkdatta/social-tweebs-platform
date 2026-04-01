@@ -39,6 +39,7 @@ export declare class InfluencerInsight {
     hashtagsData: any;
     recentPosts: any;
     recentReels: any;
+    popularReels: any;
     popularPosts: any;
     sponsoredPosts: any;
     wordCloudData: any;

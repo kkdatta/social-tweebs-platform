@@ -102,7 +102,7 @@ __decorate([
     __metadata("design:type", Number)
 ], CompetitionAnalysisReport.prototype, "totalShares", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], CompetitionAnalysisReport.prototype, "avgEngagementRate", void 0);
 __decorate([
@@ -211,6 +211,10 @@ __decorate([
     __metadata("design:type", Array)
 ], CompetitionBrand.prototype, "keywords", void 0);
 __decorate([
+    (0, typeorm_1.Column)({ length: 32, nullable: true }),
+    __metadata("design:type", String)
+], CompetitionBrand.prototype, "platform", void 0);
+__decorate([
     (0, typeorm_1.Column)({ name: 'display_color', length: 20, nullable: true }),
     __metadata("design:type", String)
 ], CompetitionBrand.prototype, "displayColor", void 0);
@@ -243,7 +247,7 @@ __decorate([
     __metadata("design:type", Number)
 ], CompetitionBrand.prototype, "totalFollowers", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], CompetitionBrand.prototype, "avgEngagementRate", void 0);
 __decorate([
@@ -371,7 +375,7 @@ __decorate([
     __metadata("design:type", Number)
 ], CompetitionInfluencer.prototype, "sharesCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], CompetitionInfluencer.prototype, "avgEngagementRate", void 0);
 __decorate([
@@ -472,7 +476,7 @@ __decorate([
     __metadata("design:type", Number)
 ], CompetitionPost.prototype, "sharesCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], CompetitionPost.prototype, "engagementRate", void 0);
 __decorate([

@@ -19,25 +19,46 @@ const typeorm_1 = require("@nestjs/typeorm");
 const typeorm_2 = require("typeorm");
 const entities_1 = require("./entities");
 const influencer_profile_entity_1 = require("../discovery/entities/influencer-profile.entity");
+const user_entity_1 = require("../users/entities/user.entity");
 const credits_service_1 = require("../credits/credits.service");
 const modash_service_1 = require("../discovery/services/modash.service");
 const enums_1 = require("../../common/enums");
 let InsightsService = InsightsService_1 = class InsightsService {
-    constructor(insightsRepo, configRepo, accessLogRepo, profilesRepo, creditsService, modashService) {
+    constructor(insightsRepo, configRepo, accessLogRepo, profilesRepo, userRepo, creditsService, modashService) {
         this.insightsRepo = insightsRepo;
         this.configRepo = configRepo;
         this.accessLogRepo = accessLogRepo;
         this.profilesRepo = profilesRepo;
+        this.userRepo = userRepo;
         this.creditsService = creditsService;
         this.modashService = modashService;
         this.logger = new common_1.Logger(InsightsService_1.name);
         this.DEFAULT_CACHE_TTL_DAYS = 7;
     }
+    async getInsightVisibleUserIds(userId) {
+        const ids = new Set([userId]);
+        const user = await this.userRepo.findOne({ where: { id: userId } });
+        if (!user) {
+            return [userId];
+        }
+        if (user.parentId) {
+            ids.add(user.parentId);
+        }
+        const children = await this.userRepo.find({
+            where: { parentId: userId },
+            select: ['id'],
+        });
+        for (const c of children) {
+            ids.add(c.id);
+        }
+        return [...ids];
+    }
     async listInsights(userId, query) {
         const { platform, search, page = 1, limit = 20 } = query;
+        const visibleUserIds = await this.getInsightVisibleUserIds(userId);
         const queryBuilder = this.insightsRepo
             .createQueryBuilder('insight')
-            .where('insight.userId = :userId', { userId });
+            .where('insight.userId IN (:...visibleUserIds)', { visibleUserIds });
         if (platform) {
             queryBuilder.andWhere('insight.platform = :platform', { platform });
         }
@@ -166,8 +187,9 @@ let InsightsService = InsightsService_1 = class InsightsService {
         }
     }
     async getInsight(userId, insightId) {
+        const visibleUserIds = await this.getInsightVisibleUserIds(userId);
         const insight = await this.insightsRepo.findOne({
-            where: { id: insightId, userId },
+            where: { id: insightId, userId: (0, typeorm_2.In)(visibleUserIds) },
         });
         if (!insight) {
             throw new common_1.NotFoundException('Insight not found');
@@ -175,9 +197,50 @@ let InsightsService = InsightsService_1 = class InsightsService {
         this.logAccess(insight.id, userId, entities_1.InsightAccessType.VIEW, 0);
         return this.mapToFullResponse(insight);
     }
+    async ensureInsightRecordForDiscoveryProfile(userId, profile, modashReport) {
+        const visibleUserIds = await this.getInsightVisibleUserIds(userId);
+        let insight = await this.insightsRepo.findOne({
+            where: { profileId: profile.id, userId: (0, typeorm_2.In)(visibleUserIds) },
+        });
+        if (insight)
+            return insight.id;
+        insight = await this.insightsRepo.findOne({
+            where: {
+                userId,
+                platform: profile.platform,
+                platformUserId: profile.platformUserId,
+            },
+        });
+        if (insight) {
+            if (!insight.profileId) {
+                insight.profileId = profile.id;
+                await this.insightsRepo.save(insight);
+            }
+            return insight.id;
+        }
+        if (this.modashService.isModashEnabled()) {
+            const modashData = modashReport ??
+                (await this.modashService.getInfluencerReport(profile.platform, profile.platformUserId, userId));
+            if (modashData?.profile) {
+                const created = await this.createInsightFromModash(userId, profile.platform, modashData);
+                created.profileId = profile.id;
+                await this.insightsRepo.save(created);
+                return created.id;
+            }
+        }
+        const created = await this.createInsightFromLocalProfile(userId, profile);
+        return created.id;
+    }
+    async findOrEnsureInsightIdForProfile(userId, profileId) {
+        const profile = await this.profilesRepo.findOne({ where: { id: profileId } });
+        if (!profile)
+            return null;
+        return this.ensureInsightRecordForDiscoveryProfile(userId, profile);
+    }
     async forceRefresh(userId, insightId) {
+        const visibleUserIds = await this.getInsightVisibleUserIds(userId);
         const insight = await this.insightsRepo.findOne({
-            where: { id: insightId, userId },
+            where: { id: insightId, userId: (0, typeorm_2.In)(visibleUserIds) },
         });
         if (!insight) {
             throw new common_1.NotFoundException('Insight not found');
@@ -224,7 +287,7 @@ let InsightsService = InsightsService_1 = class InsightsService {
         return daysSinceRefresh <= ttlDays;
     }
     daysBetween(date1, date2) {
-        const diffTime = Math.abs(date2.getTime() - date1.getTime());
+        const diffTime = Math.abs(new Date(date2).getTime() - new Date(date1).getTime());
         return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     }
     async refreshFromModash(insight) {
@@ -281,6 +344,7 @@ let InsightsService = InsightsService_1 = class InsightsService {
             hashtagsData: stats.hashtags,
             recentPosts: modashData.recentPosts || modashData.posts?.recent,
             recentReels: modashData.recentReels || modashData.reels?.recent,
+            popularReels: modashData.popularReels || modashData.reels?.popular,
             popularPosts: modashData.popularPosts || modashData.posts?.popular,
             sponsoredPosts: modashData.sponsoredPosts || modashData.posts?.sponsored,
             wordCloudData: modashData.wordCloud,
@@ -295,6 +359,14 @@ let InsightsService = InsightsService_1 = class InsightsService {
         const audienceData = this.generateMockAudienceData(profile);
         const engagementData = this.generateMockEngagementData(profile);
         const growthData = this.generateMockGrowthData(profile);
+        const avgLikes = Number(profile.avgLikes) || 5000;
+        const avgComments = Number(profile.avgComments) || 200;
+        const avgViews = Number(profile.avgViews) || 15000;
+        const uname = profile.username ?? '';
+        const mockPosts = this.generateMockPosts(uname, avgLikes, avgComments);
+        const mockReels = this.generateMockReels(uname, avgViews, avgLikes, avgComments);
+        const wordCloud = this.generateMockWordCloud(profile.category);
+        const lookalikes = this.generateMockLookalikes(Number(profile.followerCount) || 100000);
         const insight = this.insightsRepo.create({
             userId: userId,
             platform: profile.platform,
@@ -304,34 +376,38 @@ let InsightsService = InsightsService_1 = class InsightsService {
             fullName: profile.fullName || null,
             profilePictureUrl: profile.profilePictureUrl || null,
             bio: profile.biography || null,
-            followerCount: profile.followerCount || 0,
-            followingCount: profile.followingCount || 0,
-            postCount: profile.postCount || 0,
+            followerCount: Number(profile.followerCount) || 0,
+            followingCount: Number(profile.followingCount) || 0,
+            postCount: Number(profile.postCount) || 0,
             engagementRate: profile.engagementRate || null,
-            avgLikes: profile.avgLikes || null,
-            avgComments: profile.avgComments || null,
-            avgViews: profile.avgViews || null,
-            avgReelViews: profile.avgViews ? Math.floor(profile.avgViews * 1.5) : null,
-            avgReelLikes: null,
-            avgReelComments: null,
-            brandPostER: null,
+            avgLikes: profile.avgLikes != null ? Number(profile.avgLikes) : null,
+            avgComments: profile.avgComments != null ? Number(profile.avgComments) : null,
+            avgViews: profile.avgViews != null ? Number(profile.avgViews) : null,
+            avgReelViews: avgViews ? Math.floor(avgViews * 1.5) : null,
+            avgReelLikes: Math.floor(avgLikes * 0.8),
+            avgReelComments: Math.floor(avgComments * 0.6),
+            brandPostER: profile.engagementRate ? Number(profile.engagementRate) * 0.7 : null,
+            postsWithHiddenLikesPct: Math.floor(Math.random() * 15),
             locationCountry: profile.locationCountry || null,
             locationCity: profile.locationCity || null,
             isVerified: profile.isVerified || false,
             audienceCredibility: profile.audienceCredibility ? Number(profile.audienceCredibility) / 100 : 0.85,
             notableFollowersPct: Math.random() * 5 + 1,
+            engagerCredibility: (profile.audienceCredibility ? Number(profile.audienceCredibility) / 100 : 0.85) + 0.05,
+            notableEngagersPct: Math.random() * 4 + 2,
             audienceData,
             engagementData,
             growthData,
-            lookalikesData: { influencer: [], audience: [] },
+            lookalikesData: lookalikes,
             brandAffinityData: this.generateMockBrandAffinity(),
             interestsData: this.generateMockInterests(profile.category),
             hashtagsData: this.generateMockHashtags(profile.category),
-            recentPosts: [],
-            recentReels: [],
-            popularPosts: [],
-            sponsoredPosts: [],
-            wordCloudData: null,
+            recentPosts: mockPosts.recent,
+            recentReels: mockReels.recent,
+            popularReels: mockReels.popular,
+            popularPosts: mockPosts.popular,
+            sponsoredPosts: mockPosts.sponsored,
+            wordCloudData: wordCloud,
             creditsUsed: 1,
             unlockedAt: new Date(),
             lastRefreshedAt: new Date(),
@@ -340,42 +416,163 @@ let InsightsService = InsightsService_1 = class InsightsService {
         return this.insightsRepo.save(insight);
     }
     generateMockAudienceData(profile) {
+        const fc = Number(profile.followerCount) || 100000;
+        const topCountries = [
+            { country: profile.locationCountry || 'United States', percentage: 45, followers: Math.floor(fc * 0.45), engagements: Math.floor(fc * 0.45 * 0.03) },
+            { country: 'India', percentage: 20, followers: Math.floor(fc * 0.20), engagements: Math.floor(fc * 0.20 * 0.03) },
+            { country: 'United Kingdom', percentage: 10, followers: Math.floor(fc * 0.10), engagements: Math.floor(fc * 0.10 * 0.03) },
+            { country: 'Brazil', percentage: 8, followers: Math.floor(fc * 0.08), engagements: Math.floor(fc * 0.08 * 0.03) },
+            { country: 'Germany', percentage: 5, followers: Math.floor(fc * 0.05), engagements: Math.floor(fc * 0.05 * 0.03) },
+        ];
+        const topStates = [
+            { state: 'California', percentage: 18, followers: Math.floor(fc * 0.18), engagements: Math.floor(fc * 0.18 * 0.03) },
+            { state: 'Maharashtra', percentage: 12, followers: Math.floor(fc * 0.12), engagements: Math.floor(fc * 0.12 * 0.03) },
+            { state: 'Texas', percentage: 9, followers: Math.floor(fc * 0.09), engagements: Math.floor(fc * 0.09 * 0.03) },
+            { state: 'London', percentage: 7, followers: Math.floor(fc * 0.07), engagements: Math.floor(fc * 0.07 * 0.03) },
+            { state: 'São Paulo', percentage: 5, followers: Math.floor(fc * 0.05), engagements: Math.floor(fc * 0.05 * 0.03) },
+        ];
+        const topCities = [
+            { city: profile.locationCity || 'New York', percentage: 15, followers: Math.floor(fc * 0.15), likes: Math.floor(fc * 0.15 * 0.02), lat: 40.71, lng: -74.01 },
+            { city: 'Los Angeles', percentage: 12, followers: Math.floor(fc * 0.12), likes: Math.floor(fc * 0.12 * 0.02), lat: 34.05, lng: -118.24 },
+            { city: 'London', percentage: 8, followers: Math.floor(fc * 0.08), likes: Math.floor(fc * 0.08 * 0.02), lat: 51.51, lng: -0.13 },
+            { city: 'Mumbai', percentage: 6, followers: Math.floor(fc * 0.06), likes: Math.floor(fc * 0.06 * 0.02), lat: 19.08, lng: 72.88 },
+            { city: 'São Paulo', percentage: 4, followers: Math.floor(fc * 0.04), likes: Math.floor(fc * 0.04 * 0.02), lat: -23.55, lng: -46.63 },
+        ];
+        const ageGroups = [
+            { range: '13-17', percentage: 8, male: 3, female: 5 },
+            { range: '18-24', percentage: 35, male: 12, female: 23 },
+            { range: '25-34', percentage: 38, male: 13, female: 25 },
+            { range: '35-44', percentage: 12, male: 5, female: 7 },
+            { range: '45-64', percentage: 5, male: 2, female: 3 },
+            { range: '65+', percentage: 2, male: 0, female: 2 },
+        ];
+        const audienceTypes = [
+            { type: 'Real Followers', percentage: 62 },
+            { type: 'Influencers', percentage: 12 },
+            { type: 'Mass Followers', percentage: 18 },
+            { type: 'Suspicious', percentage: 8 },
+        ];
+        const notableFollowers = [
+            { username: 'creator_jane', fullName: 'Jane Creator', followers: 125000, engagements: 4500, profilePictureUrl: null },
+            { username: 'lifestyle_mike', fullName: 'Mike Lifestyle', followers: 98000, engagements: 3200, profilePictureUrl: null },
+            { username: 'travel_sara', fullName: 'Sara Travels', followers: 75000, engagements: 2800, profilePictureUrl: null },
+            { username: 'food_blogger_k', fullName: 'Kay Food', followers: 52000, engagements: 1900, profilePictureUrl: null },
+            { username: 'fashion_lee', fullName: 'Lee Fashion', followers: 45000, engagements: 1600, profilePictureUrl: null },
+        ];
+        const brandAffinity = [
+            { brand: 'Nike', percentage: 12.5, followers: Math.floor(fc * 0.125), likes: Math.floor(fc * 0.125 * 0.02), followersAffinity: 3.2, engagersAffinity: 2.8 },
+            { brand: 'Adidas', percentage: 9.8, followers: Math.floor(fc * 0.098), likes: Math.floor(fc * 0.098 * 0.02), followersAffinity: 2.5, engagersAffinity: 2.1 },
+            { brand: 'Apple', percentage: 8.2, followers: Math.floor(fc * 0.082), likes: Math.floor(fc * 0.082 * 0.02), followersAffinity: 2.1, engagersAffinity: 1.9 },
+            { brand: 'Samsung', percentage: 6.5, followers: Math.floor(fc * 0.065), likes: Math.floor(fc * 0.065 * 0.02), followersAffinity: 1.7, engagersAffinity: 1.5 },
+            { brand: 'Starbucks', percentage: 5.1, followers: Math.floor(fc * 0.051), likes: Math.floor(fc * 0.051 * 0.02), followersAffinity: 1.3, engagersAffinity: 1.2 },
+            { brand: 'Zara', percentage: 4.3, followers: Math.floor(fc * 0.043), likes: Math.floor(fc * 0.043 * 0.02), followersAffinity: 1.1, engagersAffinity: 0.9 },
+            { brand: 'H&M', percentage: 3.8, followers: Math.floor(fc * 0.038), likes: Math.floor(fc * 0.038 * 0.02), followersAffinity: 1.0, engagersAffinity: 0.8 },
+        ];
+        const interests = [
+            { category: 'Clothes, Shoes, Handbags & Accessories', percentage: 35, followers: Math.floor(fc * 0.35), likes: Math.floor(fc * 0.35 * 0.02), followersAffinity: 2.8, engagersAffinity: 2.5 },
+            { category: 'Television & Films', percentage: 28, followers: Math.floor(fc * 0.28), likes: Math.floor(fc * 0.28 * 0.02), followersAffinity: 2.2, engagersAffinity: 2.0 },
+            { category: 'Travel, Tourism & Aviation', percentage: 22, followers: Math.floor(fc * 0.22), likes: Math.floor(fc * 0.22 * 0.02), followersAffinity: 1.8, engagersAffinity: 1.6 },
+            { category: 'Fitness & Yoga', percentage: 18, followers: Math.floor(fc * 0.18), likes: Math.floor(fc * 0.18 * 0.02), followersAffinity: 1.5, engagersAffinity: 1.3 },
+            { category: 'Restaurant, Food & Grocery', percentage: 15, followers: Math.floor(fc * 0.15), likes: Math.floor(fc * 0.15 * 0.02), followersAffinity: 1.2, engagersAffinity: 1.1 },
+            { category: 'Beauty & Cosmetics', percentage: 12, followers: Math.floor(fc * 0.12), likes: Math.floor(fc * 0.12 * 0.02), followersAffinity: 1.0, engagersAffinity: 0.9 },
+            { category: 'Music', percentage: 10, followers: Math.floor(fc * 0.10), likes: Math.floor(fc * 0.10 * 0.02), followersAffinity: 0.8, engagersAffinity: 0.7 },
+        ];
+        const credibilityDistribution = [
+            { range: '0-20%', count: 800 },
+            { range: '20-40%', count: 3200 },
+            { range: '40-60%', count: 8500 },
+            { range: '60-80%', count: 25000 },
+            { range: '80-100%', count: 45000 },
+        ];
         return {
+            followers: {
+                credibility: profile.audienceCredibility ? Number(profile.audienceCredibility) / 100 : 0.85,
+                notableFollowersPct: Math.random() * 5 + 1,
+                genderSplit: { male: 35, female: 65 },
+                ageGroups,
+                topCountries,
+                topStates,
+                topCities,
+                audienceTypes,
+                notableFollowers,
+                brandAffinity,
+                interests,
+                credibilityDistribution,
+                languages: [
+                    { language: 'English', percentage: 65 },
+                    { language: 'Spanish', percentage: 15 },
+                    { language: 'Portuguese', percentage: 10 },
+                ],
+                reachability: { below500: 55, '500to1000': 25, '1000to1500': 12, above1500: 8 },
+            },
+            engagers: {
+                credibility: (profile.audienceCredibility ? Number(profile.audienceCredibility) / 100 : 0.85) + 0.05,
+                notableEngagersPct: Math.random() * 4 + 2,
+                genderSplit: { male: 40, female: 60 },
+                ageGroups: [
+                    { range: '13-17', percentage: 10, male: 4, female: 6 },
+                    { range: '18-24', percentage: 38, male: 15, female: 23 },
+                    { range: '25-34', percentage: 33, male: 13, female: 20 },
+                    { range: '35-44', percentage: 12, male: 5, female: 7 },
+                    { range: '45-64', percentage: 5, male: 2, female: 3 },
+                    { range: '65+', percentage: 2, male: 1, female: 1 },
+                ],
+                topCountries: topCountries.map(c => ({ ...c, followers: Math.floor(c.followers * 0.4) })),
+                topStates: topStates.map(s => ({ ...s, followers: Math.floor(s.followers * 0.4) })),
+                topCities: topCities.map(c => ({ ...c, followers: Math.floor(c.followers * 0.4) })),
+                audienceTypes: [
+                    { type: 'Real Followers', percentage: 72 },
+                    { type: 'Influencers', percentage: 15 },
+                    { type: 'Mass Followers', percentage: 9 },
+                    { type: 'Suspicious', percentage: 4 },
+                ],
+                notableEngagers: notableFollowers.slice(0, 3).map(f => ({ ...f, username: 'eng_' + f.username })),
+                brandAffinity: brandAffinity.map(b => ({ ...b, percentage: b.percentage * 0.9 })),
+                interests: interests.map(i => ({ ...i, percentage: i.percentage * 0.95 })),
+                credibilityDistribution: credibilityDistribution.map(d => ({ ...d, count: Math.floor(d.count * 0.4) })),
+                languages: [
+                    { language: 'English', percentage: 70 },
+                    { language: 'Spanish', percentage: 12 },
+                    { language: 'Portuguese', percentage: 8 },
+                ],
+                reachability: { below500: 60, '500to1000': 22, '1000to1500': 10, above1500: 8 },
+            },
             genderSplit: { male: 35, female: 65 },
-            ageGroups: [
-                { range: '13-17', percentage: 8, male: 3, female: 5 },
-                { range: '18-24', percentage: 35, male: 12, female: 23 },
-                { range: '25-34', percentage: 38, male: 13, female: 25 },
-                { range: '35-44', percentage: 12, male: 5, female: 7 },
-                { range: '45-64', percentage: 5, male: 2, female: 3 },
-                { range: '65+', percentage: 2, male: 0, female: 2 },
-            ],
-            topCountries: [
-                { country: profile.locationCountry || 'United States', percentage: 45, followers: Math.floor((profile.followerCount || 0) * 0.45) },
-                { country: 'India', percentage: 20, followers: Math.floor((profile.followerCount || 0) * 0.20) },
-                { country: 'United Kingdom', percentage: 10, followers: Math.floor((profile.followerCount || 0) * 0.10) },
-                { country: 'Brazil', percentage: 8, followers: Math.floor((profile.followerCount || 0) * 0.08) },
-                { country: 'Germany', percentage: 5, followers: Math.floor((profile.followerCount || 0) * 0.05) },
-            ],
-            topCities: [
-                { city: profile.locationCity || 'New York', percentage: 15, followers: Math.floor((profile.followerCount || 0) * 0.15) },
-                { city: 'Los Angeles', percentage: 12, followers: Math.floor((profile.followerCount || 0) * 0.12) },
-                { city: 'London', percentage: 8, followers: Math.floor((profile.followerCount || 0) * 0.08) },
-            ],
+            ageGroups,
+            topCountries,
+            topCities,
             languages: [
                 { language: 'English', percentage: 65 },
                 { language: 'Spanish', percentage: 15 },
                 { language: 'Portuguese', percentage: 10 },
             ],
-            reachability: {
-                below500: 55,
-                '500to1000': 25,
-                '1000to1500': 12,
-                above1500: 8,
-            },
+            interests,
+            brandAffinity,
+            reachability: { below500: 55, '500to1000': 25, '1000to1500': 12, above1500: 8 },
         };
     }
     generateMockEngagementData(profile) {
+        const avgLikes = Number(profile.avgLikes) || 5000;
+        const avgComments = Number(profile.avgComments) || 200;
+        const now = new Date();
+        const likesHistory = Array.from({ length: 150 }, (_, i) => {
+            const d = new Date(now);
+            d.setDate(d.getDate() - (150 - i) * 2);
+            return {
+                date: d.toISOString().split('T')[0],
+                likes: Math.floor(avgLikes * (0.5 + Math.random())),
+                postUrl: `https://www.instagram.com/p/mock_${i}/`,
+            };
+        });
+        const commentsHistory = Array.from({ length: 150 }, (_, i) => {
+            const d = new Date(now);
+            d.setDate(d.getDate() - (150 - i) * 2);
+            return {
+                date: d.toISOString().split('T')[0],
+                comments: Math.floor(avgComments * (0.3 + Math.random() * 1.4)),
+                postUrl: `https://www.instagram.com/p/mock_${i}/`,
+            };
+        });
         return {
             distribution: [
                 { range: '0-1%', count: 5000 },
@@ -385,17 +582,20 @@ let InsightsService = InsightsService_1 = class InsightsService {
                 { range: '4-5%', count: 18000 },
                 { range: '5%+', count: 7000 },
             ],
-            likesHistory: [],
-            commentsHistory: [],
+            likesHistory,
+            commentsHistory,
         };
     }
     generateMockGrowthData(profile) {
-        const currentFollowers = profile.followerCount || 100000;
+        const currentFollowers = Number(profile.followerCount) || 100000;
+        const currentFollowing = Number(profile.followingCount) || 500;
+        const avgLikes = Number(profile.avgLikes) || 5000;
         const months = ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'];
         const history = months.map((month, i) => ({
             month,
             followers: Math.floor(currentFollowers * (0.85 + i * 0.03)),
-            following: Math.floor((profile.followingCount || 500) * (0.95 + i * 0.01)),
+            following: Math.floor(currentFollowing * (0.95 + i * 0.01)),
+            likes: Math.floor(avgLikes * (0.8 + i * 0.04)),
         }));
         return { history };
     }
@@ -434,6 +634,77 @@ let InsightsService = InsightsService_1 = class InsightsService {
         }
         return hashtags.slice(0, 5);
     }
+    generateMockWordCloud(category) {
+        const words = [
+            'love', 'fashion', 'style', 'beauty', 'travel', 'life', 'food',
+            'fitness', 'happy', 'photography', 'nature', 'art', 'music',
+            'dance', 'wellness', 'luxury', 'model', 'creative', 'inspiration',
+            'trending', 'viral', 'brand', 'collab', 'influencer', 'content',
+        ];
+        if (category)
+            words.unshift(category.toLowerCase());
+        return words.slice(0, 20).map((word, i) => ({
+            text: word,
+            value: Math.floor(100 - i * 4 + Math.random() * 10),
+        }));
+    }
+    generateMockLookalikes(followerCount) {
+        return {
+            influencer: [
+                { username: 'similar_creator_1', fullName: 'Alex Style', followers: Math.floor(followerCount * 0.9), similarity: 0.92, profilePictureUrl: null },
+                { username: 'similar_creator_2', fullName: 'Jordan Arts', followers: Math.floor(followerCount * 1.1), similarity: 0.87, profilePictureUrl: null },
+                { username: 'similar_creator_3', fullName: 'Sam Lifestyle', followers: Math.floor(followerCount * 0.75), similarity: 0.83, profilePictureUrl: null },
+                { username: 'similar_creator_4', fullName: 'Riley Content', followers: Math.floor(followerCount * 1.3), similarity: 0.78, profilePictureUrl: null },
+                { username: 'similar_creator_5', fullName: 'Casey Digital', followers: Math.floor(followerCount * 0.65), similarity: 0.74, profilePictureUrl: null },
+            ],
+            audience: [
+                { username: 'audience_match_1', fullName: 'Taylor Buzz', followers: Math.floor(followerCount * 0.8), overlap: 0.45, profilePictureUrl: null },
+                { username: 'audience_match_2', fullName: 'Morgan Vibe', followers: Math.floor(followerCount * 1.2), overlap: 0.38, profilePictureUrl: null },
+                { username: 'audience_match_3', fullName: 'Quinn Wave', followers: Math.floor(followerCount * 0.6), overlap: 0.32, profilePictureUrl: null },
+                { username: 'audience_match_4', fullName: 'Blake Trends', followers: Math.floor(followerCount * 0.95), overlap: 0.28, profilePictureUrl: null },
+                { username: 'audience_match_5', fullName: 'Drew Social', followers: Math.floor(followerCount * 1.05), overlap: 0.24, profilePictureUrl: null },
+            ],
+        };
+    }
+    generateMockPosts(username, avgLikes, avgComments) {
+        const now = new Date();
+        const makePosts = (count, multiplier, offset) => Array.from({ length: count }, (_, i) => ({
+            id: `post_${offset}_${i}`,
+            imageUrl: `https://picsum.photos/seed/${username}${offset}${i}/400/400`,
+            thumbnail: `https://picsum.photos/seed/${username}${offset}${i}/200/200`,
+            caption: `Amazing content from @${username} #lifestyle #trending`,
+            likes: Math.floor(avgLikes * multiplier * (0.7 + Math.random() * 0.6)),
+            comments: Math.floor(avgComments * multiplier * (0.5 + Math.random())),
+            views: 0,
+            postedAt: new Date(now.getTime() - (i + offset) * 86400000 * 3).toISOString().split('T')[0],
+            url: `https://www.instagram.com/p/mock_${offset}_${i}/`,
+        }));
+        return {
+            recent: makePosts(10, 1, 0),
+            popular: makePosts(10, 2, 10).sort((a, b) => b.likes - a.likes),
+            sponsored: makePosts(5, 0.8, 20).map(p => ({
+                ...p,
+                caption: `Sponsored post with @brand_partner #ad #sponsored`,
+            })),
+        };
+    }
+    generateMockReels(username, avgViews, avgLikes, avgComments) {
+        const now = new Date();
+        const makeReels = (count, multiplier, offset) => Array.from({ length: count }, (_, i) => ({
+            id: `reel_${offset}_${i}`,
+            thumbnail: `https://picsum.photos/seed/${username}r${offset}${i}/300/500`,
+            caption: `Reel by @${username} #reels #viral`,
+            likes: Math.floor(avgLikes * multiplier * (0.6 + Math.random() * 0.8)),
+            comments: Math.floor(avgComments * multiplier * (0.4 + Math.random())),
+            views: Math.floor(avgViews * multiplier * (0.8 + Math.random() * 0.4)),
+            postedAt: new Date(now.getTime() - (i + offset) * 86400000 * 4).toISOString().split('T')[0],
+            url: `https://www.instagram.com/reel/mock_${offset}_${i}/`,
+        }));
+        return {
+            recent: makeReels(10, 1, 0),
+            popular: makeReels(10, 1.8, 10).sort((a, b) => b.views - a.views),
+        };
+    }
     async updateInsightFromModash(insight, modashData) {
         const profile = modashData.profile || {};
         const stats = modashData.stats || {};
@@ -464,6 +735,7 @@ let InsightsService = InsightsService_1 = class InsightsService {
         insight.hashtagsData = stats.hashtags || insight.hashtagsData;
         insight.recentPosts = modashData.recentPosts || insight.recentPosts;
         insight.recentReels = modashData.recentReels || insight.recentReels;
+        insight.popularReels = modashData.popularReels || insight.popularReels;
         insight.popularPosts = modashData.popularPosts || insight.popularPosts;
         insight.sponsoredPosts = modashData.sponsoredPosts || insight.sponsoredPosts;
         insight.lastRefreshedAt = new Date();
@@ -475,6 +747,8 @@ let InsightsService = InsightsService_1 = class InsightsService {
         const engagement = insight.engagementData || {};
         const growth = insight.growthData || {};
         const lookalikes = insight.lookalikesData || {};
+        const followersData = audience.followers || {};
+        const engagersData = audience.engagers || {};
         return {
             id: insight.id,
             platform: insight.platform,
@@ -487,7 +761,7 @@ let InsightsService = InsightsService_1 = class InsightsService {
             stats: {
                 followerCount: Number(insight.followerCount) || 0,
                 followingCount: Number(insight.followingCount) || 0,
-                postCount: insight.postCount || 0,
+                postCount: Number(insight.postCount) || 0,
                 engagementRate: insight.engagementRate ? Number(insight.engagementRate) : undefined,
                 avgLikes: insight.avgLikes ? Number(insight.avgLikes) : undefined,
                 avgComments: insight.avgComments ? Number(insight.avgComments) : undefined,
@@ -505,14 +779,34 @@ let InsightsService = InsightsService_1 = class InsightsService {
                 notableFollowersPct: insight.notableFollowersPct
                     ? Number(insight.notableFollowersPct)
                     : undefined,
-                genderSplit: audience.genderSplit || audience.gender,
-                ageGroups: audience.ageGroups || audience.ages,
-                topCountries: audience.geoCountries || audience.countries,
-                topCities: audience.geoCities || audience.cities,
-                languages: audience.languages,
-                interests: audience.interests,
-                brandAffinity: audience.brandAffinity,
-                reachability: audience.reachability,
+                genderSplit: followersData.genderSplit || audience.genderSplit || audience.gender,
+                ageGroups: followersData.ageGroups || audience.ageGroups || audience.ages,
+                topCountries: followersData.topCountries || audience.geoCountries || audience.topCountries || audience.countries,
+                topStates: followersData.topStates || audience.topStates,
+                topCities: followersData.topCities || audience.geoCities || audience.topCities || audience.cities,
+                audienceTypes: followersData.audienceTypes || audience.audienceTypes,
+                notableFollowers: followersData.notableFollowers || audience.notableFollowers,
+                credibilityDistribution: followersData.credibilityDistribution || audience.credibilityDistribution,
+                languages: followersData.languages || audience.languages,
+                interests: followersData.interests || audience.interests,
+                brandAffinity: followersData.brandAffinity || audience.brandAffinity,
+                reachability: followersData.reachability || audience.reachability,
+                engagers: {
+                    credibility: insight.engagerCredibility ? Number(insight.engagerCredibility) : engagersData.credibility,
+                    notableEngagersPct: insight.notableEngagersPct ? Number(insight.notableEngagersPct) : engagersData.notableEngagersPct,
+                    genderSplit: engagersData.genderSplit,
+                    ageGroups: engagersData.ageGroups,
+                    topCountries: engagersData.topCountries,
+                    topStates: engagersData.topStates,
+                    topCities: engagersData.topCities,
+                    audienceTypes: engagersData.audienceTypes,
+                    notableEngagers: engagersData.notableEngagers,
+                    credibilityDistribution: engagersData.credibilityDistribution,
+                    languages: engagersData.languages,
+                    interests: engagersData.interests,
+                    brandAffinity: engagersData.brandAffinity,
+                    reachability: engagersData.reachability,
+                },
             },
             engagement: {
                 rateDistribution: engagement.distribution,
@@ -537,7 +831,7 @@ let InsightsService = InsightsService_1 = class InsightsService {
             },
             reels: {
                 recent: insight.recentReels || [],
-                popular: [],
+                popular: insight.popularReels || (insight.recentReels ? [...insight.recentReels].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 10) : []),
                 sponsored: [],
             },
             lastRefreshedAt: insight.lastRefreshedAt,
@@ -567,7 +861,9 @@ exports.InsightsService = InsightsService = InsightsService_1 = __decorate([
     __param(1, (0, typeorm_1.InjectRepository)(entities_1.SystemConfig)),
     __param(2, (0, typeorm_1.InjectRepository)(entities_1.InsightAccessLog)),
     __param(3, (0, typeorm_1.InjectRepository)(influencer_profile_entity_1.InfluencerProfile)),
+    __param(4, (0, typeorm_1.InjectRepository)(user_entity_1.User)),
     __metadata("design:paramtypes", [typeorm_2.Repository,
+        typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   Search, 
   Download, 
@@ -551,14 +552,44 @@ const DiscoveryPage: React.FC = () => {
       setSelectedInfluencers([]);
       setError(null);
 
-      if (result.data && exportFormat === 'json') {
-        const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${exportFileName}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
+      if (result.data && result.data.length > 0) {
+        const safeName = exportFileName || `influencer_export_${new Date().toISOString().split('T')[0]}`;
+
+        if (exportFormat === 'json') {
+          const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${safeName}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+        } else if (exportFormat === 'csv') {
+          const headers = Object.keys(result.data[0]);
+          const csvRows = [
+            headers.join(','),
+            ...result.data.map((row: Record<string, any>) =>
+              headers.map((h) => {
+                const val = row[h] ?? '';
+                const str = String(val);
+                return str.includes(',') || str.includes('"') || str.includes('\n')
+                  ? `"${str.replace(/"/g, '""')}"`
+                  : str;
+              }).join(',')
+            ),
+          ];
+          const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${safeName}.csv`;
+          a.click();
+          URL.revokeObjectURL(url);
+        } else if (exportFormat === 'xlsx') {
+          const ws = XLSX.utils.json_to_sheet(result.data);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Influencers');
+          XLSX.writeFile(wb, `${safeName}.xlsx`);
+        }
       }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Export failed');

@@ -88,7 +88,7 @@ export class CompetitionAnalysisReport {
   @Column({ name: 'total_shares', type: 'bigint', default: 0 })
   totalShares: number;
 
-  @Column({ name: 'avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   avgEngagementRate?: number;
 
   @Column({ name: 'total_followers', type: 'bigint', default: 0 })
@@ -207,7 +207,7 @@ export class CompetitionBrand {
   @Column({ name: 'total_followers', type: 'bigint', default: 0 })
   totalFollowers: number;
 
-  @Column({ name: 'avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   avgEngagementRate?: number;
 
   // Post type distribution
@@ -308,7 +308,7 @@ export class CompetitionInfluencer {
   @Column({ name: 'shares_count', type: 'bigint', default: 0 })
   sharesCount: number;
 
-  @Column({ name: 'avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   avgEngagementRate?: number;
 
   @Column({ name: 'display_order', type: 'int', default: 0 })
@@ -387,7 +387,7 @@ export class CompetitionPost {
   @Column({ name: 'shares_count', type: 'int', default: 0 })
   sharesCount: number;
 
-  @Column({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   engagementRate?: number;
 
   @Column({ name: 'is_sponsored', default: false })

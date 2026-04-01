@@ -95,6 +95,15 @@ export class CustomErService {
       // In real app, this would call external API
       await new Promise(resolve => setTimeout(resolve, 1000));
 
+      // If follower count wasn't provided (e.g. Excel import), simulate a fetched value
+      const followerCountNum = Number(report.followerCount) || 0;
+      if (followerCountNum === 0) {
+        report.followerCount = Math.floor(Math.random() * 90000) + 10000;
+        await this.reportRepo.save(report);
+      }
+
+      const fcForMetrics = Number(report.followerCount) || 0;
+
       // Generate dummy posts
       const numPosts = Math.floor(Math.random() * 20) + 10;
       const posts: CustomErPost[] = [];
@@ -125,12 +134,15 @@ export class CustomErService {
         post.viewsCount = views;
         post.commentsCount = comments;
         post.sharesCount = shares;
-        post.engagementRate = ((likes + comments) / report.followerCount) * 100;
+        post.engagementRate = fcForMetrics > 0
+          ? Math.min(((likes + comments) / fcForMetrics) * 100, 99999999.9999)
+          : 0;
         post.isSponsored = isSponsored;
         
         // Random date within range
-        const rangeMs = report.dateRangeEnd.getTime() - report.dateRangeStart.getTime();
-        post.postDate = new Date(report.dateRangeStart.getTime() + Math.random() * rangeMs);
+        const rangeStart = new Date(report.dateRangeStart).getTime();
+        const rangeEnd = new Date(report.dateRangeEnd).getTime();
+        post.postDate = new Date(rangeStart + Math.random() * (rangeEnd - rangeStart));
 
         posts.push(post);
 
@@ -157,8 +169,12 @@ export class CustomErService {
       report.allViewsCount = totalViews;
       report.allCommentsCount = totalComments;
       report.allSharesCount = totalShares;
-      report.allAvgEngagementRate = ((totalLikes + totalComments) / report.followerCount / numPosts) * 100;
-      report.allEngagementViewsRate = totalViews > 0 ? ((totalLikes + totalComments) / totalViews) * 100 : 0;
+      report.allAvgEngagementRate = fcForMetrics > 0 && numPosts > 0
+        ? Math.min(((totalLikes + totalComments) / fcForMetrics / numPosts) * 100, 99999999.9999)
+        : 0;
+      report.allEngagementViewsRate = totalViews > 0
+        ? Math.min(((totalLikes + totalComments) / totalViews) * 100, 99999999.9999)
+        : 0;
 
       if (sponsoredCount > 0) {
         report.hasSponsoredPosts = true;
@@ -167,8 +183,12 @@ export class CustomErService {
         report.sponsoredViewsCount = sponsoredViews;
         report.sponsoredCommentsCount = sponsoredComments;
         report.sponsoredSharesCount = sponsoredShares;
-        report.sponsoredAvgEngagementRate = ((sponsoredLikes + sponsoredComments) / report.followerCount / sponsoredCount) * 100;
-        report.sponsoredEngagementViewsRate = sponsoredViews > 0 ? ((sponsoredLikes + sponsoredComments) / sponsoredViews) * 100 : 0;
+        report.sponsoredAvgEngagementRate = fcForMetrics > 0 && sponsoredCount > 0
+          ? Math.min(((sponsoredLikes + sponsoredComments) / fcForMetrics / sponsoredCount) * 100, 99999999.9999)
+          : 0;
+        report.sponsoredEngagementViewsRate = sponsoredViews > 0
+          ? Math.min(((sponsoredLikes + sponsoredComments) / sponsoredViews) * 100, 99999999.9999)
+          : 0;
       }
 
       report.status = CustomErReportStatus.COMPLETED;
@@ -437,6 +457,7 @@ export class CustomErService {
       const row = rows[i];
       const profileUrl = row['Profile URL'] || row['profile_url'] || row['profileUrl'] || row['url'] || '';
       const influencerName = row['Influencer Name'] || row['influencer_name'] || row['name'] || '';
+      const followers = parseInt(row['Followers'] || row['followers'] || row['follower_count'] || '0', 10) || 0;
 
       if (!profileUrl && !influencerName) {
         errors.push(`Row ${i + 2}: Missing profile URL and influencer name`);
@@ -460,7 +481,7 @@ export class CustomErService {
         report.status = CustomErReportStatus.PENDING;
         report.ownerId = userId;
         report.createdById = userId;
-        report.followerCount = 0;
+        report.followerCount = followers;
         report.shareUrlToken = `er_share_${uuidv4().substring(0, 8)}`;
 
         const savedReport = await this.reportRepo.save(report);
@@ -480,15 +501,15 @@ export class CustomErService {
    */
   generateSampleExcel(): Buffer {
     const sampleData = [
-      { 'Influencer Name': 'John Doe', 'Profile URL': 'https://instagram.com/johndoe' },
-      { 'Influencer Name': 'Jane Smith', 'Profile URL': 'https://instagram.com/janesmith' },
-      { 'Influencer Name': 'Creator Pro', 'Profile URL': 'https://instagram.com/creatorpro' },
+      { 'Influencer Name': 'John Doe', 'Profile URL': 'https://instagram.com/johndoe', 'Followers': 50000 },
+      { 'Influencer Name': 'Jane Smith', 'Profile URL': 'https://instagram.com/janesmith', 'Followers': 120000 },
+      { 'Influencer Name': 'Creator Pro', 'Profile URL': 'https://instagram.com/creatorpro', 'Followers': 75000 },
     ];
 
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(sampleData);
 
-    worksheet['!cols'] = [{ wch: 25 }, { wch: 45 }];
+    worksheet['!cols'] = [{ wch: 25 }, { wch: 45 }, { wch: 12 }];
 
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Influencers');
     return Buffer.from(XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }));

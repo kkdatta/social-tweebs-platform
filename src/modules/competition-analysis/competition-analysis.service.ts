@@ -181,9 +181,9 @@ export class CompetitionAnalysisService {
       report.totalComments = totalComments;
       report.totalShares = totalShares;
       report.totalFollowers = totalFollowers;
-      report.avgEngagementRate = totalPosts > 0 && totalFollowers > 0
-        ? ((totalLikes + totalComments) / (totalPosts * (totalFollowers / totalInfluencers))) * 100
-        : 0;
+      const avgFollowersPerInf = totalInfluencers > 0 ? totalFollowers / totalInfluencers : 0;
+      const reportEngDenom = totalPosts * avgFollowersPerInf;
+      report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
       report.status = CompetitionReportStatus.COMPLETED;
       report.completedAt = new Date();
       await this.reportRepo.save(report);
@@ -296,7 +296,8 @@ export class CompetitionAnalysisService {
         post.commentsCount = Math.floor(Math.random() * 600) + 20;
         post.viewsCount = Math.floor(Math.random() * 70000) + 2000;
         post.sharesCount = Math.floor(Math.random() * 300) + 10;
-        post.engagementRate = ((post.likesCount + post.commentsCount) / savedInfluencer.followerCount) * 100;
+        const postFc = Number(savedInfluencer.followerCount) || 0;
+        post.engagementRate = postFc > 0 ? ((post.likesCount + post.commentsCount) / postFc) * 100 : 0;
         post.isSponsored = Math.random() > 0.75;
         
         // Random date within the report's date range
@@ -320,7 +321,9 @@ export class CompetitionAnalysisService {
       savedInfluencer.viewsCount = infViews;
       savedInfluencer.commentsCount = infComments;
       savedInfluencer.sharesCount = infShares;
-      savedInfluencer.avgEngagementRate = ((infLikes + infComments) / (postsCount * savedInfluencer.followerCount)) * 100;
+      const infFc = Number(savedInfluencer.followerCount) || 0;
+      const infDenom = postsCount * infFc;
+      savedInfluencer.avgEngagementRate = infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
       await this.influencerRepo.save(savedInfluencer);
 
       brandPosts += postsCount;
@@ -339,9 +342,9 @@ export class CompetitionAnalysisService {
     brand.totalComments = brandComments;
     brand.totalShares = brandShares;
     brand.totalFollowers = brandFollowers;
-    brand.avgEngagementRate = brandPosts > 0 && brandFollowers > 0
-      ? ((brandLikes + brandComments) / (brandPosts * (brandFollowers / influencerCount))) * 100
-      : 0;
+    const brandAvgFollowersPerInf = influencerCount > 0 ? brandFollowers / influencerCount : 0;
+    const brandEngDenom = brandPosts * brandAvgFollowersPerInf;
+    brand.avgEngagementRate = brandEngDenom > 0 ? ((brandLikes + brandComments) / brandEngDenom) * 100 : 0;
     brand.nanoCount = nanoCount;
     brand.microCount = microCount;
     brand.macroCount = macroCount;
@@ -1212,7 +1215,7 @@ export class CompetitionAnalysisService {
       viewsCount: data.views,
       commentsCount: data.comments,
       sharesCount: data.shares,
-      engagementRate: data.posts > 0 && data.followers > 0
+      engagementRate: data.posts > 0 && data.followers > 0 && data.count > 0
         ? ((data.likes + data.comments) / (data.posts * (data.followers / data.count))) * 100
         : 0,
     }));

@@ -256,7 +256,7 @@ __decorate([
     (0, swagger_1.ApiProperty)({ description: 'Influencer member IDs to remove' }),
     (0, class_validator_1.IsArray)(),
     (0, class_validator_1.ArrayMinSize)(1),
-    (0, class_validator_1.IsUUID)('4', { each: true }),
+    (0, class_validator_1.IsString)({ each: true }),
     __metadata("design:type", Array)
 ], RemoveInfluencersDto.prototype, "memberIds", void 0);
 class MemberFilterDto {

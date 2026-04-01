@@ -186,7 +186,8 @@ export class MentionTrackingService {
           post.commentsCount = Math.floor(Math.random() * 800) + 20;
           post.viewsCount = Math.floor(Math.random() * 80000) + 2000;
           post.sharesCount = Math.floor(Math.random() * 400) + 10;
-          post.engagementRate = ((post.likesCount + post.commentsCount) / savedInfluencer.followerCount) * 100;
+          const postFc = Number(savedInfluencer.followerCount) || 0;
+          post.engagementRate = postFc > 0 ? ((post.likesCount + post.commentsCount) / postFc) * 100 : 0;
           post.isSponsored = Math.random() > 0.7;
           
           // Random date within the report's date range
@@ -198,10 +199,10 @@ export class MentionTrackingService {
 
           await this.postRepo.save(post);
 
-          infLikes += post.likesCount;
-          infViews += post.viewsCount;
-          infComments += post.commentsCount;
-          infShares += post.sharesCount;
+          infLikes += Number(post.likesCount) || 0;
+          infViews += Number(post.viewsCount) || 0;
+          infComments += Number(post.commentsCount) || 0;
+          infShares += Number(post.sharesCount) || 0;
         }
 
         // Update influencer metrics
@@ -210,7 +211,9 @@ export class MentionTrackingService {
         savedInfluencer.viewsCount = infViews;
         savedInfluencer.commentsCount = infComments;
         savedInfluencer.sharesCount = infShares;
-        savedInfluencer.avgEngagementRate = ((infLikes + infComments) / (postsCount * savedInfluencer.followerCount)) * 100;
+        const infFc = Number(savedInfluencer.followerCount) || 0;
+        const infDenom = postsCount * infFc;
+        savedInfluencer.avgEngagementRate = infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
         await this.influencerRepo.save(savedInfluencer);
 
         totalPosts += postsCount;
@@ -230,9 +233,9 @@ export class MentionTrackingService {
       report.totalComments = totalComments;
       report.totalShares = totalShares;
       report.totalFollowers = totalFollowers;
-      report.avgEngagementRate = totalPosts > 0 
-        ? ((totalLikes + totalComments) / (totalPosts * (totalFollowers / totalInfluencers))) * 100 
-        : 0;
+      const avgFollowersPerInf = totalInfluencers > 0 ? totalFollowers / totalInfluencers : 0;
+      const reportEngDenom = totalPosts * avgFollowersPerInf;
+      report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
       report.engagementViewsRate = totalViews > 0 
         ? ((totalLikes + totalComments) / totalViews) * 100 
         : 0;
@@ -600,8 +603,8 @@ export class MentionTrackingService {
       }
       grouped[dateStr].posts += 1;
       if (post.influencerId) grouped[dateStr].influencers.add(post.influencerId);
-      grouped[dateStr].likes += post.likesCount || 0;
-      grouped[dateStr].views += post.viewsCount || 0;
+      grouped[dateStr].likes += Number(post.likesCount) || 0;
+      grouped[dateStr].views += Number(post.viewsCount) || 0;
     });
 
     return Object.entries(grouped)
@@ -918,7 +921,7 @@ export class MentionTrackingService {
       viewsCount: data.views,
       commentsCount: data.comments,
       sharesCount: data.shares,
-      engagementRate: data.posts > 0 && data.followers > 0
+      engagementRate: data.posts > 0 && data.followers > 0 && data.count > 0
         ? ((data.likes + data.comments) / (data.posts * (data.followers / data.count))) * 100
         : 0,
     }));

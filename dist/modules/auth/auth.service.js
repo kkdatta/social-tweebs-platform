@@ -22,21 +22,25 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const user_entity_1 = require("../users/entities/user.entity");
 const credit_account_entity_1 = require("../credits/entities/credit-account.entity");
+const feature_access_entity_1 = require("../team/entities/feature-access.entity");
 const password_reset_token_entity_1 = require("./entities/password-reset-token.entity");
 const login_history_entity_1 = require("./entities/login-history.entity");
 const signup_request_entity_1 = require("./entities/signup-request.entity");
 const user_session_entity_1 = require("./entities/user-session.entity");
 const enums_1 = require("../../common/enums");
+const mail_service_1 = require("../../common/services/mail.service");
 let AuthService = class AuthService {
-    constructor(userRepository, creditAccountRepository, resetTokenRepository, loginHistoryRepository, signupRequestRepository, sessionRepository, jwtService, configService) {
+    constructor(userRepository, creditAccountRepository, featureAccessRepository, resetTokenRepository, loginHistoryRepository, signupRequestRepository, sessionRepository, jwtService, configService, mailService) {
         this.userRepository = userRepository;
         this.creditAccountRepository = creditAccountRepository;
+        this.featureAccessRepository = featureAccessRepository;
         this.resetTokenRepository = resetTokenRepository;
         this.loginHistoryRepository = loginHistoryRepository;
         this.signupRequestRepository = signupRequestRepository;
         this.sessionRepository = sessionRepository;
         this.jwtService = jwtService;
         this.configService = configService;
+        this.mailService = mailService;
     }
     async login(loginDto, ipAddress, userAgent) {
         const { email, password } = loginDto;
@@ -66,6 +70,7 @@ let AuthService = class AuthService {
         const tokens = await this.generateTokens(user);
         await this.saveSession(user.id, tokens.refreshToken, ipAddress, userAgent);
         await this.recordLoginAttempt(user.id, email, ipAddress, userAgent, true, null);
+        const featureAccess = await this.getEnabledFeatureNames(user.id, user.role);
         return {
             ...tokens,
             user: {
@@ -73,6 +78,7 @@ let AuthService = class AuthService {
                 email: user.email,
                 name: user.name,
                 role: user.role,
+                featureAccess,
             },
             creditBalance: creditAccount ? Number(creditAccount.unifiedBalance) : 0,
             accountExpiresAt: creditAccount?.validityEnd || null,
@@ -106,6 +112,11 @@ let AuthService = class AuthService {
             status: enums_1.SignupRequestStatus.PENDING,
         });
         await this.signupRequestRepository.save(signupRequest);
+        await this.mailService.sendSignupConfirmation(email, signupDto.fullName);
+        const superAdmins = await this.userRepository.find({ where: { role: enums_1.UserRole.SUPER_ADMIN } });
+        for (const admin of superAdmins) {
+            await this.mailService.sendSignupNotificationToAdmin(admin.email, signupDto.fullName, email);
+        }
         return {
             success: true,
             message: 'Signup request submitted successfully. You will be contacted shortly for verification.',
@@ -126,16 +137,57 @@ let AuthService = class AuthService {
                 expiresAt,
             });
             await this.resetTokenRepository.save(resetToken);
-            console.log(`Password reset token for ${email}: ${rawToken}`);
+            await this.mailService.sendPasswordResetEmail(email, rawToken);
         }
         return {
             success: true,
             message: 'If the email exists, a password reset link has been sent.',
         };
     }
+    async approveSignup(signupRequestId) {
+        const signupRequest = await this.signupRequestRepository.findOne({
+            where: { id: signupRequestId },
+        });
+        if (!signupRequest) {
+            throw new common_1.BadRequestException('Signup request not found');
+        }
+        if (signupRequest.status !== enums_1.SignupRequestStatus.PENDING) {
+            throw new common_1.BadRequestException('Signup request is not in pending state');
+        }
+        const existingUser = await this.userRepository.findOne({ where: { email: signupRequest.email } });
+        if (existingUser) {
+            throw new common_1.ConflictException('User with this email already exists');
+        }
+        const user = this.userRepository.create({
+            email: signupRequest.email,
+            name: signupRequest.name,
+            passwordHash: signupRequest.passwordHash,
+            phone: signupRequest.phone,
+            role: enums_1.UserRole.ADMIN,
+            status: enums_1.UserStatus.ACTIVE,
+        });
+        await this.userRepository.save(user);
+        const creditAccount = this.creditAccountRepository.create({
+            userId: user.id,
+            unifiedBalance: 0,
+            validityStart: new Date(),
+            validityEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        });
+        await this.creditAccountRepository.save(creditAccount);
+        signupRequest.status = enums_1.SignupRequestStatus.APPROVED;
+        await this.signupRequestRepository.save(signupRequest);
+        await this.mailService.sendAccountActivation(signupRequest.email, signupRequest.name);
+        return {
+            success: true,
+            message: 'Signup request approved and user account activated.',
+        };
+    }
     async resetPassword(dto) {
-        const { token, newPassword } = dto;
-        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        const newPassword = dto.newPassword || dto.password;
+        if (!newPassword) {
+            throw new common_1.BadRequestException('New password is required');
+        }
+        const tokenHash = crypto.createHash('sha256').update(dto.token).digest('hex');
         const resetToken = await this.resetTokenRepository.findOne({
             where: { tokenHash },
             relations: ['user'],
@@ -232,23 +284,36 @@ let AuthService = class AuthService {
             await this.userRepository.save(user);
         }
     }
+    async getEnabledFeatureNames(userId, role) {
+        if (role === enums_1.UserRole.SUPER_ADMIN) {
+            return Object.values(enums_1.FeatureName);
+        }
+        const rows = await this.featureAccessRepository.find({
+            where: { userId, isEnabled: true },
+            select: ['featureName'],
+        });
+        return rows.map((r) => r.featureName);
+    }
 };
 exports.AuthService = AuthService;
 exports.AuthService = AuthService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(user_entity_1.User)),
     __param(1, (0, typeorm_1.InjectRepository)(credit_account_entity_1.CreditAccount)),
-    __param(2, (0, typeorm_1.InjectRepository)(password_reset_token_entity_1.PasswordResetToken)),
-    __param(3, (0, typeorm_1.InjectRepository)(login_history_entity_1.LoginHistory)),
-    __param(4, (0, typeorm_1.InjectRepository)(signup_request_entity_1.SignupRequest)),
-    __param(5, (0, typeorm_1.InjectRepository)(user_session_entity_1.UserSession)),
+    __param(2, (0, typeorm_1.InjectRepository)(feature_access_entity_1.FeatureAccess)),
+    __param(3, (0, typeorm_1.InjectRepository)(password_reset_token_entity_1.PasswordResetToken)),
+    __param(4, (0, typeorm_1.InjectRepository)(login_history_entity_1.LoginHistory)),
+    __param(5, (0, typeorm_1.InjectRepository)(signup_request_entity_1.SignupRequest)),
+    __param(6, (0, typeorm_1.InjectRepository)(user_session_entity_1.UserSession)),
     __metadata("design:paramtypes", [typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
+        typeorm_2.Repository,
         jwt_1.JwtService,
-        config_1.ConfigService])
+        config_1.ConfigService,
+        mail_service_1.MailService])
 ], AuthService);
 //# sourceMappingURL=auth.service.js.map

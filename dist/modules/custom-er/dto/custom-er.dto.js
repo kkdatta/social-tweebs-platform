@@ -45,6 +45,14 @@ __decorate([
     (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], UpdateCustomErReportDto.prototype, "isPublic", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Display name for the report (influencer name label)' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MinLength)(1),
+    (0, class_validator_1.MaxLength)(255),
+    __metadata("design:type", String)
+], UpdateCustomErReportDto.prototype, "influencerName", void 0);
 class ShareCustomErReportDto {
 }
 exports.ShareCustomErReportDto = ShareCustomErReportDto;

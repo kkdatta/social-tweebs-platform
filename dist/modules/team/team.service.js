@@ -26,8 +26,9 @@ const credit_account_entity_1 = require("../credits/entities/credit-account.enti
 const credit_transaction_entity_1 = require("../credits/entities/credit-transaction.entity");
 const entities_1 = require("./entities");
 const enums_1 = require("../../common/enums");
+const mail_service_1 = require("../../common/services/mail.service");
 let TeamService = class TeamService {
-    constructor(userRepository, profileRepository, featureAccessRepository, actionPermissionRepository, impersonationLogRepository, creditAccountRepository, transactionRepository, preferencesRepository, dataSource, jwtService, configService) {
+    constructor(userRepository, profileRepository, featureAccessRepository, actionPermissionRepository, impersonationLogRepository, creditAccountRepository, transactionRepository, preferencesRepository, dataSource, jwtService, configService, mailService) {
         this.userRepository = userRepository;
         this.profileRepository = profileRepository;
         this.featureAccessRepository = featureAccessRepository;
@@ -39,6 +40,7 @@ let TeamService = class TeamService {
         this.dataSource = dataSource;
         this.jwtService = jwtService;
         this.configService = configService;
+        this.mailService = mailService;
     }
     async getTeamMembers(requesterId, query) {
         const requester = await this.userRepository.findOne({
@@ -209,6 +211,7 @@ let TeamService = class TeamService {
                 await queryRunner.manager.save(transaction);
             }
             await queryRunner.commitTransaction();
+            await this.mailService.sendWelcomeEmail(user.email, user.name, dto.password);
             return this.getTeamMemberById(creatorId, user.id);
         }
         catch (error) {
@@ -236,6 +239,9 @@ let TeamService = class TeamService {
             user.phone = dto.phone;
         if (dto.status)
             user.status = dto.status;
+        if (dto.password) {
+            user.passwordHash = await bcrypt.hash(dto.password, 12);
+        }
         await this.userRepository.save(user);
         if (profile) {
             if (dto.country)
@@ -501,7 +507,6 @@ let TeamService = class TeamService {
         const usersWithCredits = await this.userRepository
             .createQueryBuilder('user')
             .leftJoinAndSelect('user.creditAccount', 'creditAccount')
-            .leftJoin('zorbitads.team_member_profiles', 'profile', 'profile.user_id = user.id')
             .where('user.id IN (:...userIds)', { userIds })
             .orderBy('user.createdAt', 'DESC')
             .skip((page - 1) * limit)
@@ -528,6 +533,16 @@ let TeamService = class TeamService {
             const profile = await this.profileRepository.findOne({
                 where: { userId: user.id },
             });
+            const discoveryCreditsUsed = await this.sumDebitByModuleAndActions(user.creditAccount?.id, enums_1.ModuleType.DISCOVERY, [
+                enums_1.ActionType.INFLUENCER_SEARCH,
+                enums_1.ActionType.INFLUENCER_UNBLUR,
+                enums_1.ActionType.INFLUENCER_EXPORT,
+            ]);
+            const insightsCreditsUsed = await this.sumDebitByModuleAndActions(user.creditAccount?.id, enums_1.ModuleType.INSIGHTS, [
+                enums_1.ActionType.INFLUENCER_INSIGHT,
+                enums_1.ActionType.INSIGHT_UNLOCK,
+                enums_1.ActionType.INSIGHT_REFRESH,
+            ]);
             data.push({
                 userId: user.id,
                 userName: user.name,
@@ -536,8 +551,8 @@ let TeamService = class TeamService {
                 currentBalance: Number(user.creditAccount?.unifiedBalance || 0),
                 totalCreditsAdded: Number(creditSum?.total || 0),
                 totalCreditsUsed: Number(debitSum?.total || 0),
-                discoveryCreditsUsed: 0,
-                insightsCreditsUsed: 0,
+                discoveryCreditsUsed,
+                insightsCreditsUsed,
                 lastActiveAt: user.updatedAt,
             });
         }
@@ -601,6 +616,22 @@ let TeamService = class TeamService {
             })),
             total,
         };
+    }
+    async sumDebitByModuleAndActions(accountId, module, unifiedBalanceActions) {
+        if (!accountId)
+            return 0;
+        const qb = this.transactionRepository
+            .createQueryBuilder('txn')
+            .select('COALESCE(SUM(txn.amount), 0)', 'total')
+            .where('txn.account_id = :accountId', { accountId })
+            .andWhere('txn.transaction_type = :tt', { tt: enums_1.TransactionType.DEBIT })
+            .andWhere('(txn.module_type = :module OR (txn.module_type = :unified AND txn.action_type IN (:...actions)))', {
+            module,
+            unified: enums_1.ModuleType.UNIFIED_BALANCE,
+            actions: unifiedBalanceActions,
+        });
+        const raw = await qb.getRawOne();
+        return Number(raw?.total || 0);
     }
     async validateAccessToMember(requesterId, memberId) {
         const requester = await this.userRepository.findOne({
@@ -698,6 +729,7 @@ exports.TeamService = TeamService = __decorate([
         typeorm_2.Repository,
         typeorm_2.DataSource,
         jwt_1.JwtService,
-        config_1.ConfigService])
+        config_1.ConfigService,
+        mail_service_1.MailService])
 ], TeamService);
 //# sourceMappingURL=team.service.js.map

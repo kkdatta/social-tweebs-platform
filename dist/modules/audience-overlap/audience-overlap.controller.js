@@ -35,6 +35,15 @@ let AudienceOverlapController = class AudienceOverlapController {
     async getReportById(userId, reportId) {
         return this.overlapService.getReportById(userId, reportId);
     }
+    async downloadReport(userId, reportId, res) {
+        const { buffer, filename } = await this.overlapService.downloadReportAsXlsx(userId, reportId);
+        res.set({
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': `attachment; filename="${filename}"`,
+            'Content-Length': buffer.length,
+        });
+        res.end(buffer);
+    }
     async updateReport(userId, reportId, dto) {
         return this.overlapService.updateReport(userId, reportId, dto);
     }
@@ -103,6 +112,18 @@ __decorate([
     __metadata("design:paramtypes", [String, String]),
     __metadata("design:returntype", Promise)
 ], AudienceOverlapController.prototype, "getReportById", null);
+__decorate([
+    (0, common_1.Get)(':id/download'),
+    (0, swagger_1.ApiOperation)({ summary: 'Download report as XLSX' }),
+    (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'XLSX file download' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, Object]),
+    __metadata("design:returntype", Promise)
+], AudienceOverlapController.prototype, "downloadReport", null);
 __decorate([
     (0, common_1.Patch)(':id'),
     (0, swagger_1.ApiOperation)({ summary: 'Update report (title, visibility)' }),

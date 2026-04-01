@@ -20,4 +20,5 @@ __exportStar(require("./discovery-search.entity"), exports);
 __exportStar(require("./search-result.entity"), exports);
 __exportStar(require("./insights-access.entity"), exports);
 __exportStar(require("./modash-api-log.entity"), exports);
+__exportStar(require("./export-record.entity"), exports);
 //# sourceMappingURL=index.js.map

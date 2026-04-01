@@ -17,6 +17,7 @@ const auth_controller_1 = require("./auth.controller");
 const jwt_strategy_1 = require("./strategies/jwt.strategy");
 const user_entity_1 = require("../users/entities/user.entity");
 const credit_account_entity_1 = require("../credits/entities/credit-account.entity");
+const feature_access_entity_1 = require("../team/entities/feature-access.entity");
 const entities_1 = require("./entities");
 let AuthModule = class AuthModule {
 };
@@ -27,6 +28,7 @@ exports.AuthModule = AuthModule = __decorate([
             typeorm_1.TypeOrmModule.forFeature([
                 user_entity_1.User,
                 credit_account_entity_1.CreditAccount,
+                feature_access_entity_1.FeatureAccess,
                 entities_1.PasswordResetToken,
                 entities_1.LoginHistory,
                 entities_1.SignupRequest,

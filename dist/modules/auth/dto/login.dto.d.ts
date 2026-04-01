@@ -10,6 +10,7 @@ export declare class LoginResponseDto {
         email: string;
         name: string;
         role: string;
+        featureAccess: string[];
     };
     creditBalance: number;
     accountExpiresAt: Date | null;

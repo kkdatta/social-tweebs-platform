@@ -30,6 +30,7 @@ export declare class CreditsService {
     getUserCreditDetail(adminUserId: string, targetUserId: string, query: UserCreditDetailQueryDto): Promise<UserCreditDetailResponseDto>;
     private getMonthlyBreakdown;
     getCreditGuide(): CreditGuideDto;
+    private getUserIdsForUnlockVisibility;
     getAnalyticsSummary(adminUserId: string): Promise<{
         totalTeamMembers: number;
         totalCreditsAllocated: number;

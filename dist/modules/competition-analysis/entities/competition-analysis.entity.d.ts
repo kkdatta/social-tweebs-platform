@@ -64,6 +64,7 @@ export declare class CompetitionBrand {
     hashtags: string[];
     username?: string;
     keywords: string[];
+    platform?: string;
     displayColor?: string;
     influencerCount: number;
     postsCount: number;

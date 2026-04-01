@@ -373,7 +373,8 @@ let TieBreakerService = class TieBreakerService {
     }
     async searchInfluencers(userId, platform, query, limit = 20) {
         const queryBuilder = this.profileRepo.createQueryBuilder('profile');
-        queryBuilder.where('profile.platform = :platform', { platform: platform.toUpperCase() });
+        const safePlatform = (platform || 'INSTAGRAM').toUpperCase();
+        queryBuilder.where('profile.platform = :platform', { platform: safePlatform });
         if (query) {
             queryBuilder.andWhere('(LOWER(profile.username) LIKE :query OR LOWER(profile.fullName) LIKE :query)', { query: `%${query.toLowerCase()}%` });
         }

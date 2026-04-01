@@ -52,9 +52,9 @@ __decorate([
     __metadata("design:type", String)
 ], SignupDto.prototype, "campaignFrequency", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ example: 'Looking forward to using the platform', required: false }),
+    (0, swagger_1.ApiProperty)({ example: 'Looking forward to using the platform', description: 'Message' }),
     (0, class_validator_1.IsString)(),
-    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNotEmpty)({ message: 'Message is required' }),
     __metadata("design:type", String)
 ], SignupDto.prototype, "message", void 0);
 __decorate([

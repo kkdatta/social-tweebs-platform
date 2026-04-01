@@ -25,6 +25,7 @@ exports.CampaignsModule = CampaignsModule = __decorate([
                 campaign_entity_1.CampaignInfluencer,
                 campaign_entity_1.CampaignDeliverable,
                 campaign_entity_1.CampaignMetric,
+                campaign_entity_1.CampaignPost,
                 campaign_entity_1.CampaignShare,
                 user_entity_1.User,
             ]),

@@ -2,7 +2,7 @@ import { Repository } from 'typeorm';
 import { CompetitionAnalysisReport, CompetitionBrand, CompetitionInfluencer, CompetitionPost, CompetitionShare } from './entities';
 import { User } from '../users/entities/user.entity';
 import { CreditsService } from '../credits/credits.service';
-import { CreateCompetitionReportDto, UpdateCompetitionReportDto, ShareCompetitionReportDto, CompetitionReportFilterDto, CompetitionReportListResponseDto, CompetitionReportDetailDto, CompetitionInfluencerDto, CompetitionPostDto, DashboardStatsDto, ChartDataDto, PostsFilterDto, InfluencersFilterDto } from './dto';
+import { CreateCompetitionReportDto, UpdateCompetitionReportDto, ShareCompetitionReportDto, CompetitionReportFilterDto, CompetitionReportListResponseDto, CompetitionReportDetailDto, CompetitionInfluencerDto, CompetitionPostDto, DashboardStatsDto, ChartDataDto, EnhancedChartDataDto, PostsFilterDto, InfluencersFilterDto } from './dto';
 export declare class CompetitionAnalysisService {
     private readonly reportRepo;
     private readonly brandRepo;
@@ -48,6 +48,7 @@ export declare class CompetitionAnalysisService {
     }>;
     getDashboardStats(userId: string): Promise<DashboardStatsDto>;
     getChartData(userId: string, reportId: string): Promise<ChartDataDto[]>;
+    getEnhancedChartData(userId: string, reportId: string): Promise<EnhancedChartDataDto>;
     getPosts(userId: string, reportId: string, filters: PostsFilterDto): Promise<{
         posts: CompetitionPostDto[];
         total: number;

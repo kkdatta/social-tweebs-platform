@@ -23,6 +23,7 @@ export declare class UpdateTeamMemberDto {
     validityEnd?: string;
     validityNotificationEnabled?: boolean;
     status?: UserStatus;
+    password?: string;
 }
 export declare class FeatureToggleDto {
     featureName: FeatureName;

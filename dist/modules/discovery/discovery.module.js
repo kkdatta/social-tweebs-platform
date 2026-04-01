@@ -14,6 +14,7 @@ const discovery_service_1 = require("./services/discovery.service");
 const modash_service_1 = require("./services/modash.service");
 const entities_1 = require("./entities");
 const credits_module_1 = require("../credits/credits.module");
+const insights_module_1 = require("../insights/insights.module");
 const user_entity_1 = require("../users/entities/user.entity");
 const unlocked_influencer_entity_1 = require("../credits/entities/unlocked-influencer.entity");
 let DiscoveryModule = class DiscoveryModule {
@@ -29,10 +30,12 @@ exports.DiscoveryModule = DiscoveryModule = __decorate([
                 entities_1.SearchResult,
                 entities_1.InsightsAccess,
                 entities_1.ModashApiLog,
+                entities_1.ExportRecord,
                 user_entity_1.User,
                 unlocked_influencer_entity_1.UnlockedInfluencer,
             ]),
             credits_module_1.CreditsModule,
+            (0, common_1.forwardRef)(() => insights_module_1.InsightsModule),
         ],
         controllers: [discovery_controller_1.DiscoveryController],
         providers: [discovery_service_1.DiscoveryService, modash_service_1.ModashService],

@@ -4,6 +4,7 @@ export declare class BrandInputDto {
     hashtags?: string[];
     username?: string;
     keywords?: string[];
+    platform?: string;
 }
 export declare class CreateCompetitionReportDto {
     title?: string;
@@ -51,6 +52,7 @@ export declare class BrandSummaryDto {
     hashtags?: string[];
     username?: string;
     keywords?: string[];
+    platform?: string;
     displayColor?: string;
     influencerCount: number;
     postsCount: number;
@@ -106,8 +108,11 @@ export declare class CompetitionPostDto {
     engagementRate?: number;
     isSponsored: boolean;
     postDate?: string;
+    influencerId?: string;
     influencerName?: string;
     influencerUsername?: string;
+    influencerFollowerCount?: number;
+    influencerCredibility?: number;
 }
 export declare class CategoryStatsDto {
     category: string;
@@ -132,6 +137,23 @@ export declare class PostTypeStatsDto {
     videoPercentage: number;
     carouselPercentage: number;
     reelPercentage: number;
+}
+export declare class TimelineDataPointDto {
+    date: string;
+    brands: Record<string, number>;
+    total: number;
+}
+export declare class BrandShareDto {
+    brandName: string;
+    value: number;
+    color: string;
+}
+export declare class EnhancedChartDataDto {
+    postsOverTime: TimelineDataPointDto[];
+    influencersOverTime: TimelineDataPointDto[];
+    postsShare: BrandShareDto[];
+    influencersShare: BrandShareDto[];
+    engagementShare: BrandShareDto[];
 }
 export declare class ChartDataDto {
     date: string;

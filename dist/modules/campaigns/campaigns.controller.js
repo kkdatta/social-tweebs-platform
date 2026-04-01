@@ -14,6 +14,11 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CampaignsController = void 0;
 const common_1 = require("@nestjs/common");
+const platform_express_1 = require("@nestjs/platform-express");
+const multer_1 = require("multer");
+const path_1 = require("path");
+const fs = require("fs");
+const uuid_1 = require("uuid");
 const swagger_1 = require("@nestjs/swagger");
 const jwt_auth_guard_1 = require("../../common/guards/jwt-auth.guard");
 const current_user_decorator_1 = require("../../common/decorators/current-user.decorator");
@@ -36,6 +41,20 @@ let CampaignsController = class CampaignsController {
     }
     async getDashboardStats(userId) {
         return this.campaignsService.getDashboardStats(userId);
+    }
+    async getCreditNotification(userId) {
+        return this.campaignsService.getCreditNotification(userId);
+    }
+    async uploadCampaignLogo(file) {
+        if (!file) {
+            throw new common_1.BadRequestException('No file uploaded');
+        }
+        const relativePath = `/uploads/campaigns/${file.filename}`;
+        return {
+            success: true,
+            path: relativePath,
+            logoUrl: relativePath,
+        };
     }
     async getCampaignById(userId, id) {
         return this.campaignsService.getCampaignById(userId, id);
@@ -63,8 +82,8 @@ let CampaignsController = class CampaignsController {
             influencer,
         };
     }
-    async getInfluencers(userId, campaignId) {
-        const influencers = await this.campaignsService.getInfluencers(userId, campaignId);
+    async getInfluencers(userId, campaignId, filters) {
+        const influencers = await this.campaignsService.getInfluencers(userId, campaignId, filters);
         return {
             success: true,
             influencers,
@@ -84,6 +103,28 @@ let CampaignsController = class CampaignsController {
         return {
             success: true,
             message: 'Influencer removed from campaign',
+        };
+    }
+    async addPost(userId, campaignId, dto) {
+        const post = await this.campaignsService.addPost(userId, campaignId, dto);
+        return {
+            success: true,
+            message: 'Post added to campaign',
+            post,
+        };
+    }
+    async getPosts(userId, campaignId, filters) {
+        const result = await this.campaignsService.getPosts(userId, campaignId, filters);
+        return {
+            success: true,
+            ...result,
+        };
+    }
+    async removePost(userId, campaignId, postId) {
+        await this.campaignsService.removePost(userId, campaignId, postId);
+        return {
+            success: true,
+            message: 'Post removed from campaign',
         };
     }
     async createDeliverable(userId, campaignId, dto) {
@@ -133,6 +174,20 @@ let CampaignsController = class CampaignsController {
             metrics,
         };
     }
+    async getAnalytics(userId, campaignId) {
+        const analytics = await this.campaignsService.getAnalytics(userId, campaignId);
+        return {
+            success: true,
+            ...analytics,
+        };
+    }
+    async exportReport(userId, campaignId, reportType = 'basic') {
+        const data = await this.campaignsService.getReportData(userId, campaignId, reportType);
+        return {
+            success: true,
+            ...data,
+        };
+    }
     async shareCampaign(userId, campaignId, dto) {
         const share = await this.campaignsService.shareCampaign(userId, campaignId, dto);
         return {
@@ -163,7 +218,7 @@ __decorate([
 __decorate([
     (0, common_1.Get)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get campaigns list with filters' }),
-    (0, swagger_1.ApiQuery)({ name: 'tab', required: false, enum: ['created_by_me', 'created_by_team', 'shared_with_me'] }),
+    (0, swagger_1.ApiQuery)({ name: 'tab', required: false, enum: ['created_by_me', 'created_by_team', 'shared_with_me', 'sample_public'] }),
     (0, swagger_1.ApiQuery)({ name: 'status', required: false }),
     (0, swagger_1.ApiQuery)({ name: 'platform', required: false }),
     (0, swagger_1.ApiQuery)({ name: 'search', required: false }),
@@ -183,6 +238,45 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], CampaignsController.prototype, "getDashboardStats", null);
+__decorate([
+    (0, common_1.Get)('credit-notification'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get credit usage notification' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], CampaignsController.prototype, "getCreditNotification", null);
+__decorate([
+    (0, common_1.Post)('upload/logo'),
+    (0, swagger_1.ApiOperation)({ summary: 'Upload campaign logo image' }),
+    (0, swagger_1.ApiConsumes)('multipart/form-data'),
+    (0, swagger_1.ApiResponse)({ status: 201, description: 'File saved; returns public path for logoUrl' }),
+    (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('logo', {
+        storage: (0, multer_1.diskStorage)({
+            destination: (_req, _file, cb) => {
+                const dest = (0, path_1.join)(process.cwd(), 'uploads', 'campaigns');
+                fs.mkdirSync(dest, { recursive: true });
+                cb(null, dest);
+            },
+            filename: (_req, file, cb) => {
+                const ext = (0, path_1.extname)(file.originalname || '').toLowerCase();
+                const safeExt = ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext) ? ext : '.png';
+                cb(null, `${(0, uuid_1.v4)()}${safeExt}`);
+            },
+        }),
+        limits: { fileSize: 5 * 1024 * 1024 },
+        fileFilter: (_req, file, cb) => {
+            if (!/^image\/(jpeg|png|gif|webp)$/i.test(file.mimetype)) {
+                return cb(new common_1.BadRequestException('Only JPEG, PNG, GIF, or WebP images are allowed'), false);
+            }
+            cb(null, true);
+        },
+    })),
+    __param(0, (0, common_1.UploadedFile)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], CampaignsController.prototype, "uploadCampaignLogo", null);
 __decorate([
     (0, common_1.Get)(':id'),
     (0, swagger_1.ApiOperation)({ summary: 'Get campaign details' }),
@@ -228,12 +322,16 @@ __decorate([
 ], CampaignsController.prototype, "addInfluencer", null);
 __decorate([
     (0, common_1.Get)(':id/influencers'),
-    (0, swagger_1.ApiOperation)({ summary: 'Get campaign influencers' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Get campaign influencers with filters' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Campaign ID' }),
+    (0, swagger_1.ApiQuery)({ name: 'platform', required: false }),
+    (0, swagger_1.ApiQuery)({ name: 'publishStatus', required: false }),
+    (0, swagger_1.ApiQuery)({ name: 'search', required: false }),
     __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
     __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Query)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:paramtypes", [String, String, campaign_dto_1.InfluencerFilterDto]),
     __metadata("design:returntype", Promise)
 ], CampaignsController.prototype, "getInfluencers", null);
 __decorate([
@@ -262,6 +360,41 @@ __decorate([
     __metadata("design:paramtypes", [String, String, String]),
     __metadata("design:returntype", Promise)
 ], CampaignsController.prototype, "removeInfluencer", null);
+__decorate([
+    (0, common_1.Post)(':id/posts'),
+    (0, swagger_1.ApiOperation)({ summary: 'Add post to campaign' }),
+    (0, swagger_1.ApiParam)({ name: 'id', description: 'Campaign ID' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, campaign_dto_1.AddPostDto]),
+    __metadata("design:returntype", Promise)
+], CampaignsController.prototype, "addPost", null);
+__decorate([
+    (0, common_1.Get)(':id/posts'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get campaign posts with filters' }),
+    (0, swagger_1.ApiParam)({ name: 'id', description: 'Campaign ID' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, campaign_dto_1.PostFilterDto]),
+    __metadata("design:returntype", Promise)
+], CampaignsController.prototype, "getPosts", null);
+__decorate([
+    (0, common_1.Delete)(':id/posts/:postId'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({ summary: 'Remove post from campaign' }),
+    (0, swagger_1.ApiParam)({ name: 'id', description: 'Campaign ID' }),
+    (0, swagger_1.ApiParam)({ name: 'postId', description: 'Post ID' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Param)('postId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String]),
+    __metadata("design:returntype", Promise)
+], CampaignsController.prototype, "removePost", null);
 __decorate([
     (0, common_1.Post)(':id/deliverables'),
     (0, swagger_1.ApiOperation)({ summary: 'Create deliverable for campaign' }),
@@ -330,6 +463,28 @@ __decorate([
     __metadata("design:paramtypes", [String, String]),
     __metadata("design:returntype", Promise)
 ], CampaignsController.prototype, "getCampaignMetrics", null);
+__decorate([
+    (0, common_1.Get)(':id/analytics'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get campaign analytics' }),
+    (0, swagger_1.ApiParam)({ name: 'id', description: 'Campaign ID' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], CampaignsController.prototype, "getAnalytics", null);
+__decorate([
+    (0, common_1.Get)(':id/export'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get campaign report data for export' }),
+    (0, swagger_1.ApiParam)({ name: 'id', description: 'Campaign ID' }),
+    (0, swagger_1.ApiQuery)({ name: 'type', required: false, enum: ['basic', 'advanced'] }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Query)('type')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String]),
+    __metadata("design:returntype", Promise)
+], CampaignsController.prototype, "exportReport", null);
 __decorate([
     (0, common_1.Post)(':id/share'),
     (0, swagger_1.ApiOperation)({ summary: 'Share campaign with user' }),

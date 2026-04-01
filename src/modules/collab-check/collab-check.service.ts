@@ -146,7 +146,8 @@ export class CollabCheckService {
           post.commentsCount = Math.floor(Math.random() * 500) + 20;
           post.viewsCount = Math.floor(Math.random() * 50000) + 2000;
           post.sharesCount = Math.floor(Math.random() * 200) + 10;
-          post.engagementRate = ((post.likesCount + post.commentsCount) / influencer.followerCount) * 100;
+          const fc = Number(influencer.followerCount) || 0;
+          post.engagementRate = fc > 0 ? ((post.likesCount + post.commentsCount) / fc) * 100 : 0;
           
           // Random date within the time period
           const randomDays = Math.floor(Math.random() * this.getDaysFromPeriod(report.timePeriod));
@@ -158,10 +159,10 @@ export class CollabCheckService {
 
           await this.postRepo.save(post);
 
-          infLikes += post.likesCount;
-          infViews += post.viewsCount;
-          infComments += post.commentsCount;
-          infShares += post.sharesCount;
+          infLikes += Number(post.likesCount) || 0;
+          infViews += Number(post.viewsCount) || 0;
+          infComments += Number(post.commentsCount) || 0;
+          infShares += Number(post.sharesCount) || 0;
         }
 
         // Update influencer metrics
@@ -170,7 +171,9 @@ export class CollabCheckService {
         influencer.viewsCount = infViews;
         influencer.commentsCount = infComments;
         influencer.sharesCount = infShares;
-        influencer.avgEngagementRate = ((infLikes + infComments) / (postsCount * influencer.followerCount)) * 100;
+        const infFc = Number(influencer.followerCount) || 0;
+        const infDenom = postsCount * infFc;
+        influencer.avgEngagementRate = infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
         await this.influencerRepo.save(influencer);
 
         totalPosts += postsCount;
@@ -188,9 +191,10 @@ export class CollabCheckService {
       report.totalComments = totalComments;
       report.totalShares = totalShares;
       report.totalFollowers = totalFollowers;
-      report.avgEngagementRate = totalPosts > 0 
-        ? ((totalLikes + totalComments) / (totalPosts * (totalFollowers / report.influencers.length))) * 100 
-        : 0;
+      const infLen = report.influencers.length;
+      const avgFollowersPerInf = infLen > 0 ? totalFollowers / infLen : 0;
+      const reportEngDenom = totalPosts * avgFollowersPerInf;
+      report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
       report.status = CollabReportStatus.COMPLETED;
       report.completedAt = new Date();
       await this.reportRepo.save(report);
@@ -503,9 +507,9 @@ export class CollabCheckService {
         grouped[dateStr] = { posts: 0, likes: 0, views: 0, comments: 0 };
       }
       grouped[dateStr].posts += 1;
-      grouped[dateStr].likes += post.likesCount || 0;
-      grouped[dateStr].views += post.viewsCount || 0;
-      grouped[dateStr].comments += post.commentsCount || 0;
+      grouped[dateStr].likes += Number(post.likesCount) || 0;
+      grouped[dateStr].views += Number(post.viewsCount) || 0;
+      grouped[dateStr].comments += Number(post.commentsCount) || 0;
     });
 
     return Object.entries(grouped)

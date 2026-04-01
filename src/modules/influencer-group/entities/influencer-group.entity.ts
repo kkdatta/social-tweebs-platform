@@ -141,7 +141,7 @@ export class InfluencerGroupMember {
   @Column({ name: 'audience_credibility', type: 'decimal', precision: 5, scale: 2, nullable: true })
   audienceCredibility?: number;
 
-  @Column({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   engagementRate?: number;
 
   @Column({ name: 'avg_likes', type: 'bigint', nullable: true })

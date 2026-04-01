@@ -354,13 +354,26 @@ let InfluencerGroupService = InfluencerGroupService_1 = class InfluencerGroupSer
         if (!group)
             throw new common_1.NotFoundException('Group not found');
         await this.checkGroupAccess(userId, group, 'edit');
-        const result = await this.memberRepo.delete({
-            id: (0, typeorm_2.In)(dto.memberIds),
-            groupId,
+        const membersToRemove = await this.memberRepo.find({
+            where: {
+                id: (0, typeorm_2.In)(dto.memberIds),
+                groupId,
+            },
         });
+        if (membersToRemove.length === 0) {
+            this.logger.warn(`No matching members found for removal in group ${groupId}. Requested IDs: ${dto.memberIds.join(', ')}`);
+            return { removed: 0 };
+        }
+        try {
+            await this.memberRepo.remove(membersToRemove);
+        }
+        catch (error) {
+            this.logger.error(`Failed to remove members from group ${groupId}: ${error.message}`, error.stack);
+            throw new common_1.BadRequestException(`Failed to remove influencer(s): ${error.message}`);
+        }
         await this.updateGroupInfluencerCount(groupId);
-        this.logger.log(`Removed ${result.affected} influencers from group ${groupId}`);
-        return { removed: result.affected || 0 };
+        this.logger.log(`Removed ${membersToRemove.length} influencers from group ${groupId}`);
+        return { removed: membersToRemove.length };
     }
     async getMembers(userId, groupId, filters) {
         const group = await this.groupRepo.findOne({ where: { id: groupId } });

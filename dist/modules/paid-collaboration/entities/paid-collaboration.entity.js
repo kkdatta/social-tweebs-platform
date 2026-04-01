@@ -101,11 +101,11 @@ __decorate([
     __metadata("design:type", Number)
 ], PaidCollabReport.prototype, "totalShares", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], PaidCollabReport.prototype, "avgEngagementRate", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'engagement_views_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'engagement_views_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], PaidCollabReport.prototype, "engagementViewsRate", void 0);
 __decorate([
@@ -242,7 +242,7 @@ __decorate([
     __metadata("design:type", Number)
 ], PaidCollabInfluencer.prototype, "sharesCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], PaidCollabInfluencer.prototype, "engagementRate", void 0);
 __decorate([
@@ -338,7 +338,7 @@ __decorate([
     __metadata("design:type", Number)
 ], PaidCollabPost.prototype, "sharesCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], PaidCollabPost.prototype, "engagementRate", void 0);
 __decorate([
@@ -401,7 +401,7 @@ __decorate([
     __metadata("design:type", Number)
 ], PaidCollabCategorization.prototype, "sharesCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], PaidCollabCategorization.prototype, "engagementRate", void 0);
 __decorate([

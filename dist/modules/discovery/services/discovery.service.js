@@ -19,27 +19,30 @@ const typeorm_1 = require("@nestjs/typeorm");
 const typeorm_2 = require("typeorm");
 const enums_1 = require("../../../common/enums");
 const credits_service_1 = require("../../credits/credits.service");
+const insights_service_1 = require("../../insights/insights.service");
 const user_entity_1 = require("../../users/entities/user.entity");
 const unlocked_influencer_entity_1 = require("../../credits/entities/unlocked-influencer.entity");
 const entities_1 = require("../entities");
 const modash_service_1 = require("./modash.service");
-const CREDIT_PER_SEARCH_RESULT = 0.01;
 const CREDIT_PER_UNBLUR = 0.04;
 const CREDIT_PER_INSIGHT = 1;
 const CREDIT_PER_REFRESH = 1;
-const CREDIT_PER_EXPORT = 0.04;
+const CREDIT_PER_EXPORT_INFLUENCER = 0.04;
+const RESULTS_PER_PAGE = 10;
 let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
-    constructor(profileRepository, searchRepository, searchResultRepository, insightsAccessRepository, audienceDataRepository, unlockedInfluencerRepository, userRepository, modashService, creditsService, dataSource) {
+    constructor(profileRepository, searchRepository, searchResultRepository, insightsAccessRepository, audienceDataRepository, unlockedInfluencerRepository, exportRecordRepository, userRepository, modashService, creditsService, dataSource, insightsService) {
         this.profileRepository = profileRepository;
         this.searchRepository = searchRepository;
         this.searchResultRepository = searchResultRepository;
         this.insightsAccessRepository = insightsAccessRepository;
         this.audienceDataRepository = audienceDataRepository;
         this.unlockedInfluencerRepository = unlockedInfluencerRepository;
+        this.exportRecordRepository = exportRecordRepository;
         this.userRepository = userRepository;
         this.modashService = modashService;
         this.creditsService = creditsService;
         this.dataSource = dataSource;
+        this.insightsService = insightsService;
         this.logger = new common_1.Logger(DiscoveryService_1.name);
     }
     async searchInfluencers(userId, dto) {
@@ -51,11 +54,6 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
         }
     }
     async searchInfluencersViaModash(userId, dto) {
-        const balance = await this.creditsService.getBalance(userId);
-        const estimatedCredits = 15 * CREDIT_PER_SEARCH_RESULT;
-        if (balance.unifiedBalance < estimatedCredits) {
-            throw new common_1.BadRequestException(`Insufficient credits. Minimum required: ${estimatedCredits}, Available: ${balance.unifiedBalance}`);
-        }
         const search = this.searchRepository.create({
             userId,
             platform: dto.platform,
@@ -71,19 +69,12 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
         try {
             const modashResponse = await this.modashService.searchInfluencers(dto, userId);
             const { profiles, searchResults } = await this.storeSearchResults(search, modashResponse, userId);
-            const creditsToDeduct = modashResponse.lookalikes.length * CREDIT_PER_SEARCH_RESULT;
-            const deductResult = await this.creditsService.deductCredits(userId, {
-                actionType: enums_1.ActionType.INFLUENCER_SEARCH,
-                module: enums_1.ModuleType.UNIFIED_BALANCE,
-                quantity: modashResponse.lookalikes.length,
-                resourceId: search.id,
-                resourceType: 'discovery_search',
-            });
+            const balanceAfterSearch = await this.creditsService.getBalance(userId);
             search.status = entities_1.SearchStatus.COMPLETED;
             search.resultCount = modashResponse.lookalikes.length;
             search.totalAvailable = modashResponse.total;
             search.hasMore = modashResponse.hasMore;
-            search.creditsUsed = creditsToDeduct;
+            search.creditsUsed = 0;
             await this.searchRepository.save(search);
             const unlockedProfileIds = await this.getUnlockedProfileIds(userId, dto.platform);
             const results = profiles.map((profile, index) => ({
@@ -113,8 +104,8 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
                 totalAvailable: modashResponse.total,
                 page: dto.page || 0,
                 hasMore: modashResponse.hasMore,
-                creditsUsed: creditsToDeduct,
-                remainingBalance: deductResult.remainingBalance,
+                creditsUsed: 0,
+                remainingBalance: balanceAfterSearch.unifiedBalance,
             };
         }
         catch (error) {
@@ -125,7 +116,7 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
         }
     }
     async searchInfluencersFromLocalDB(userId, dto) {
-        const pageSize = 15;
+        const pageSize = RESULTS_PER_PAGE;
         const page = dto.page || 0;
         const queryBuilder = this.profileRepository
             .createQueryBuilder('profile')
@@ -176,9 +167,13 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
                 });
             }
             if (filters.accountTypes && filters.accountTypes.length > 0) {
-                queryBuilder.andWhere('profile.accountType IN (:...accountTypes)', {
-                    accountTypes: filters.accountTypes,
-                });
+                const typeMap = { 1: 'REGULAR', 2: 'BUSINESS', 3: 'CREATOR' };
+                const mapped = filters.accountTypes.map(t => typeMap[t] || t).filter(Boolean);
+                if (mapped.length > 0) {
+                    queryBuilder.andWhere('profile.accountType IN (:...accountTypes)', {
+                        accountTypes: mapped,
+                    });
+                }
             }
         }
         if (dto.sort?.field) {
@@ -343,9 +338,10 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
             await this.insightsAccessRepository.save(existingAccess);
         }
         let updatedProfile = profile;
+        let modashReport;
         if (isModashEnabled) {
-            const report = await this.modashService.getInfluencerReport(profile.platform, profile.platformUserId, userId);
-            await this.updateProfileFromReport(profile, report);
+            modashReport = await this.modashService.getInfluencerReport(profile.platform, profile.platformUserId, userId);
+            await this.updateProfileFromReport(profile, modashReport);
             const refreshedProfile = await this.profileRepository.findOne({
                 where: { id: profileId },
                 relations: ['audienceData'],
@@ -355,9 +351,11 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
             }
             updatedProfile = refreshedProfile;
         }
+        const insightId = await this.insightsService.ensureInsightRecordForDiscoveryProfile(userId, updatedProfile, modashReport);
         const balance = await this.creditsService.getBalance(userId);
         return {
             success: true,
+            insightId,
             isFirstAccess,
             creditsCharged,
             remainingBalance: balance.unifiedBalance,
@@ -457,16 +455,30 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
         };
     }
     async exportInfluencers(userId, dto) {
-        const { profileIds, format } = dto;
+        let { profileIds, format, fileName, excludePreviouslyExported } = dto;
+        if (excludePreviouslyExported) {
+            const previouslyExported = await this.getPreviouslyExportedProfileIds(userId);
+            profileIds = profileIds.filter((id) => !previouslyExported.has(id));
+        }
+        if (profileIds.length === 0) {
+            const balance = await this.creditsService.getBalance(userId);
+            return {
+                success: true,
+                exportedCount: 0,
+                creditsUsed: 0,
+                remainingBalance: balance.unifiedBalance,
+                data: [],
+            };
+        }
         const unlockedIds = await this.getUnlockedProfileIds(userId, null);
         const notUnlocked = profileIds.filter((id) => !unlockedIds.has(id));
         if (notUnlocked.length > 0) {
             throw new common_1.ForbiddenException(`Some profiles are not unlocked. Please unblur them first.`);
         }
-        const creditsNeeded = profileIds.length * CREDIT_PER_EXPORT;
+        const creditsNeeded = profileIds.length * CREDIT_PER_EXPORT_INFLUENCER;
         const balance = await this.creditsService.getBalance(userId);
         if (balance.unifiedBalance < creditsNeeded) {
-            throw new common_1.BadRequestException(`Insufficient credits. Required: ${creditsNeeded}, Available: ${balance.unifiedBalance}`);
+            throw new common_1.BadRequestException(`Insufficient credits. Required: ${creditsNeeded.toFixed(2)}, Available: ${balance.unifiedBalance}`);
         }
         await this.creditsService.deductCredits(userId, {
             actionType: enums_1.ActionType.INFLUENCER_EXPORT,
@@ -491,13 +503,91 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
             contactEmail: p.contactEmail,
             website: p.websiteUrl,
         }));
+        const exportRecord = this.exportRecordRepository.create({
+            userId,
+            fileName: fileName || `influencer_export_${new Date().toISOString().split('T')[0]}`,
+            format,
+            profileIds,
+            exportedCount: profiles.length,
+            creditsUsed: creditsNeeded,
+            excludedPreviouslyExported: excludePreviouslyExported || false,
+        });
+        await this.exportRecordRepository.save(exportRecord);
         const newBalance = await this.creditsService.getBalance(userId);
         return {
             success: true,
             exportedCount: profiles.length,
             creditsUsed: creditsNeeded,
             remainingBalance: newBalance.unifiedBalance,
-            data: format === 'json' ? data : undefined,
+            data,
+        };
+    }
+    async getExportHistory(userId) {
+        const exports = await this.exportRecordRepository.find({
+            where: { userId },
+            order: { createdAt: 'DESC' },
+            take: 50,
+        });
+        const allExportedProfileIds = new Set();
+        exports.forEach((e) => e.profileIds.forEach((id) => allExportedProfileIds.add(id)));
+        return {
+            exports: exports.map((e) => ({
+                id: e.id,
+                fileName: e.fileName,
+                exportedCount: e.exportedCount,
+                creditsUsed: Number(e.creditsUsed),
+                createdAt: e.createdAt,
+                profileIds: e.profileIds,
+            })),
+            total: exports.length,
+            allExportedProfileIds: Array.from(allExportedProfileIds),
+        };
+    }
+    async getExportCostEstimate(userId, profileIds, excludePreviouslyExported) {
+        let previouslyExportedCount = 0;
+        let effectiveIds = profileIds;
+        if (excludePreviouslyExported) {
+            const previouslyExported = await this.getPreviouslyExportedProfileIds(userId);
+            const filtered = profileIds.filter((id) => !previouslyExported.has(id));
+            previouslyExportedCount = profileIds.length - filtered.length;
+            effectiveIds = filtered;
+        }
+        const creditCost = effectiveIds.length * CREDIT_PER_EXPORT_INFLUENCER;
+        return {
+            count: profileIds.length,
+            creditCost: Math.round(creditCost * 100) / 100,
+            previouslyExportedCount,
+            newExportCount: effectiveIds.length,
+        };
+    }
+    async checkInsightsAccess(userId, profileId) {
+        const user = await this.userRepository.findOne({ where: { id: userId } });
+        if (!user) {
+            return { hasAccess: false, creditCost: CREDIT_PER_INSIGHT };
+        }
+        const userIdsToCheck = [userId];
+        if (user.parentId)
+            userIdsToCheck.push(user.parentId);
+        const existingAccess = await this.insightsAccessRepository.findOne({
+            where: [
+                ...userIdsToCheck.map((uid) => ({
+                    userId: uid,
+                    influencerProfileId: profileId,
+                })),
+            ],
+        });
+        if (existingAccess) {
+            const insightId = (await this.insightsService.findOrEnsureInsightIdForProfile(userId, profileId)) ?? undefined;
+            return {
+                hasAccess: true,
+                creditCost: 0,
+                firstAccessedAt: existingAccess.firstAccessedAt,
+                insightId,
+            };
+        }
+        return {
+            hasAccess: false,
+            creditCost: CREDIT_PER_INSIGHT,
         };
     }
     async getLocations(query) {
@@ -543,6 +633,15 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
             return { brands: [], message: 'Modash integration disabled - no live data available' };
         }
         return this.modashService.getBrands(query);
+    }
+    async getPreviouslyExportedProfileIds(userId) {
+        const exports = await this.exportRecordRepository.find({
+            where: { userId },
+            select: ['profileIds'],
+        });
+        const ids = new Set();
+        exports.forEach((e) => e.profileIds.forEach((id) => ids.add(id)));
+        return ids;
     }
     async storeSearchResults(search, modashResponse, userId) {
         const profiles = [];
@@ -705,6 +804,13 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
         if (user.parentId) {
             userIdsToCheck.push(user.parentId);
         }
+        if (user.role === enums_1.UserRole.ADMIN) {
+            const children = await this.userRepository.find({
+                where: { parentId: userId },
+                select: ['id'],
+            });
+            userIdsToCheck.push(...children.map((c) => c.id));
+        }
         const whereClause = {
             userId: (0, typeorm_2.In)(userIdsToCheck),
         };
@@ -775,8 +881,11 @@ exports.DiscoveryService = DiscoveryService = DiscoveryService_1 = __decorate([
     __param(3, (0, typeorm_1.InjectRepository)(entities_1.InsightsAccess)),
     __param(4, (0, typeorm_1.InjectRepository)(entities_1.AudienceData)),
     __param(5, (0, typeorm_1.InjectRepository)(unlocked_influencer_entity_1.UnlockedInfluencer)),
-    __param(6, (0, typeorm_1.InjectRepository)(user_entity_1.User)),
+    __param(6, (0, typeorm_1.InjectRepository)(entities_1.ExportRecord)),
+    __param(7, (0, typeorm_1.InjectRepository)(user_entity_1.User)),
+    __param(11, (0, common_1.Inject)((0, common_1.forwardRef)(() => insights_service_1.InsightsService))),
     __metadata("design:paramtypes", [typeorm_2.Repository,
+        typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
@@ -785,6 +894,7 @@ exports.DiscoveryService = DiscoveryService = DiscoveryService_1 = __decorate([
         typeorm_2.Repository,
         modash_service_1.ModashService,
         credits_service_1.CreditsService,
-        typeorm_2.DataSource])
+        typeorm_2.DataSource,
+        insights_service_1.InsightsService])
 ], DiscoveryService);
 //# sourceMappingURL=discovery.service.js.map

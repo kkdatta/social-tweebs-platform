@@ -20,6 +20,7 @@ const auth_service_1 = require("./auth.service");
 const dto_1 = require("./dto");
 const guards_1 = require("../../common/guards");
 const decorators_1 = require("../../common/decorators");
+const enums_1 = require("../../common/enums");
 let AuthController = class AuthController {
     constructor(authService) {
         this.authService = authService;
@@ -40,6 +41,9 @@ let AuthController = class AuthController {
     }
     async refreshToken(refreshTokenDto) {
         return this.authService.refreshToken(refreshTokenDto);
+    }
+    async approveSignup(id) {
+        return this.authService.approveSignup(id);
     }
     async logout(user, body) {
         await this.authService.logout(user.sub, body.refreshToken);
@@ -104,6 +108,20 @@ __decorate([
     __metadata("design:paramtypes", [dto_1.RefreshTokenDto]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "refreshToken", null);
+__decorate([
+    (0, common_1.Post)('approve-signup/:id'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard, guards_1.RolesGuard),
+    (0, decorators_1.Roles)(enums_1.UserRole.SUPER_ADMIN),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiBearerAuth)('JWT-auth'),
+    (0, swagger_1.ApiOperation)({ summary: 'Approve a signup request (Super Admin only)' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Signup approved and user activated' }),
+    (0, swagger_1.ApiResponse)({ status: 400, description: 'Invalid request' }),
+    __param(0, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "approveSignup", null);
 __decorate([
     (0, common_1.Post)('logout'),
     (0, common_1.UseGuards)(guards_1.JwtAuthGuard),

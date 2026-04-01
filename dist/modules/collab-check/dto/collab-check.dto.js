@@ -449,4 +449,8 @@ __decorate([
     (0, swagger_1.ApiProperty)(),
     __metadata("design:type", Number)
 ], PostsChartDataDto.prototype, "viewsCount", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], PostsChartDataDto.prototype, "commentsCount", void 0);
 //# sourceMappingURL=collab-check.dto.js.map

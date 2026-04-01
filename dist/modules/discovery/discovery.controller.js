@@ -47,6 +47,15 @@ let DiscoveryController = class DiscoveryController {
     async exportInfluencers(userId, dto) {
         return this.discoveryService.exportInfluencers(userId, dto);
     }
+    async getExportHistory(userId) {
+        return this.discoveryService.getExportHistory(userId);
+    }
+    async getExportCostEstimate(userId, body) {
+        return this.discoveryService.getExportCostEstimate(userId, body.profileIds, body.excludePreviouslyExported || false);
+    }
+    async checkInsightsAccess(userId, profileId) {
+        return this.discoveryService.checkInsightsAccess(userId, profileId);
+    }
     async getLocations(query) {
         return this.discoveryService.getLocations(query);
     }
@@ -147,7 +156,7 @@ __decorate([
     (0, common_1.Post)('export'),
     (0, swagger_1.ApiOperation)({
         summary: 'Export influencer data',
-        description: 'Export unlocked influencer data. Costs 0.04 credits per profile.',
+        description: 'Export unlocked influencer data. 1 credit per 25 influencers (0.04 per profile).',
     }),
     (0, swagger_1.ApiResponse)({ status: 200, type: influencer_dto_1.ExportResponseDto }),
     (0, swagger_1.ApiResponse)({ status: 400, description: 'Insufficient credits' }),
@@ -158,6 +167,38 @@ __decorate([
     __metadata("design:paramtypes", [String, influencer_dto_1.ExportInfluencersDto]),
     __metadata("design:returntype", Promise)
 ], DiscoveryController.prototype, "exportInfluencers", null);
+__decorate([
+    (0, common_1.Get)('export-history'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get export history and previously exported profile IDs' }),
+    (0, swagger_1.ApiResponse)({ status: 200, type: influencer_dto_1.ExportHistoryResponseDto }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], DiscoveryController.prototype, "getExportHistory", null);
+__decorate([
+    (0, common_1.Post)('export-cost-estimate'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get export credit cost estimate' }),
+    (0, swagger_1.ApiResponse)({ status: 200, type: influencer_dto_1.ExportCostEstimateDto }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], DiscoveryController.prototype, "getExportCostEstimate", null);
+__decorate([
+    (0, common_1.Get)('insights-check/:id'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Check if user has insights access for a profile',
+        description: 'Returns whether the user already has access and the credit cost if not.',
+    }),
+    (0, swagger_1.ApiResponse)({ status: 200, type: influencer_dto_1.InsightsCheckResponseDto }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Param)('id', common_1.ParseUUIDPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], DiscoveryController.prototype, "checkInsightsAccess", null);
 __decorate([
     (0, common_1.Get)('locations'),
     (0, swagger_1.ApiOperation)({ summary: 'Get location dictionary' }),

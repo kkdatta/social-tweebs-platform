@@ -33,10 +33,17 @@ __decorate([
 __decorate([
     (0, swagger_1.ApiProperty)({ example: 'NewSecurePass123!', description: 'New password' }),
     (0, class_validator_1.IsString)(),
-    (0, class_validator_1.IsNotEmpty)({ message: 'New password is required' }),
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.MinLength)(8, { message: 'Password must be at least 8 characters' }),
     __metadata("design:type", String)
 ], ResetPasswordDto.prototype, "newPassword", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)({ example: 'NewSecurePass123!', description: 'New password (alias)', required: false }),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.MinLength)(8, { message: 'Password must be at least 8 characters' }),
+    __metadata("design:type", String)
+], ResetPasswordDto.prototype, "password", void 0);
 class RefreshTokenDto {
 }
 exports.RefreshTokenDto = RefreshTokenDto;

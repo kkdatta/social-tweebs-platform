@@ -103,11 +103,11 @@ __decorate([
     __metadata("design:type", Number)
 ], CustomErReport.prototype, "allSharesCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'all_avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'all_avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], CustomErReport.prototype, "allAvgEngagementRate", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'all_engagement_views_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'all_engagement_views_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], CustomErReport.prototype, "allEngagementViewsRate", void 0);
 __decorate([
@@ -131,11 +131,11 @@ __decorate([
     __metadata("design:type", Number)
 ], CustomErReport.prototype, "sponsoredSharesCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'sponsored_avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'sponsored_avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], CustomErReport.prototype, "sponsoredAvgEngagementRate", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'sponsored_engagement_views_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'sponsored_engagement_views_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], CustomErReport.prototype, "sponsoredEngagementViewsRate", void 0);
 __decorate([
@@ -252,7 +252,7 @@ __decorate([
     __metadata("design:type", Number)
 ], CustomErPost.prototype, "sharesCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], CustomErPost.prototype, "engagementRate", void 0);
 __decorate([

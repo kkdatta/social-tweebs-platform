@@ -22,6 +22,7 @@ const user_entity_1 = require("../users/entities/user.entity");
 const credits_service_1 = require("../credits/credits.service");
 const enums_1 = require("../../common/enums");
 const CREDIT_PER_INFLUENCER = 1;
+const RETRY_CREDIT_FLAT = 1;
 let CollabCheckService = class CollabCheckService {
     constructor(reportRepo, influencerRepo, postRepo, shareRepo, userRepo, creditsService) {
         this.reportRepo = reportRepo;
@@ -101,31 +102,34 @@ let CollabCheckService = class CollabCheckService {
                     post.commentsCount = Math.floor(Math.random() * 500) + 20;
                     post.viewsCount = Math.floor(Math.random() * 50000) + 2000;
                     post.sharesCount = Math.floor(Math.random() * 200) + 10;
-                    post.engagementRate = ((post.likesCount + post.commentsCount) / influencer.followerCount) * 100;
+                    const fc = Number(influencer.followerCount) || 0;
+                    post.engagementRate = fc > 0 ? ((post.likesCount + post.commentsCount) / fc) * 100 : 0;
                     const randomDays = Math.floor(Math.random() * this.getDaysFromPeriod(report.timePeriod));
                     const postDate = new Date(startDate);
                     postDate.setDate(postDate.getDate() + randomDays);
                     post.postDate = postDate;
                     post.postUrl = `https://instagram.com/p/${post.postId}`;
                     await this.postRepo.save(post);
-                    infLikes += post.likesCount;
-                    infViews += post.viewsCount;
-                    infComments += post.commentsCount;
-                    infShares += post.sharesCount;
+                    infLikes += Number(post.likesCount) || 0;
+                    infViews += Number(post.viewsCount) || 0;
+                    infComments += Number(post.commentsCount) || 0;
+                    infShares += Number(post.sharesCount) || 0;
                 }
                 influencer.postsCount = postsCount;
                 influencer.likesCount = infLikes;
                 influencer.viewsCount = infViews;
                 influencer.commentsCount = infComments;
                 influencer.sharesCount = infShares;
-                influencer.avgEngagementRate = ((infLikes + infComments) / (postsCount * influencer.followerCount)) * 100;
+                const infFc = Number(influencer.followerCount) || 0;
+                const infDenom = postsCount * infFc;
+                influencer.avgEngagementRate = infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
                 await this.influencerRepo.save(influencer);
                 totalPosts += postsCount;
                 totalLikes += infLikes;
                 totalViews += infViews;
                 totalComments += infComments;
                 totalShares += infShares;
-                totalFollowers += influencer.followerCount;
+                totalFollowers += Number(influencer.followerCount) || 0;
             }
             report.totalPosts = totalPosts;
             report.totalLikes = totalLikes;
@@ -133,9 +137,10 @@ let CollabCheckService = class CollabCheckService {
             report.totalComments = totalComments;
             report.totalShares = totalShares;
             report.totalFollowers = totalFollowers;
-            report.avgEngagementRate = totalPosts > 0
-                ? ((totalLikes + totalComments) / (totalPosts * (totalFollowers / report.influencers.length))) * 100
-                : 0;
+            const infLen = report.influencers.length;
+            const avgFollowersPerInf = infLen > 0 ? totalFollowers / infLen : 0;
+            const reportEngDenom = totalPosts * avgFollowersPerInf;
+            report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
             report.status = entities_1.CollabReportStatus.COMPLETED;
             report.completedAt = new Date();
             await this.reportRepo.save(report);
@@ -265,10 +270,10 @@ let CollabCheckService = class CollabCheckService {
             throw new common_1.NotFoundException('Report not found');
         }
         await this.checkReportAccess(userId, report, 'edit');
-        if (report.status !== entities_1.CollabReportStatus.FAILED) {
-            throw new common_1.BadRequestException('Only failed reports can be retried');
+        if (report.status !== entities_1.CollabReportStatus.FAILED && report.status !== entities_1.CollabReportStatus.COMPLETED) {
+            throw new common_1.BadRequestException('Only completed or failed reports can be retried');
         }
-        const totalCredits = report.influencers.length * CREDIT_PER_INFLUENCER;
+        const totalCredits = RETRY_CREDIT_FLAT;
         await this.creditsService.deductCredits(userId, {
             actionType: enums_1.ActionType.REPORT_REFRESH,
             quantity: totalCredits,
@@ -343,11 +348,12 @@ let CollabCheckService = class CollabCheckService {
         posts.forEach(post => {
             const dateStr = post.postDate ? new Date(post.postDate).toISOString().split('T')[0] : 'Unknown';
             if (!grouped[dateStr]) {
-                grouped[dateStr] = { posts: 0, likes: 0, views: 0 };
+                grouped[dateStr] = { posts: 0, likes: 0, views: 0, comments: 0 };
             }
             grouped[dateStr].posts += 1;
-            grouped[dateStr].likes += post.likesCount || 0;
-            grouped[dateStr].views += post.viewsCount || 0;
+            grouped[dateStr].likes += Number(post.likesCount) || 0;
+            grouped[dateStr].views += Number(post.viewsCount) || 0;
+            grouped[dateStr].comments += Number(post.commentsCount) || 0;
         });
         return Object.entries(grouped)
             .map(([date, data]) => ({
@@ -355,6 +361,7 @@ let CollabCheckService = class CollabCheckService {
             postsCount: data.posts,
             likesCount: data.likes,
             viewsCount: data.views,
+            commentsCount: data.comments,
         }))
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     }

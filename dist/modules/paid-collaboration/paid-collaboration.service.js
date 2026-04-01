@@ -97,21 +97,27 @@ let PaidCollaborationService = class PaidCollaborationService {
                 [entities_1.InfluencerCategory.MEGA]: { accounts: 0, followers: 0, posts: 0, likes: 0, views: 0, comments: 0, shares: 0 },
             };
             for (const infData of influencerData) {
+                const fc = Number(infData.followerCount) || 0;
+                const pc = Number(infData.postsCount) || 0;
+                const lc = Number(infData.likesCount) || 0;
+                const vc = Number(infData.viewsCount) || 0;
+                const cc = Number(infData.commentsCount) || 0;
+                const sc = Number(infData.sharesCount) || 0;
                 totalInfluencers++;
-                totalFollowers += infData.followerCount;
-                totalPosts += infData.postsCount;
-                totalLikes += infData.likesCount;
-                totalViews += infData.viewsCount;
-                totalComments += infData.commentsCount;
-                totalShares += infData.sharesCount;
+                totalFollowers += fc;
+                totalPosts += pc;
+                totalLikes += lc;
+                totalViews += vc;
+                totalComments += cc;
+                totalShares += sc;
                 const cat = infData.category;
                 categoryData[cat].accounts++;
-                categoryData[cat].followers += infData.followerCount;
-                categoryData[cat].posts += infData.postsCount;
-                categoryData[cat].likes += infData.likesCount;
-                categoryData[cat].views += infData.viewsCount;
-                categoryData[cat].comments += infData.commentsCount;
-                categoryData[cat].shares += infData.sharesCount;
+                categoryData[cat].followers += fc;
+                categoryData[cat].posts += pc;
+                categoryData[cat].likes += lc;
+                categoryData[cat].views += vc;
+                categoryData[cat].comments += cc;
+                categoryData[cat].shares += sc;
             }
             categoryData[entities_1.InfluencerCategory.ALL] = {
                 accounts: totalInfluencers,
@@ -133,9 +139,11 @@ let PaidCollaborationService = class PaidCollaborationService {
                 cat.viewsCount = data.views;
                 cat.commentsCount = data.comments;
                 cat.sharesCount = data.shares;
-                cat.engagementRate = data.followers > 0
-                    ? ((data.likes + data.comments) / (data.posts * (data.followers / data.accounts || 1))) * 100
-                    : 0;
+                const catDenom = data.posts > 0 && data.accounts > 0 ? data.posts * (data.followers / data.accounts) : 0;
+                cat.engagementRate =
+                    data.followers > 0 && catDenom > 0
+                        ? ((data.likes + data.comments) / catDenom) * 100
+                        : 0;
                 await this.categorizationRepo.save(cat);
             }
             report.totalInfluencers = totalInfluencers;
@@ -144,9 +152,9 @@ let PaidCollaborationService = class PaidCollaborationService {
             report.totalViews = totalViews;
             report.totalComments = totalComments;
             report.totalShares = totalShares;
-            report.avgEngagementRate = totalPosts > 0 && totalFollowers > 0
-                ? ((totalLikes + totalComments) / (totalPosts * (totalFollowers / totalInfluencers))) * 100
-                : 0;
+            const avgFollowersPerInf = totalInfluencers > 0 ? totalFollowers / totalInfluencers : 0;
+            const reportEngDenom = totalPosts * avgFollowersPerInf;
+            report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
             report.engagementViewsRate = totalViews > 0
                 ? ((totalLikes + totalComments) / totalViews) * 100
                 : 0;
@@ -184,19 +192,19 @@ let PaidCollaborationService = class PaidCollaborationService {
             let infLikes = 0, infViews = 0, infComments = 0, infShares = 0;
             for (let j = 0; j < postsCount; j++) {
                 const post = await this.generateDummyPost(report, inf, j);
-                infLikes += post.likesCount;
-                infViews += post.viewsCount;
-                infComments += post.commentsCount;
-                infShares += post.sharesCount;
+                infLikes += Number(post.likesCount) || 0;
+                infViews += Number(post.viewsCount) || 0;
+                infComments += Number(post.commentsCount) || 0;
+                infShares += Number(post.sharesCount) || 0;
             }
             inf.postsCount = postsCount;
             inf.likesCount = infLikes;
             inf.viewsCount = infViews;
             inf.commentsCount = infComments;
             inf.sharesCount = infShares;
-            inf.engagementRate = followerCount > 0
-                ? ((infLikes + infComments) / (postsCount * followerCount)) * 100
-                : 0;
+            const infDenom = postsCount * followerCount;
+            inf.engagementRate =
+                followerCount > 0 && infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
             const savedInf = await this.influencerRepo.save(inf);
             influencers.push(savedInf);
         }
@@ -222,8 +230,8 @@ let PaidCollaborationService = class PaidCollaborationService {
         post.engagementRate = influencer.followerCount > 0
             ? ((post.likesCount + post.commentsCount) / influencer.followerCount) * 100
             : 0;
-        const startTime = report.dateRangeStart.getTime();
-        const endTime = report.dateRangeEnd.getTime();
+        const startTime = new Date(report.dateRangeStart).getTime();
+        const endTime = new Date(report.dateRangeEnd).getTime();
         const randomTime = startTime + Math.random() * (endTime - startTime);
         post.postDate = new Date(randomTime);
         post.postUrl = `https://instagram.com/p/${post.postId}`;
@@ -464,7 +472,7 @@ let PaidCollaborationService = class PaidCollaborationService {
         if (category && category !== entities_1.InfluencerCategory.ALL) {
             queryBuilder.andWhere('influencer.category = :category', { category });
         }
-        const validSortFields = ['likesCount', 'commentsCount', 'viewsCount', 'postDate', 'engagementRate'];
+        const validSortFields = ['likesCount', 'commentsCount', 'viewsCount', 'sharesCount', 'postDate', 'engagementRate'];
         const sortField = validSortFields.includes(sortBy) ? sortBy : 'likesCount';
         queryBuilder.orderBy(`post.${sortField}`, sortOrder);
         const total = await queryBuilder.getCount();

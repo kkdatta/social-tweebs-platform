@@ -23,10 +23,11 @@ const unlocked_influencer_entity_1 = require("./entities/unlocked-influencer.ent
 const user_entity_1 = require("../users/entities/user.entity");
 const enums_1 = require("../../common/enums");
 const CREDIT_RULES = {
-    [enums_1.ActionType.INFLUENCER_SEARCH]: 0.01,
+    [enums_1.ActionType.INFLUENCER_SEARCH]: 0,
     [enums_1.ActionType.INFLUENCER_UNBLUR]: 0.04,
     [enums_1.ActionType.INFLUENCER_INSIGHT]: 1,
     [enums_1.ActionType.INFLUENCER_EXPORT]: 0.04,
+    [enums_1.ActionType.PROFILE_UNLOCK]: 1,
     [enums_1.ActionType.REPORT_GENERATION]: 1,
     [enums_1.ActionType.REPORT_REFRESH]: 1,
     [enums_1.ActionType.MANUAL_ALLOCATION]: 0,
@@ -203,10 +204,7 @@ let CreditsService = class CreditsService {
         if (!user) {
             throw new common_1.NotFoundException('User not found');
         }
-        const userIdsToCheck = [userId];
-        if (user.parentId) {
-            userIdsToCheck.push(user.parentId);
-        }
+        const userIdsToCheck = await this.getUserIdsForUnlockVisibility(userId, user);
         const alreadyUnlocked = await this.unlockedInfluencerRepository.find({
             where: {
                 userId: (0, typeorm_2.In)(userIdsToCheck),
@@ -267,10 +265,7 @@ let CreditsService = class CreditsService {
         const user = await this.userRepository.findOne({ where: { id: userId } });
         if (!user)
             return false;
-        const userIdsToCheck = [userId];
-        if (user.parentId) {
-            userIdsToCheck.push(user.parentId);
-        }
+        const userIdsToCheck = await this.getUserIdsForUnlockVisibility(userId, user);
         const unlocked = await this.unlockedInfluencerRepository.findOne({
             where: {
                 userId: (0, typeorm_2.In)(userIdsToCheck),
@@ -664,6 +659,20 @@ let CreditsService = class CreditsService {
                 reportInfo: 'No refresh concept in other reports. Create a new report for updated data.',
             },
         };
+    }
+    async getUserIdsForUnlockVisibility(userId, user) {
+        const userIdsToCheck = [userId];
+        if (user.parentId) {
+            userIdsToCheck.push(user.parentId);
+        }
+        if (user.role === enums_1.UserRole.ADMIN) {
+            const children = await this.userRepository.find({
+                where: { parentId: userId },
+                select: ['id'],
+            });
+            userIdsToCheck.push(...children.map((c) => c.id));
+        }
+        return userIdsToCheck;
     }
     async getAnalyticsSummary(adminUserId) {
         const adminUser = await this.userRepository.findOne({ where: { id: adminUserId } });

@@ -79,7 +79,7 @@ __decorate([
     __metadata("design:type", Number)
 ], CollabCheckReport.prototype, "totalShares", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], CollabCheckReport.prototype, "avgEngagementRate", void 0);
 __decorate([
@@ -212,7 +212,7 @@ __decorate([
     __metadata("design:type", Number)
 ], CollabCheckInfluencer.prototype, "sharesCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], CollabCheckInfluencer.prototype, "avgEngagementRate", void 0);
 __decorate([
@@ -292,7 +292,7 @@ __decorate([
     __metadata("design:type", Number)
 ], CollabCheckPost.prototype, "sharesCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Number)
 ], CollabCheckPost.prototype, "engagementRate", void 0);
 __decorate([

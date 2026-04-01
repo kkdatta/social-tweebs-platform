@@ -29,6 +29,16 @@ export declare class CustomErService {
     }>;
     getDashboardStats(userId: string): Promise<DashboardStatsDto>;
     getReportPosts(userId: string, reportId: string, sponsoredOnly?: boolean): Promise<PostSummaryDto[]>;
+    createReportsFromExcel(userId: string, file: Express.Multer.File, platform: string, dateRangeStart: string, dateRangeEnd: string): Promise<{
+        success: boolean;
+        reportsCreated: number;
+        errors: string[];
+    }>;
+    generateSampleExcel(): Buffer;
+    downloadReportAsXlsx(userId: string, reportId: string): Promise<{
+        buffer: Buffer;
+        filename: string;
+    }>;
     private getTeamUserIds;
     private checkReportAccess;
     private toSummaryDto;

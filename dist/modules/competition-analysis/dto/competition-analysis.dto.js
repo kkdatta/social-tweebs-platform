@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CompetitionReportListResponseDto = exports.CompetitionReportDetailDto = exports.CompetitionReportSummaryDto = exports.DashboardStatsDto = exports.ChartDataDto = exports.PostTypeStatsDto = exports.CategoryStatsDto = exports.CompetitionPostDto = exports.CompetitionInfluencerDto = exports.BrandSummaryDto = exports.InfluencersFilterDto = exports.PostsFilterDto = exports.CompetitionReportFilterDto = exports.ShareCompetitionReportDto = exports.UpdateCompetitionReportDto = exports.CreateCompetitionReportDto = exports.BrandInputDto = void 0;
+exports.CompetitionReportListResponseDto = exports.CompetitionReportDetailDto = exports.CompetitionReportSummaryDto = exports.DashboardStatsDto = exports.ChartDataDto = exports.EnhancedChartDataDto = exports.BrandShareDto = exports.TimelineDataPointDto = exports.PostTypeStatsDto = exports.CategoryStatsDto = exports.CompetitionPostDto = exports.CompetitionInfluencerDto = exports.BrandSummaryDto = exports.InfluencersFilterDto = exports.PostsFilterDto = exports.CompetitionReportFilterDto = exports.ShareCompetitionReportDto = exports.UpdateCompetitionReportDto = exports.CreateCompetitionReportDto = exports.BrandInputDto = void 0;
 const swagger_1 = require("@nestjs/swagger");
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
@@ -42,6 +42,12 @@ __decorate([
     (0, class_validator_1.IsString)({ each: true }),
     __metadata("design:type", Array)
 ], BrandInputDto.prototype, "keywords", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Platform for this brand', example: 'INSTAGRAM' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], BrandInputDto.prototype, "platform", void 0);
 class CreateCompetitionReportDto {
 }
 exports.CreateCompetitionReportDto = CreateCompetitionReportDto;
@@ -277,6 +283,10 @@ __decorate([
 __decorate([
     (0, swagger_1.ApiPropertyOptional)(),
     __metadata("design:type", String)
+], BrandSummaryDto.prototype, "platform", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    __metadata("design:type", String)
 ], BrandSummaryDto.prototype, "displayColor", void 0);
 __decorate([
     (0, swagger_1.ApiProperty)(),
@@ -487,11 +497,23 @@ __decorate([
 __decorate([
     (0, swagger_1.ApiPropertyOptional)(),
     __metadata("design:type", String)
+], CompetitionPostDto.prototype, "influencerId", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    __metadata("design:type", String)
 ], CompetitionPostDto.prototype, "influencerName", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)(),
     __metadata("design:type", String)
 ], CompetitionPostDto.prototype, "influencerUsername", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    __metadata("design:type", Number)
+], CompetitionPostDto.prototype, "influencerFollowerCount", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    __metadata("design:type", Number)
+], CompetitionPostDto.prototype, "influencerCredibility", void 0);
 class CategoryStatsDto {
 }
 exports.CategoryStatsDto = CategoryStatsDto;
@@ -578,6 +600,59 @@ __decorate([
     (0, swagger_1.ApiProperty)(),
     __metadata("design:type", Number)
 ], PostTypeStatsDto.prototype, "reelPercentage", void 0);
+class TimelineDataPointDto {
+}
+exports.TimelineDataPointDto = TimelineDataPointDto;
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", String)
+], TimelineDataPointDto.prototype, "date", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)({ description: 'Count per brand', type: 'object' }),
+    __metadata("design:type", Object)
+], TimelineDataPointDto.prototype, "brands", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], TimelineDataPointDto.prototype, "total", void 0);
+class BrandShareDto {
+}
+exports.BrandShareDto = BrandShareDto;
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", String)
+], BrandShareDto.prototype, "brandName", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", Number)
+], BrandShareDto.prototype, "value", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)(),
+    __metadata("design:type", String)
+], BrandShareDto.prototype, "color", void 0);
+class EnhancedChartDataDto {
+}
+exports.EnhancedChartDataDto = EnhancedChartDataDto;
+__decorate([
+    (0, swagger_1.ApiProperty)({ type: [TimelineDataPointDto] }),
+    __metadata("design:type", Array)
+], EnhancedChartDataDto.prototype, "postsOverTime", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)({ type: [TimelineDataPointDto] }),
+    __metadata("design:type", Array)
+], EnhancedChartDataDto.prototype, "influencersOverTime", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)({ type: [BrandShareDto] }),
+    __metadata("design:type", Array)
+], EnhancedChartDataDto.prototype, "postsShare", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)({ type: [BrandShareDto] }),
+    __metadata("design:type", Array)
+], EnhancedChartDataDto.prototype, "influencersShare", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)({ type: [BrandShareDto] }),
+    __metadata("design:type", Array)
+], EnhancedChartDataDto.prototype, "engagementShare", void 0);
 class ChartDataDto {
 }
 exports.ChartDataDto = ChartDataDto;

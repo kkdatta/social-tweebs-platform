@@ -749,7 +749,7 @@ export class DiscoveryService {
       exportedCount: profiles.length,
       creditsUsed: creditsNeeded,
       remainingBalance: newBalance.unifiedBalance,
-      data: format === 'json' ? data : undefined,
+      data,
     };
   }
 

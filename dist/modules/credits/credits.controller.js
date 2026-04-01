@@ -44,7 +44,7 @@ let CreditsController = class CreditsController {
         return this.creditsService.getTransactions(user.sub, query);
     }
     async getCreditUsageChart(user, days = 30) {
-        return this.creditsService.getCreditUsageChart(user.sub, days);
+        return this.creditsService.getCreditUsageChart(user.sub, Number(days) || 30);
     }
     getCreditGuide() {
         return this.creditsService.getCreditGuide();

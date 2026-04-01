@@ -16,6 +16,10 @@ export declare class AuthController {
         message: string;
     }>;
     refreshToken(refreshTokenDto: RefreshTokenDto): Promise<TokenResponseDto>;
+    approveSignup(id: string): Promise<{
+        success: boolean;
+        message: string;
+    }>;
     logout(user: CurrentUserPayload, body: RefreshTokenDto): Promise<{
         success: boolean;
         message: string;

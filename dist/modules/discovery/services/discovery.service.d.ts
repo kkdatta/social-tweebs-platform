@@ -1,12 +1,13 @@
 import { Repository, DataSource } from 'typeorm';
 import { PlatformType } from '../../../common/enums';
 import { CreditsService } from '../../credits/credits.service';
+import { InsightsService } from '../../insights/insights.service';
 import { User } from '../../users/entities/user.entity';
 import { UnlockedInfluencer } from '../../credits/entities/unlocked-influencer.entity';
-import { InfluencerProfile, DiscoverySearch, SearchResult, InsightsAccess, AudienceData } from '../entities';
+import { InfluencerProfile, DiscoverySearch, SearchResult, InsightsAccess, AudienceData, ExportRecord } from '../entities';
 import { ModashService } from './modash.service';
 import { SearchInfluencersDto, SearchResponseDto, SearchHistoryResponseDto } from '../dto/search.dto';
-import { UnblurInfluencersDto, UnblurResponseDto, ViewInsightsResponseDto, RefreshInsightsResponseDto, InfluencerProfileDto, ExportInfluencersDto, ExportResponseDto } from '../dto/influencer.dto';
+import { UnblurInfluencersDto, UnblurResponseDto, ViewInsightsResponseDto, RefreshInsightsResponseDto, InfluencerProfileDto, ExportInfluencersDto, ExportResponseDto, ExportHistoryResponseDto, InsightsCheckResponseDto, ExportCostEstimateDto } from '../dto/influencer.dto';
 export declare class DiscoveryService {
     private profileRepository;
     private searchRepository;
@@ -14,12 +15,14 @@ export declare class DiscoveryService {
     private insightsAccessRepository;
     private audienceDataRepository;
     private unlockedInfluencerRepository;
+    private exportRecordRepository;
     private userRepository;
     private modashService;
     private creditsService;
     private dataSource;
+    private insightsService;
     private readonly logger;
-    constructor(profileRepository: Repository<InfluencerProfile>, searchRepository: Repository<DiscoverySearch>, searchResultRepository: Repository<SearchResult>, insightsAccessRepository: Repository<InsightsAccess>, audienceDataRepository: Repository<AudienceData>, unlockedInfluencerRepository: Repository<UnlockedInfluencer>, userRepository: Repository<User>, modashService: ModashService, creditsService: CreditsService, dataSource: DataSource);
+    constructor(profileRepository: Repository<InfluencerProfile>, searchRepository: Repository<DiscoverySearch>, searchResultRepository: Repository<SearchResult>, insightsAccessRepository: Repository<InsightsAccess>, audienceDataRepository: Repository<AudienceData>, unlockedInfluencerRepository: Repository<UnlockedInfluencer>, exportRecordRepository: Repository<ExportRecord>, userRepository: Repository<User>, modashService: ModashService, creditsService: CreditsService, dataSource: DataSource, insightsService: InsightsService);
     searchInfluencers(userId: string, dto: SearchInfluencersDto): Promise<SearchResponseDto>;
     private searchInfluencersViaModash;
     private searchInfluencersFromLocalDB;
@@ -29,10 +32,14 @@ export declare class DiscoveryService {
     getProfile(userId: string, profileId: string): Promise<InfluencerProfileDto>;
     getSearchHistory(userId: string, page?: number, limit?: number): Promise<SearchHistoryResponseDto>;
     exportInfluencers(userId: string, dto: ExportInfluencersDto): Promise<ExportResponseDto>;
+    getExportHistory(userId: string): Promise<ExportHistoryResponseDto>;
+    getExportCostEstimate(userId: string, profileIds: string[], excludePreviouslyExported: boolean): Promise<ExportCostEstimateDto>;
+    checkInsightsAccess(userId: string, profileId: string): Promise<InsightsCheckResponseDto>;
     getLocations(query?: string): Promise<any>;
     getInterests(platform: PlatformType): Promise<any>;
     getLanguages(): Promise<any>;
     getBrands(query?: string): Promise<any>;
+    private getPreviouslyExportedProfileIds;
     private storeSearchResults;
     private mapModashToProfile;
     private updateProfileFromReport;

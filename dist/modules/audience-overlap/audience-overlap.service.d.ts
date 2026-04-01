@@ -42,5 +42,9 @@ export declare class AudienceOverlapService {
     private getTeamUserIds;
     private checkReportAccess;
     private toSummaryDto;
+    downloadReportAsXlsx(userId: string, reportId: string): Promise<{
+        buffer: Buffer;
+        filename: string;
+    }>;
     private toDetailDto;
 }

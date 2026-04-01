@@ -7,6 +7,7 @@ export declare class CreateCustomErReportDto {
 }
 export declare class UpdateCustomErReportDto {
     isPublic?: boolean;
+    influencerName?: string;
 }
 export declare class ShareCustomErReportDto {
     sharedWithUserId?: string;

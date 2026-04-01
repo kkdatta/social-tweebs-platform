@@ -175,7 +175,7 @@ __decorate([
     __metadata("design:type", Number)
 ], TieBreakerInfluencer.prototype, "avgReelViews", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, default: 0 }),
+    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, default: 0 }),
     __metadata("design:type", Number)
 ], TieBreakerInfluencer.prototype, "engagementRate", void 0);
 __decorate([

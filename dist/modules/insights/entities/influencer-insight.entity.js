@@ -74,7 +74,7 @@ __decorate([
     __metadata("design:type", Object)
 ], InfluencerInsight.prototype, "postCount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Object)
 ], InfluencerInsight.prototype, "engagementRate", void 0);
 __decorate([
@@ -102,7 +102,7 @@ __decorate([
     __metadata("design:type", Object)
 ], InfluencerInsight.prototype, "avgReelComments", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'brand_post_er', type: 'decimal', precision: 8, scale: 4, nullable: true }),
+    (0, typeorm_1.Column)({ name: 'brand_post_er', type: 'decimal', precision: 12, scale: 4, nullable: true }),
     __metadata("design:type", Object)
 ], InfluencerInsight.prototype, "brandPostER", void 0);
 __decorate([
@@ -173,6 +173,10 @@ __decorate([
     (0, typeorm_1.Column)({ name: 'recent_reels', type: 'jsonb', nullable: true }),
     __metadata("design:type", Object)
 ], InfluencerInsight.prototype, "recentReels", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'popular_reels', type: 'jsonb', nullable: true }),
+    __metadata("design:type", Object)
+], InfluencerInsight.prototype, "popularReels", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: 'popular_posts', type: 'jsonb', nullable: true }),
     __metadata("design:type", Object)

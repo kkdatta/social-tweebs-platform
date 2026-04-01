@@ -146,6 +146,13 @@ __decorate([
     (0, class_validator_1.IsEnum)(enums_1.UserStatus),
     __metadata("design:type", String)
 ], UpdateTeamMemberDto.prototype, "status", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ example: 'NewSecurePass123!' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MinLength)(8),
+    __metadata("design:type", String)
+], UpdateTeamMemberDto.prototype, "password", void 0);
 class FeatureToggleDto {
 }
 exports.FeatureToggleDto = FeatureToggleDto;

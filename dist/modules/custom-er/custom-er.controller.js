@@ -15,6 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CustomErController = void 0;
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
+const platform_express_1 = require("@nestjs/platform-express");
 const jwt_auth_guard_1 = require("../../common/guards/jwt-auth.guard");
 const current_user_decorator_1 = require("../../common/decorators/current-user.decorator");
 const custom_er_service_1 = require("./custom-er.service");
@@ -25,6 +26,18 @@ let CustomErController = class CustomErController {
     }
     async createReport(userId, dto) {
         return this.customErService.createReport(userId, dto);
+    }
+    async uploadExcel(userId, file, platform, dateRangeStart, dateRangeEnd) {
+        return this.customErService.createReportsFromExcel(userId, file, platform, dateRangeStart, dateRangeEnd);
+    }
+    async downloadSampleFile(res) {
+        const buffer = this.customErService.generateSampleExcel();
+        res.set({
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': 'attachment; filename="custom_er_sample.xlsx"',
+            'Content-Length': buffer.length,
+        });
+        res.end(buffer);
     }
     async getReports(userId, filters) {
         return this.customErService.getReports(userId, filters);
@@ -37,6 +50,15 @@ let CustomErController = class CustomErController {
     }
     async getReportPosts(userId, reportId, sponsoredOnly) {
         return this.customErService.getReportPosts(userId, reportId, sponsoredOnly === 'true');
+    }
+    async downloadReport(userId, reportId, res) {
+        const { buffer, filename } = await this.customErService.downloadReportAsXlsx(userId, reportId);
+        res.set({
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': `attachment; filename="${filename}"`,
+            'Content-Length': buffer.length,
+        });
+        res.end(buffer);
     }
     async updateReport(userId, reportId, dto) {
         return this.customErService.updateReport(userId, reportId, dto);
@@ -63,6 +85,42 @@ __decorate([
     __metadata("design:paramtypes", [String, dto_1.CreateCustomErReportDto]),
     __metadata("design:returntype", Promise)
 ], CustomErController.prototype, "createReport", null);
+__decorate([
+    (0, common_1.Post)('upload'),
+    (0, swagger_1.ApiOperation)({ summary: 'Create reports by uploading Excel file with influencer URLs' }),
+    (0, swagger_1.ApiConsumes)('multipart/form-data'),
+    (0, swagger_1.ApiBody)({
+        schema: {
+            type: 'object',
+            properties: {
+                file: { type: 'string', format: 'binary' },
+                platform: { type: 'string', enum: ['INSTAGRAM', 'TIKTOK'] },
+                dateRangeStart: { type: 'string', format: 'date' },
+                dateRangeEnd: { type: 'string', format: 'date' },
+            },
+        },
+    }),
+    (0, swagger_1.ApiResponse)({ status: 201, description: 'Reports created from uploaded file' }),
+    (0, swagger_1.ApiResponse)({ status: 400, description: 'Invalid file or data' }),
+    (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('file')),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.UploadedFile)()),
+    __param(2, (0, common_1.Body)('platform')),
+    __param(3, (0, common_1.Body)('dateRangeStart')),
+    __param(4, (0, common_1.Body)('dateRangeEnd')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, String, String, String]),
+    __metadata("design:returntype", Promise)
+], CustomErController.prototype, "uploadExcel", null);
+__decorate([
+    (0, common_1.Get)('sample-file'),
+    (0, swagger_1.ApiOperation)({ summary: 'Download sample Excel file for bulk upload' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Sample Excel file' }),
+    __param(0, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], CustomErController.prototype, "downloadSampleFile", null);
 __decorate([
     (0, common_1.Get)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get list of custom ER reports' }),
@@ -113,6 +171,18 @@ __decorate([
     __metadata("design:paramtypes", [String, String, String]),
     __metadata("design:returntype", Promise)
 ], CustomErController.prototype, "getReportPosts", null);
+__decorate([
+    (0, common_1.Get)(':id/download'),
+    (0, swagger_1.ApiOperation)({ summary: 'Download report as XLSX' }),
+    (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'XLSX file download' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, Object]),
+    __metadata("design:returntype", Promise)
+], CustomErController.prototype, "downloadReport", null);
 __decorate([
     (0, common_1.Patch)(':id'),
     (0, swagger_1.ApiOperation)({ summary: 'Update report (visibility)' }),

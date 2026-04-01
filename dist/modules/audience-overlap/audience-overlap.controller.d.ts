@@ -1,3 +1,4 @@
+import { Response } from 'express';
 import { AudienceOverlapService } from './audience-overlap.service';
 import { CreateOverlapReportDto, UpdateOverlapReportDto, ShareOverlapReportDto, OverlapReportFilterDto, OverlapReportListResponseDto, OverlapReportDetailDto, DashboardStatsDto } from './dto';
 export declare class AudienceOverlapController {
@@ -11,6 +12,7 @@ export declare class AudienceOverlapController {
     getReports(userId: string, filters: OverlapReportFilterDto): Promise<OverlapReportListResponseDto>;
     getDashboardStats(userId: string): Promise<DashboardStatsDto>;
     getReportById(userId: string, reportId: string): Promise<OverlapReportDetailDto>;
+    downloadReport(userId: string, reportId: string, res: Response): Promise<void>;
     updateReport(userId: string, reportId: string, dto: UpdateOverlapReportDto): Promise<{
         success: boolean;
         report: import("./entities").AudienceOverlapReport;

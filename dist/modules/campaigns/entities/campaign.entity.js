@@ -9,12 +9,13 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CampaignShare = exports.SharePermission = exports.CampaignMetric = exports.CampaignDeliverable = exports.DeliverableStatus = exports.DeliverableType = exports.CampaignInfluencer = exports.ContractStatus = exports.PaymentStatus = exports.InfluencerStatus = exports.Campaign = exports.CampaignObjective = exports.CampaignStatus = void 0;
+exports.CampaignShare = exports.SharePermission = exports.CampaignPost = exports.PostType = exports.CampaignMetric = exports.CampaignDeliverable = exports.DeliverableStatus = exports.DeliverableType = exports.CampaignInfluencer = exports.ContractStatus = exports.PaymentStatus = exports.InfluencerStatus = exports.Campaign = exports.CampaignObjective = exports.CampaignStatus = void 0;
 const typeorm_1 = require("typeorm");
 const user_entity_1 = require("../../users/entities/user.entity");
 var CampaignStatus;
 (function (CampaignStatus) {
     CampaignStatus["DRAFT"] = "DRAFT";
+    CampaignStatus["PENDING"] = "PENDING";
     CampaignStatus["ACTIVE"] = "ACTIVE";
     CampaignStatus["PAUSED"] = "PAUSED";
     CampaignStatus["COMPLETED"] = "COMPLETED";
@@ -44,6 +45,10 @@ __decorate([
     (0, typeorm_1.Column)({ type: 'text', nullable: true }),
     __metadata("design:type", String)
 ], Campaign.prototype, "description", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'logo_url', type: 'text', nullable: true }),
+    __metadata("design:type", String)
+], Campaign.prototype, "logoUrl", void 0);
 __decorate([
     (0, typeorm_1.Column)({ length: 50 }),
     __metadata("design:type", String)
@@ -122,6 +127,10 @@ __decorate([
     (0, typeorm_1.OneToMany)(() => CampaignDeliverable, (deliverable) => deliverable.campaign),
     __metadata("design:type", Array)
 ], Campaign.prototype, "deliverables", void 0);
+__decorate([
+    (0, typeorm_1.OneToMany)(() => CampaignPost, (post) => post.campaign),
+    __metadata("design:type", Array)
+], Campaign.prototype, "posts", void 0);
 __decorate([
     (0, typeorm_1.OneToMany)(() => CampaignShare, (share) => share.campaign),
     __metadata("design:type", Array)
@@ -221,6 +230,30 @@ __decorate([
     __metadata("design:type", String)
 ], CampaignInfluencer.prototype, "contractStatus", void 0);
 __decorate([
+    (0, typeorm_1.Column)({ name: 'likes_count', type: 'integer', default: 0 }),
+    __metadata("design:type", Number)
+], CampaignInfluencer.prototype, "likesCount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'views_count', type: 'integer', default: 0 }),
+    __metadata("design:type", Number)
+], CampaignInfluencer.prototype, "viewsCount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'comments_count', type: 'integer', default: 0 }),
+    __metadata("design:type", Number)
+], CampaignInfluencer.prototype, "commentsCount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'shares_count', type: 'integer', default: 0 }),
+    __metadata("design:type", Number)
+], CampaignInfluencer.prototype, "sharesCount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'posts_count', type: 'integer', default: 0 }),
+    __metadata("design:type", Number)
+], CampaignInfluencer.prototype, "postsCount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'audience_credibility', type: 'decimal', precision: 5, scale: 2, nullable: true }),
+    __metadata("design:type", Number)
+], CampaignInfluencer.prototype, "audienceCredibility", void 0);
+__decorate([
     (0, typeorm_1.Column)({ type: 'text', nullable: true }),
     __metadata("design:type", String)
 ], CampaignInfluencer.prototype, "notes", void 0);
@@ -240,6 +273,10 @@ __decorate([
     (0, typeorm_1.OneToMany)(() => CampaignDeliverable, (deliverable) => deliverable.campaignInfluencer),
     __metadata("design:type", Array)
 ], CampaignInfluencer.prototype, "deliverables", void 0);
+__decorate([
+    (0, typeorm_1.OneToMany)(() => CampaignPost, (post) => post.campaignInfluencer),
+    __metadata("design:type", Array)
+], CampaignInfluencer.prototype, "posts", void 0);
 __decorate([
     (0, typeorm_1.OneToMany)(() => CampaignMetric, (metric) => metric.campaignInfluencer),
     __metadata("design:type", Array)
@@ -439,6 +476,113 @@ __decorate([
 exports.CampaignMetric = CampaignMetric = __decorate([
     (0, typeorm_1.Entity)({ name: 'campaign_metrics', schema: 'zorbitads' })
 ], CampaignMetric);
+var PostType;
+(function (PostType) {
+    PostType["POST"] = "POST";
+    PostType["STORY"] = "STORY";
+    PostType["REEL"] = "REEL";
+    PostType["VIDEO"] = "VIDEO";
+})(PostType || (exports.PostType = PostType = {}));
+let CampaignPost = class CampaignPost {
+};
+exports.CampaignPost = CampaignPost;
+__decorate([
+    (0, typeorm_1.PrimaryGeneratedColumn)('uuid'),
+    __metadata("design:type", String)
+], CampaignPost.prototype, "id", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'campaign_id', type: 'uuid' }),
+    __metadata("design:type", String)
+], CampaignPost.prototype, "campaignId", void 0);
+__decorate([
+    (0, typeorm_1.ManyToOne)(() => Campaign, (campaign) => campaign.posts, { onDelete: 'CASCADE' }),
+    (0, typeorm_1.JoinColumn)({ name: 'campaign_id' }),
+    __metadata("design:type", Campaign)
+], CampaignPost.prototype, "campaign", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'campaign_influencer_id', type: 'uuid', nullable: true }),
+    __metadata("design:type", String)
+], CampaignPost.prototype, "campaignInfluencerId", void 0);
+__decorate([
+    (0, typeorm_1.ManyToOne)(() => CampaignInfluencer, (influencer) => influencer.posts, { onDelete: 'CASCADE' }),
+    (0, typeorm_1.JoinColumn)({ name: 'campaign_influencer_id' }),
+    __metadata("design:type", CampaignInfluencer)
+], CampaignPost.prototype, "campaignInfluencer", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'post_url', type: 'text', nullable: true }),
+    __metadata("design:type", String)
+], CampaignPost.prototype, "postUrl", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'post_type', type: 'varchar', length: 50, default: PostType.POST }),
+    __metadata("design:type", String)
+], CampaignPost.prototype, "postType", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ length: 50, nullable: true }),
+    __metadata("design:type", String)
+], CampaignPost.prototype, "platform", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'influencer_name', length: 255, nullable: true }),
+    __metadata("design:type", String)
+], CampaignPost.prototype, "influencerName", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'influencer_username', length: 255, nullable: true }),
+    __metadata("design:type", String)
+], CampaignPost.prototype, "influencerUsername", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'post_image_url', type: 'text', nullable: true }),
+    __metadata("design:type", String)
+], CampaignPost.prototype, "postImageUrl", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: 'text', nullable: true }),
+    __metadata("design:type", String)
+], CampaignPost.prototype, "description", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'posted_date', type: 'timestamp', nullable: true }),
+    __metadata("design:type", Date)
+], CampaignPost.prototype, "postedDate", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'follower_count', type: 'integer', default: 0 }),
+    __metadata("design:type", Number)
+], CampaignPost.prototype, "followerCount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'likes_count', type: 'integer', default: 0 }),
+    __metadata("design:type", Number)
+], CampaignPost.prototype, "likesCount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'views_count', type: 'integer', default: 0 }),
+    __metadata("design:type", Number)
+], CampaignPost.prototype, "viewsCount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'comments_count', type: 'integer', default: 0 }),
+    __metadata("design:type", Number)
+], CampaignPost.prototype, "commentsCount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'shares_count', type: 'integer', default: 0 }),
+    __metadata("design:type", Number)
+], CampaignPost.prototype, "sharesCount", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'engagement_rate', type: 'decimal', precision: 5, scale: 2, nullable: true }),
+    __metadata("design:type", Number)
+], CampaignPost.prototype, "engagementRate", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'audience_credibility', type: 'decimal', precision: 5, scale: 2, nullable: true }),
+    __metadata("design:type", Number)
+], CampaignPost.prototype, "audienceCredibility", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'is_published', type: 'boolean', default: true }),
+    __metadata("design:type", Boolean)
+], CampaignPost.prototype, "isPublished", void 0);
+__decorate([
+    (0, typeorm_1.CreateDateColumn)({ name: 'created_at' }),
+    __metadata("design:type", Date)
+], CampaignPost.prototype, "createdAt", void 0);
+__decorate([
+    (0, typeorm_1.UpdateDateColumn)({ name: 'updated_at' }),
+    __metadata("design:type", Date)
+], CampaignPost.prototype, "updatedAt", void 0);
+exports.CampaignPost = CampaignPost = __decorate([
+    (0, typeorm_1.Entity)({ name: 'campaign_posts', schema: 'zorbitads' })
+], CampaignPost);
 var SharePermission;
 (function (SharePermission) {
     SharePermission["VIEW"] = "VIEW";

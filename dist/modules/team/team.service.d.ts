@@ -7,6 +7,7 @@ import { CreditAccount } from '../credits/entities/credit-account.entity';
 import { CreditTransaction } from '../credits/entities/credit-transaction.entity';
 import { TeamMemberProfile, FeatureAccess, ActionPermission, ImpersonationLog } from './entities';
 import { CreateTeamMemberDto, UpdateTeamMemberDto, UpdateFeaturesDto, UpdateActionsDto, AllocateTeamCreditsDto, TeamMemberResponseDto, TeamMemberQueryDto, CreditUsageLogDto, CreditLogQueryDto, CreditUsageDetailDto, CreditDetailQueryDto, ImpersonationResponseDto } from './dto';
+import { MailService } from '../../common/services/mail.service';
 export declare class TeamService {
     private userRepository;
     private profileRepository;
@@ -19,7 +20,8 @@ export declare class TeamService {
     private dataSource;
     private jwtService;
     private configService;
-    constructor(userRepository: Repository<User>, profileRepository: Repository<TeamMemberProfile>, featureAccessRepository: Repository<FeatureAccess>, actionPermissionRepository: Repository<ActionPermission>, impersonationLogRepository: Repository<ImpersonationLog>, creditAccountRepository: Repository<CreditAccount>, transactionRepository: Repository<CreditTransaction>, preferencesRepository: Repository<UserPreferences>, dataSource: DataSource, jwtService: JwtService, configService: ConfigService);
+    private mailService;
+    constructor(userRepository: Repository<User>, profileRepository: Repository<TeamMemberProfile>, featureAccessRepository: Repository<FeatureAccess>, actionPermissionRepository: Repository<ActionPermission>, impersonationLogRepository: Repository<ImpersonationLog>, creditAccountRepository: Repository<CreditAccount>, transactionRepository: Repository<CreditTransaction>, preferencesRepository: Repository<UserPreferences>, dataSource: DataSource, jwtService: JwtService, configService: ConfigService, mailService: MailService);
     getTeamMembers(requesterId: string, query: TeamMemberQueryDto): Promise<{
         data: TeamMemberResponseDto[];
         total: number;
@@ -53,6 +55,7 @@ export declare class TeamService {
         transactions: CreditUsageDetailDto[];
         total: number;
     }>;
+    private sumDebitByModuleAndActions;
     private validateAccessToMember;
     private validateImpersonationPermission;
     private mapToTeamMemberResponse;

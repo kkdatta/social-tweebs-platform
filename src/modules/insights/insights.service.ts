@@ -406,8 +406,8 @@ export class InsightsService {
   /**
    * Calculate days between two dates
    */
-  private daysBetween(date1: Date, date2: Date): number {
-    const diffTime = Math.abs(date2.getTime() - date1.getTime());
+  private daysBetween(date1: Date | string, date2: Date | string): number {
+    const diffTime = Math.abs(new Date(date2).getTime() - new Date(date1).getTime());
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
 
@@ -511,15 +511,15 @@ export class InsightsService {
     const engagementData = this.generateMockEngagementData(profile);
     const growthData = this.generateMockGrowthData(profile);
 
-    const avgLikes = profile.avgLikes || 5000;
-    const avgComments = profile.avgComments || 200;
-    const avgViews = profile.avgViews || 15000;
+    const avgLikes = Number(profile.avgLikes) || 5000;
+    const avgComments = Number(profile.avgComments) || 200;
+    const avgViews = Number(profile.avgViews) || 15000;
 
     const uname = profile.username ?? '';
     const mockPosts = this.generateMockPosts(uname, avgLikes, avgComments);
     const mockReels = this.generateMockReels(uname, avgViews, avgLikes, avgComments);
     const wordCloud = this.generateMockWordCloud(profile.category);
-    const lookalikes = this.generateMockLookalikes(profile.followerCount || 100000);
+    const lookalikes = this.generateMockLookalikes(Number(profile.followerCount) || 100000);
 
     const insight = this.insightsRepo.create({
       userId: userId,
@@ -530,13 +530,13 @@ export class InsightsService {
       fullName: profile.fullName || null,
       profilePictureUrl: profile.profilePictureUrl || null,
       bio: profile.biography || null,
-      followerCount: profile.followerCount || 0,
-      followingCount: profile.followingCount || 0,
-      postCount: profile.postCount || 0,
+      followerCount: Number(profile.followerCount) || 0,
+      followingCount: Number(profile.followingCount) || 0,
+      postCount: Number(profile.postCount) || 0,
       engagementRate: profile.engagementRate || null,
-      avgLikes: profile.avgLikes || null,
-      avgComments: profile.avgComments || null,
-      avgViews: profile.avgViews || null,
+      avgLikes: profile.avgLikes != null ? Number(profile.avgLikes) : null,
+      avgComments: profile.avgComments != null ? Number(profile.avgComments) : null,
+      avgViews: profile.avgViews != null ? Number(profile.avgViews) : null,
       avgReelViews: avgViews ? Math.floor(avgViews * 1.5) : null,
       avgReelLikes: Math.floor(avgLikes * 0.8),
       avgReelComments: Math.floor(avgComments * 0.6),
@@ -575,7 +575,7 @@ export class InsightsService {
    * Generate mock audience data for local profiles (followers + engagers)
    */
   private generateMockAudienceData(profile: InfluencerProfile): any {
-    const fc = profile.followerCount || 100000;
+    const fc = Number(profile.followerCount) || 100000;
     const topCountries = [
       { country: profile.locationCountry || 'United States', percentage: 45, followers: Math.floor(fc * 0.45), engagements: Math.floor(fc * 0.45 * 0.03) },
       { country: 'India', percentage: 20, followers: Math.floor(fc * 0.20), engagements: Math.floor(fc * 0.20 * 0.03) },
@@ -716,8 +716,8 @@ export class InsightsService {
    * Generate mock engagement data with likes/comments history for spread charts
    */
   private generateMockEngagementData(profile: InfluencerProfile): any {
-    const avgLikes = profile.avgLikes || 5000;
-    const avgComments = profile.avgComments || 200;
+    const avgLikes = Number(profile.avgLikes) || 5000;
+    const avgComments = Number(profile.avgComments) || 200;
     const now = new Date();
 
     const likesHistory = Array.from({ length: 150 }, (_, i) => {
@@ -757,9 +757,9 @@ export class InsightsService {
    * Generate mock growth data with followers, following, and likes
    */
   private generateMockGrowthData(profile: InfluencerProfile): any {
-    const currentFollowers = profile.followerCount || 100000;
-    const currentFollowing = profile.followingCount || 500;
-    const avgLikes = profile.avgLikes || 5000;
+    const currentFollowers = Number(profile.followerCount) || 100000;
+    const currentFollowing = Number(profile.followingCount) || 500;
+    const avgLikes = Number(profile.avgLikes) || 5000;
     const months = ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'];
     const history = months.map((month, i) => ({
       month,
@@ -969,7 +969,7 @@ export class InsightsService {
       stats: {
         followerCount: Number(insight.followerCount) || 0,
         followingCount: Number(insight.followingCount) || 0,
-        postCount: insight.postCount || 0,
+        postCount: Number(insight.postCount) || 0,
         engagementRate: insight.engagementRate ? Number(insight.engagementRate) : undefined,
         avgLikes: insight.avgLikes ? Number(insight.avgLikes) : undefined,
         avgComments: insight.avgComments ? Number(insight.avgComments) : undefined,

@@ -5,7 +5,7 @@ export declare class SignupDto {
     phoneNumber: string;
     businessName: string;
     campaignFrequency: CampaignFrequency;
-    message?: string;
+    message: string;
     password: string;
     confirmPassword: string;
     captchaToken: string;

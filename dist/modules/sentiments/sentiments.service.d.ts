@@ -19,6 +19,12 @@ export declare class SentimentsService {
     }>;
     private extractUsernameFromUrl;
     private processReport;
+    private simulateSinglePostProcessing;
+    private simulateProfileProcessing;
+    private saveEmotionsForPost;
+    private saveWordCloudForPost;
+    private saveAggregatedEmotions;
+    private saveAggregatedWordCloud;
     getReports(userId: string, filters: SentimentReportFilterDto): Promise<SentimentReportListResponseDto>;
     getReportById(userId: string, reportId: string): Promise<SentimentReportDetailDto>;
     getReportByShareToken(token: string): Promise<SentimentReportDetailDto>;

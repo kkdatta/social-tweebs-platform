@@ -174,7 +174,7 @@ export class SentimentPost {
   @Column({ name: 'views_count', type: 'int', default: 0 })
   viewsCount: number;
 
-  @Column({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   engagementRate?: number;
 
   // Sentiment for this post

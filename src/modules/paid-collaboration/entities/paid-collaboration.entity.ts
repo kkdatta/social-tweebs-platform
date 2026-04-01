@@ -85,10 +85,10 @@ export class PaidCollabReport {
   @Column({ name: 'total_shares', type: 'bigint', default: 0 })
   totalShares: number;
 
-  @Column({ name: 'avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   avgEngagementRate?: number;
 
-  @Column({ name: 'engagement_views_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'engagement_views_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   engagementViewsRate?: number;
 
   // Error tracking
@@ -198,7 +198,7 @@ export class PaidCollabInfluencer {
   @Column({ name: 'shares_count', type: 'bigint', default: 0 })
   sharesCount: number;
 
-  @Column({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   engagementRate?: number;
 
   // Category based on follower count
@@ -275,7 +275,7 @@ export class PaidCollabPost {
   @Column({ name: 'shares_count', type: 'int', default: 0 })
   sharesCount: number;
 
-  @Column({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   engagementRate?: number;
 
   @Column({ name: 'post_date', type: 'date', nullable: true })
@@ -321,7 +321,7 @@ export class PaidCollabCategorization {
   @Column({ name: 'shares_count', type: 'bigint', default: 0 })
   sharesCount: number;
 
-  @Column({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   engagementRate?: number;
 
   @CreateDateColumn({ name: 'created_at' })

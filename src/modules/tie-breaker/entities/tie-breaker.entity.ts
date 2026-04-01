@@ -148,7 +148,7 @@ export class TieBreakerInfluencer {
   @Column({ name: 'avg_reel_views', type: 'bigint', default: 0, nullable: true })
   avgReelViews?: number;
 
-  @Column({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, default: 0 })
+  @Column({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, default: 0 })
   engagementRate: number;
 
   @Column({ name: 'is_verified', type: 'boolean', default: false })

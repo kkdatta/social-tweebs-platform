@@ -86,10 +86,10 @@ export class CustomErReport {
   @Column({ name: 'all_shares_count', type: 'bigint', default: 0 })
   allSharesCount: number;
 
-  @Column({ name: 'all_avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'all_avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   allAvgEngagementRate?: number;
 
-  @Column({ name: 'all_engagement_views_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'all_engagement_views_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   allEngagementViewsRate?: number;
 
   // Sponsored Posts Metrics
@@ -108,10 +108,10 @@ export class CustomErReport {
   @Column({ name: 'sponsored_shares_count', type: 'bigint', default: 0 })
   sponsoredSharesCount: number;
 
-  @Column({ name: 'sponsored_avg_engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'sponsored_avg_engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   sponsoredAvgEngagementRate?: number;
 
-  @Column({ name: 'sponsored_engagement_views_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'sponsored_engagement_views_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   sponsoredEngagementViewsRate?: number;
 
   @Column({ name: 'has_sponsored_posts', default: false })
@@ -204,7 +204,7 @@ export class CustomErPost {
   @Column({ name: 'shares_count', type: 'int', default: 0 })
   sharesCount: number;
 
-  @Column({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   engagementRate?: number;
 
   // Classification

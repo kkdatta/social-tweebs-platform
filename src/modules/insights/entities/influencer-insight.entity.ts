@@ -59,7 +59,7 @@ export class InfluencerInsight {
   @Column({ name: 'post_count', type: 'int', nullable: true })
   postCount: number | null;
 
-  @Column({ name: 'engagement_rate', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'engagement_rate', type: 'decimal', precision: 12, scale: 4, nullable: true })
   engagementRate: number | null;
 
   @Column({ name: 'avg_likes', type: 'bigint', nullable: true })
@@ -80,7 +80,7 @@ export class InfluencerInsight {
   @Column({ name: 'avg_reel_comments', type: 'bigint', nullable: true })
   avgReelComments: number | null;
 
-  @Column({ name: 'brand_post_er', type: 'decimal', precision: 8, scale: 4, nullable: true })
+  @Column({ name: 'brand_post_er', type: 'decimal', precision: 12, scale: 4, nullable: true })
   brandPostER: number | null;
 
   @Column({ name: 'posts_with_hidden_likes_pct', type: 'decimal', precision: 5, scale: 2, nullable: true })
