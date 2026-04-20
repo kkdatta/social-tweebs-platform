@@ -15,6 +15,10 @@ import {
   ArrayMinSize,
   ArrayMaxSize,
   ValidateNested,
+  Validate,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
+  ValidationArguments,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
@@ -128,12 +132,26 @@ export class GroupFilterDto {
 
 // ============ MEMBER DTOs ============
 
+@ValidatorConstraint({ name: 'hasInfluencerNameOrId', async: false })
+export class HasInfluencerNameOrIdConstraint implements ValidatorConstraintInterface {
+  validate(_: unknown, args: ValidationArguments) {
+    const o = args.object as AddInfluencerDto;
+    const name = o.influencerName?.trim();
+    return !!(name && name.length > 0) || !!o.influencerProfileId || !!(o.platformUserId?.trim());
+  }
+  defaultMessage() {
+    return 'Provide influencerName, influencerProfileId, or platformUserId';
+  }
+}
+
 export class AddInfluencerDto {
-  @ApiProperty({ description: 'Influencer name', example: 'John Doe' })
+  @ApiPropertyOptional({ description: 'Influencer display name (optional if profile or platform user id is set)' })
+  @Validate(HasInfluencerNameOrIdConstraint)
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(255)
-  influencerName: string;
+  influencerName?: string;
 
   @ApiPropertyOptional({ description: 'Influencer username on platform' })
   @IsOptional()
@@ -141,16 +159,23 @@ export class AddInfluencerDto {
   @MaxLength(255)
   influencerUsername?: string;
 
-  @ApiProperty({ description: 'Platform', example: 'INSTAGRAM', enum: GroupPlatform })
+  @ApiPropertyOptional({
+    description: 'Platform; when omitted, the group’s first platform is used',
+    enum: GroupPlatform,
+  })
+  @Validate(HasInfluencerNameOrIdConstraint)
+  @IsOptional()
   @IsEnum(GroupPlatform)
-  platform: GroupPlatform;
+  platform?: GroupPlatform;
 
   @ApiPropertyOptional({ description: 'Profile ID from cached profiles' })
+  @Validate(HasInfluencerNameOrIdConstraint)
   @IsOptional()
   @IsUUID()
   influencerProfileId?: string;
 
   @ApiPropertyOptional({ description: 'Platform user ID' })
+  @Validate(HasInfluencerNameOrIdConstraint)
   @IsOptional()
   @IsString()
   platformUserId?: string;

@@ -1,5 +1,8 @@
+export type AppMode = 'development' | 'production';
 declare const _default: (() => {
     nodeEnv: string;
+    mode: AppMode;
+    isProduction: boolean;
     port: number;
     apiPrefix: string;
     frontendUrl: string;
@@ -9,6 +12,8 @@ declare const _default: (() => {
     };
 }) & import("@nestjs/config").ConfigFactoryKeyHost<{
     nodeEnv: string;
+    mode: AppMode;
+    isProduction: boolean;
     port: number;
     apiPrefix: string;
     frontendUrl: string;

@@ -220,13 +220,17 @@ let InsightsService = InsightsService_1 = class InsightsService {
         }
         if (this.modashService.isModashEnabled()) {
             const modashData = modashReport ??
-                (await this.modashService.getInfluencerReport(profile.platform, profile.platformUserId, userId));
+                (await this.modashService.getInfluencerReport(profile.platform, profile.platformUserId, userId).catch(err => {
+                    this.logger.warn(`Modash API failed for ensureInsight: ${err.message}`);
+                    return null;
+                }));
             if (modashData?.profile) {
                 const created = await this.createInsightFromModash(userId, profile.platform, modashData);
                 created.profileId = profile.id;
                 await this.insightsRepo.save(created);
                 return created.id;
             }
+            this.logger.warn(`Modash enabled but no profile payload for ${profile.platformUserId}; falling back to cached profile with generated engagement sections`);
         }
         const created = await this.createInsightFromLocalProfile(userId, profile);
         return created.id;
@@ -258,6 +262,10 @@ let InsightsService = InsightsService_1 = class InsightsService {
         if (creditBalance.unifiedBalance < 1) {
             throw new common_1.BadRequestException('Insufficient credits to refresh insight');
         }
+        const modashData = await this.modashService.getInfluencerReport(insight.platform, insight.platformUserId || insight.username);
+        if (!modashData || !modashData.profile) {
+            throw new common_1.BadRequestException('Unable to fetch fresh data from Modash. No credits were charged. Please try again later.');
+        }
         const deductResult = await this.creditsService.deductCredits(userId, {
             actionType: enums_1.ActionType.REPORT_REFRESH,
             module: enums_1.ModuleType.INSIGHTS,
@@ -265,7 +273,7 @@ let InsightsService = InsightsService_1 = class InsightsService {
             resourceId: insight.id,
             resourceType: 'INSIGHT_REFRESH',
         });
-        const refreshed = await this.refreshFromModash(insight);
+        const refreshed = await this.updateInsightFromModash(insight, modashData);
         this.logAccess(insight.id, userId, entities_1.InsightAccessType.REFRESH, 1);
         return {
             success: true,
@@ -291,6 +299,21 @@ let InsightsService = InsightsService_1 = class InsightsService {
         return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     }
     async refreshFromModash(insight) {
+        try {
+            const cachedProfile = await this.insightsRepo.manager.getRepository('InfluencerProfile').findOne({
+                where: { platformUserId: insight.platformUserId || insight.username, platform: insight.platform },
+            });
+            if (cachedProfile?.rawModashData && cachedProfile.modashFetchedAt) {
+                const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+                if (new Date(cachedProfile.modashFetchedAt) > sevenDaysAgo) {
+                    this.logger.log(`Insights refresh for ${insight.username}: using cached profile data (fetched ${cachedProfile.modashFetchedAt}) — saved 1 Modash credit`);
+                    return this.updateInsightFromModash(insight, cachedProfile.rawModashData);
+                }
+            }
+        }
+        catch (cacheErr) {
+            this.logger.debug(`Cache check skipped for ${insight.username}: ${cacheErr.message}`);
+        }
         const modashData = await this.modashService.getInfluencerReport(insight.platform, insight.platformUserId || insight.username);
         if (!modashData || !modashData.profile) {
             this.logger.warn(`Failed to refresh insight for ${insight.username}`);
@@ -298,34 +321,43 @@ let InsightsService = InsightsService_1 = class InsightsService {
         }
         return this.updateInsightFromModash(insight, modashData);
     }
+    extractStat(stat) {
+        if (stat == null)
+            return null;
+        if (typeof stat === 'number')
+            return stat;
+        if (typeof stat === 'object' && 'value' in stat)
+            return stat.value;
+        return null;
+    }
     async createInsightFromModash(userId, platform, modashData) {
-        const profile = modashData.profile || {};
+        const innerProfile = modashData.profile || {};
         const stats = modashData.stats || {};
         const audience = modashData.audience || {};
         const insight = this.insightsRepo.create({
             userId,
             platform,
-            platformUserId: profile.userId || profile.username,
-            username: profile.username || '',
-            fullName: profile.fullName || null,
-            profilePictureUrl: profile.picture || profile.profilePictureUrl || null,
-            bio: profile.bio || profile.description || null,
-            followerCount: profile.followers || 0,
-            followingCount: profile.following || 0,
-            postCount: profile.postsCount || stats.postsCount || 0,
-            engagementRate: stats.engagementRate || null,
-            avgLikes: stats.avgLikes || null,
-            avgComments: stats.avgComments || null,
-            avgViews: stats.avgViews || null,
-            avgReelViews: stats.avgReelsPlays || stats.avgReelViews || null,
-            avgReelLikes: stats.avgReelLikes || null,
-            avgReelComments: stats.avgReelComments || null,
-            brandPostER: stats.paidPostPerformance || null,
-            locationCountry: profile.country || profile.location?.country || null,
-            locationCity: profile.city || profile.location?.city || null,
-            isVerified: profile.isVerified || false,
+            platformUserId: modashData.userId || innerProfile.username,
+            username: innerProfile.username || '',
+            fullName: innerProfile.fullname || null,
+            profilePictureUrl: innerProfile.picture || null,
+            bio: modashData.bio || null,
+            followerCount: innerProfile.followers || this.extractStat(stats.followers) || 0,
+            followingCount: this.extractStat(stats.following) || 0,
+            postCount: modashData.postsCount || 0,
+            engagementRate: innerProfile.engagementRate || null,
+            avgLikes: modashData.avgLikes || innerProfile.avgLikes || this.extractStat(stats.avgLikes) || null,
+            avgComments: modashData.avgComments || innerProfile.avgComments || this.extractStat(stats.avgComments) || null,
+            avgViews: this.extractStat(stats.avgViews) || null,
+            avgReelViews: modashData.avgReelsPlays || null,
+            avgReelLikes: this.extractStat(stats.avgReelLikes) || null,
+            avgReelComments: this.extractStat(stats.avgReelComments) || null,
+            brandPostER: modashData.paidPostPerformance ?? stats.paidPostPerformance ?? null,
+            locationCountry: audience.geoCountries?.[0]?.name || null,
+            locationCity: audience.geoCities?.[0]?.name || null,
+            isVerified: modashData.isVerified || false,
             audienceCredibility: audience.credibility || null,
-            notableFollowersPct: audience.notableFollowers || null,
+            notableFollowersPct: audience.notable || null,
             audienceData: audience,
             engagementData: {
                 distribution: stats.engagementDistribution,
@@ -333,20 +365,17 @@ let InsightsService = InsightsService_1 = class InsightsService {
                 commentsHistory: stats.commentsHistory,
             },
             growthData: {
-                history: stats.followersHistory || modashData.growth,
+                history: modashData.statHistory || modashData.growth,
             },
-            lookalikesData: {
-                influencer: modashData.lookalikes?.influencer,
-                audience: modashData.lookalikes?.audience,
-            },
+            lookalikesData: modashData.lookalikes,
             brandAffinityData: modashData.brandAffinity || audience.brandAffinity,
             interestsData: modashData.interests || audience.interests,
-            hashtagsData: stats.hashtags,
-            recentPosts: modashData.recentPosts || modashData.posts?.recent,
-            recentReels: modashData.recentReels || modashData.reels?.recent,
-            popularReels: modashData.popularReels || modashData.reels?.popular,
-            popularPosts: modashData.popularPosts || modashData.posts?.popular,
-            sponsoredPosts: modashData.sponsoredPosts || modashData.posts?.sponsored,
+            hashtagsData: modashData.hashtags,
+            recentPosts: modashData.recentPosts,
+            recentReels: modashData.recentReels,
+            popularReels: modashData.popularReels,
+            popularPosts: modashData.popularPosts,
+            sponsoredPosts: modashData.sponsoredPosts,
             wordCloudData: modashData.wordCloud,
             creditsUsed: 1,
             unlockedAt: new Date(),
@@ -706,21 +735,26 @@ let InsightsService = InsightsService_1 = class InsightsService {
         };
     }
     async updateInsightFromModash(insight, modashData) {
-        const profile = modashData.profile || {};
+        const innerProfile = modashData.profile || {};
         const stats = modashData.stats || {};
         const audience = modashData.audience || {};
-        insight.fullName = profile.fullName || insight.fullName;
-        insight.profilePictureUrl = profile.picture || insight.profilePictureUrl;
-        insight.bio = profile.bio || insight.bio;
-        insight.followerCount = profile.followers || insight.followerCount;
-        insight.followingCount = profile.following || insight.followingCount;
-        insight.postCount = profile.postsCount || insight.postCount;
-        insight.engagementRate = stats.engagementRate || insight.engagementRate;
-        insight.avgLikes = stats.avgLikes || insight.avgLikes;
-        insight.avgComments = stats.avgComments || insight.avgComments;
-        insight.avgViews = stats.avgViews || insight.avgViews;
-        insight.avgReelViews = stats.avgReelsPlays || insight.avgReelViews;
-        insight.isVerified = profile.isVerified ?? insight.isVerified;
+        insight.fullName = innerProfile.fullname || insight.fullName;
+        insight.profilePictureUrl = innerProfile.picture || insight.profilePictureUrl;
+        insight.bio = modashData.bio || insight.bio;
+        insight.followerCount = innerProfile.followers || this.extractStat(stats.followers) || insight.followerCount;
+        insight.followingCount = this.extractStat(stats.following) || insight.followingCount;
+        insight.postCount = modashData.postsCount || insight.postCount;
+        insight.engagementRate = innerProfile.engagementRate || insight.engagementRate;
+        insight.avgLikes = modashData.avgLikes || innerProfile.avgLikes || this.extractStat(stats.avgLikes) || insight.avgLikes;
+        insight.avgComments = modashData.avgComments || innerProfile.avgComments || this.extractStat(stats.avgComments) || insight.avgComments;
+        insight.avgViews = this.extractStat(stats.avgViews) || insight.avgViews;
+        insight.avgReelViews = modashData.avgReelsPlays || insight.avgReelViews;
+        insight.avgReelLikes = this.extractStat(stats.avgReelLikes) || insight.avgReelLikes;
+        insight.avgReelComments = this.extractStat(stats.avgReelComments) || insight.avgReelComments;
+        insight.brandPostER = modashData.paidPostPerformance ?? stats.paidPostPerformance ?? insight.brandPostER;
+        insight.isVerified = modashData.isVerified ?? insight.isVerified;
+        insight.locationCountry = audience.geoCountries?.[0]?.name || insight.locationCountry;
+        insight.locationCity = audience.geoCities?.[0]?.name || insight.locationCity;
         insight.audienceCredibility = audience.credibility || insight.audienceCredibility;
         insight.audienceData = audience;
         insight.engagementData = {
@@ -728,16 +762,17 @@ let InsightsService = InsightsService_1 = class InsightsService {
             likesHistory: stats.likesHistory,
             commentsHistory: stats.commentsHistory,
         };
-        insight.growthData = { history: stats.followersHistory || modashData.growth };
+        insight.growthData = { history: modashData.statHistory || modashData.growth };
         insight.lookalikesData = modashData.lookalikes || insight.lookalikesData;
         insight.brandAffinityData = modashData.brandAffinity || insight.brandAffinityData;
         insight.interestsData = modashData.interests || insight.interestsData;
-        insight.hashtagsData = stats.hashtags || insight.hashtagsData;
+        insight.hashtagsData = modashData.hashtags || insight.hashtagsData;
         insight.recentPosts = modashData.recentPosts || insight.recentPosts;
         insight.recentReels = modashData.recentReels || insight.recentReels;
         insight.popularReels = modashData.popularReels || insight.popularReels;
         insight.popularPosts = modashData.popularPosts || insight.popularPosts;
         insight.sponsoredPosts = modashData.sponsoredPosts || insight.sponsoredPosts;
+        insight.wordCloudData = modashData.wordCloud || insight.wordCloudData;
         insight.lastRefreshedAt = new Date();
         insight.modashFetchedAt = new Date();
         return this.insightsRepo.save(insight);

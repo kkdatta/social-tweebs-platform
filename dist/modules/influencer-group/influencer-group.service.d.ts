@@ -17,6 +17,8 @@ export declare class InfluencerGroupService {
     getGroupById(userId: string, groupId: string): Promise<GroupDetailDto>;
     updateGroup(userId: string, groupId: string, dto: UpdateGroupDto): Promise<InfluencerGroup>;
     deleteGroup(userId: string, groupId: string): Promise<void>;
+    private normalizeAddInfluencerInput;
+    private findExistingGroupMember;
     addInfluencer(userId: string, groupId: string, dto: AddInfluencerDto): Promise<InfluencerGroupMember>;
     bulkAddInfluencers(userId: string, groupId: string, dto: BulkAddInfluencersDto): Promise<{
         added: number;

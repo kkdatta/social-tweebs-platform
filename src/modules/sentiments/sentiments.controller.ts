@@ -127,6 +127,18 @@ export class SentimentsController {
 
   // ==================== Report Actions ====================
 
+  @Post(':id/retry')
+  @ApiOperation({ summary: 'Retry a failed sentiment report' })
+  @ApiParam({ name: 'id', description: 'Report ID' })
+  @ApiResponse({ status: 200, description: 'Report retry initiated' })
+  @ApiResponse({ status: 400, description: 'Report is not in FAILED status' })
+  async retryReport(
+    @CurrentUser('id') userId: string,
+    @Param('id') reportId: string,
+  ) {
+    return this.sentimentsService.retryReport(userId, reportId);
+  }
+
   @Post(':id/share')
   @ApiOperation({ summary: 'Share report with user or get shareable link' })
   @ApiParam({ name: 'id', description: 'Report ID' })

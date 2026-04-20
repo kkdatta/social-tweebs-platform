@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var TieBreakerService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TieBreakerService = void 0;
 const common_1 = require("@nestjs/common");
@@ -23,9 +24,10 @@ const influencer_profile_entity_1 = require("../discovery/entities/influencer-pr
 const unlocked_influencer_entity_1 = require("../credits/entities/unlocked-influencer.entity");
 const credits_service_1 = require("../credits/credits.service");
 const enums_1 = require("../../common/enums");
+const modash_service_1 = require("../discovery/services/modash.service");
 const CREDIT_PER_UNBLUR = 1;
-let TieBreakerService = class TieBreakerService {
-    constructor(comparisonRepo, influencerRepo, shareRepo, userRepo, profileRepo, unlockedRepo, creditsService) {
+let TieBreakerService = TieBreakerService_1 = class TieBreakerService {
+    constructor(comparisonRepo, influencerRepo, shareRepo, userRepo, profileRepo, unlockedRepo, creditsService, modashService) {
         this.comparisonRepo = comparisonRepo;
         this.influencerRepo = influencerRepo;
         this.shareRepo = shareRepo;
@@ -33,28 +35,35 @@ let TieBreakerService = class TieBreakerService {
         this.profileRepo = profileRepo;
         this.unlockedRepo = unlockedRepo;
         this.creditsService = creditsService;
+        this.modashService = modashService;
+        this.logger = new common_1.Logger(TieBreakerService_1.name);
     }
     async createComparison(userId, dto) {
         if (dto.influencerIds.length < 2 || dto.influencerIds.length > 3) {
             throw new common_1.BadRequestException('You can compare 2 to 3 influencers at a time');
         }
+        const clientUserIds = await this.getClientUserIds(userId);
         const unlockedInfluencers = await this.unlockedRepo.find({
             where: {
-                userId,
+                userId: (0, typeorm_2.In)(clientUserIds),
                 influencerId: (0, typeorm_2.In)(dto.influencerIds),
             },
         });
         const unlockedProfileIds = new Set(unlockedInfluencers.map(u => u.influencerId));
-        const influencersToUnlock = dto.influencerIds.filter(id => !unlockedProfileIds.has(id));
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const cachedProfiles = await this.profileRepo
+            .createQueryBuilder('p')
+            .where('p.id IN (:...ids)', { ids: dto.influencerIds })
+            .andWhere('p.last_updated_at >= :since', { since: sevenDaysAgo })
+            .getMany();
+        const recentlyCachedIds = new Set(cachedProfiles.map(p => p.id));
+        const influencersToUnlock = dto.influencerIds.filter(id => !unlockedProfileIds.has(id) && !recentlyCachedIds.has(id));
         const creditsRequired = influencersToUnlock.length * CREDIT_PER_UNBLUR;
         if (creditsRequired > 0) {
-            await this.creditsService.deductCredits(userId, {
-                actionType: enums_1.ActionType.PROFILE_UNLOCK,
-                quantity: creditsRequired,
-                module: enums_1.ModuleType.TIE_BREAKER,
-                resourceId: 'tie-breaker-comparison',
-                resourceType: 'influencer_comparison_unlock',
-            });
+            const balance = await this.creditsService.getBalance(userId);
+            if ((balance.unifiedBalance || 0) < creditsRequired) {
+                throw new common_1.BadRequestException(`Insufficient credits. Required: ${creditsRequired}, Available: ${balance.unifiedBalance}`);
+            }
         }
         const comparison = new entities_1.TieBreakerComparison();
         comparison.title = dto.title || 'Influencer Comparison';
@@ -134,17 +143,178 @@ let TieBreakerService = class TieBreakerService {
             return;
         try {
             for (const influencer of comparison.influencers) {
-                await this.populateInfluencerAudienceData(influencer);
+                if (this.modashService.isModashEnabled()) {
+                    const usedCache = await this.populateFromCacheIfFresh(influencer);
+                    if (!usedCache) {
+                        await this.populateInfluencerFromModash(influencer);
+                    }
+                }
+                else {
+                    await this.populateInfluencerAudienceData(influencer);
+                }
                 await this.influencerRepo.save(influencer);
             }
             comparison.status = entities_1.TieBreakerStatus.COMPLETED;
             comparison.completedAt = new Date();
             await this.comparisonRepo.save(comparison);
+            if (comparison.creditsUsed > 0) {
+                await this.creditsService.deductCredits(comparison.ownerId, {
+                    actionType: enums_1.ActionType.PROFILE_UNLOCK,
+                    quantity: Number(comparison.creditsUsed),
+                    module: enums_1.ModuleType.TIE_BREAKER,
+                    resourceId: comparisonId,
+                    resourceType: 'influencer_comparison_unlock',
+                });
+                this.logger.log(`Tie breaker ${comparisonId}: charged ${comparison.creditsUsed} credits after success`);
+            }
         }
         catch (error) {
             comparison.status = entities_1.TieBreakerStatus.FAILED;
-            comparison.errorMessage = error.message || 'Processing failed';
+            comparison.errorMessage = error instanceof Error ? error.message : 'Processing failed';
             await this.comparisonRepo.save(comparison);
+            this.logger.error(`Tie breaker ${comparisonId} failed — NO credits charged`);
+        }
+    }
+    extractStat(val, fallback = 0) {
+        if (val == null)
+            return fallback;
+        if (typeof val === 'number')
+            return val;
+        if (typeof val === 'object') {
+            if ('value' in val)
+                return Number(val.value) || fallback;
+            if ('compared' in val)
+                return Number(val.compared) || fallback;
+        }
+        return Number(val) || fallback;
+    }
+    async populateFromCacheIfFresh(influencer) {
+        if (!influencer.influencerProfileId)
+            return false;
+        const profile = await this.profileRepo.findOne({
+            where: { id: influencer.influencerProfileId },
+            relations: ['audienceData'],
+        });
+        if (!profile?.modashFetchedAt)
+            return false;
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        if (profile.modashFetchedAt < sevenDaysAgo)
+            return false;
+        this.logger.log(`Tie-breaker: using cached profile for ${influencer.influencerUsername} (fetched ${profile.modashFetchedAt.toISOString()}) — saved 1 Modash credit`);
+        influencer.followerCount = Number(profile.followerCount) || influencer.followerCount;
+        influencer.followingCount = Number(profile.followingCount) || influencer.followingCount;
+        influencer.avgLikes = Number(profile.avgLikes) || influencer.avgLikes;
+        influencer.avgComments = Number(profile.avgComments) || influencer.avgComments;
+        influencer.avgViews = Number(profile.avgViews) || influencer.avgViews;
+        influencer.engagementRate = Number(profile.engagementRate) || influencer.engagementRate;
+        influencer.isVerified = profile.isVerified ?? influencer.isVerified;
+        influencer.audienceQuality = Number(profile.audienceCredibility) || influencer.audienceQuality;
+        if (profile.profilePictureUrl) {
+            influencer.profilePictureUrl = profile.profilePictureUrl;
+        }
+        if (profile.rawModashData?.audience) {
+            const aud = profile.rawModashData.audience;
+            if (aud.genders?.length) {
+                const male = aud.genders.find((g) => g.code === 'male');
+                const female = aud.genders.find((g) => g.code === 'female');
+                influencer.followersGenderData = {
+                    male: male ? male.weight * 100 : 0,
+                    female: female ? female.weight * 100 : 0,
+                };
+            }
+            if (aud.ages?.length) {
+                influencer.followersAgeData = aud.ages.map((a) => ({
+                    ageRange: a.code,
+                    male: a.weight * 50,
+                    female: a.weight * 50,
+                }));
+            }
+            if (aud.geoCountries?.length) {
+                influencer.followersCountries = aud.geoCountries.map((g) => ({
+                    country: g.name,
+                    percentage: g.weight * 100,
+                }));
+            }
+            if (aud.geoCities?.length) {
+                influencer.followersCities = aud.geoCities.map((c) => ({
+                    city: c.name,
+                    percentage: c.weight * 100,
+                }));
+            }
+            if (aud.interests?.length) {
+                influencer.followersInterests = aud.interests.map((i) => ({
+                    interest: i.name,
+                    percentage: i.weight * 100,
+                }));
+            }
+        }
+        return true;
+    }
+    async populateInfluencerFromModash(influencer) {
+        this.logger.log(`Fetching Modash report for tie-breaker influencer ${influencer.influencerUsername}`);
+        try {
+            const platformMap = {
+                instagram: enums_1.PlatformType.INSTAGRAM,
+                youtube: enums_1.PlatformType.YOUTUBE,
+                tiktok: enums_1.PlatformType.TIKTOK,
+            };
+            const platform = platformMap[influencer.platform?.toLowerCase()] || enums_1.PlatformType.INSTAGRAM;
+            const report = await this.modashService.getInfluencerReport(platform, influencer.platformUserId || influencer.influencerUsername || '');
+            if (report?.stats) {
+                influencer.followerCount = this.extractStat(report.stats.followers, influencer.followerCount);
+                influencer.followingCount = this.extractStat(report.stats.following, influencer.followingCount);
+                influencer.avgLikes = this.extractStat(report.stats.avgLikes, influencer.avgLikes);
+                influencer.avgComments = this.extractStat(report.stats.avgComments, influencer.avgComments);
+                influencer.avgViews = this.extractStat(report.stats.avgViews, influencer.avgViews);
+                influencer.avgReelViews = this.extractStat(report.stats.avgReelPlays, influencer.avgReelViews);
+                influencer.engagementRate = this.extractStat(report.stats.engagementRate, influencer.engagementRate);
+            }
+            if (report?.audience) {
+                influencer.audienceQuality = report.audience.credibility ?? influencer.audienceQuality;
+                if (report.audience.genders?.length) {
+                    const male = report.audience.genders.find(g => g.code === 'male');
+                    const female = report.audience.genders.find(g => g.code === 'female');
+                    influencer.followersGenderData = {
+                        male: male ? male.weight * 100 : 0,
+                        female: female ? female.weight * 100 : 0,
+                    };
+                }
+                if (report.audience.ages?.length) {
+                    influencer.followersAgeData = report.audience.ages.map(a => ({
+                        ageRange: a.code,
+                        male: a.weight * 50,
+                        female: a.weight * 50,
+                    }));
+                }
+                if (report.audience.geoCountries?.length) {
+                    influencer.followersCountries = report.audience.geoCountries.map(g => ({
+                        country: g.name,
+                        percentage: g.weight * 100,
+                    }));
+                }
+                if (report.audience.geoCities?.length) {
+                    influencer.followersCities = report.audience.geoCities.map(c => ({
+                        city: c.name,
+                        percentage: c.weight * 100,
+                    }));
+                }
+                if (report.audience.interests?.length) {
+                    influencer.followersInterests = report.audience.interests.map(i => ({
+                        interest: i.name,
+                        percentage: i.weight * 100,
+                    }));
+                }
+            }
+            if (report?.profile) {
+                influencer.isVerified = report.profile.isVerified ?? influencer.isVerified;
+                if (report.profile.picture) {
+                    influencer.profilePictureUrl = report.profile.picture;
+                }
+            }
+        }
+        catch (error) {
+            this.logger.warn(`Failed to fetch Modash data for ${influencer.influencerUsername}, using cached data`);
+            await this.populateInfluencerAudienceData(influencer);
         }
     }
     async populateInfluencerAudienceData(influencer) {
@@ -404,6 +574,19 @@ let TieBreakerService = class TieBreakerService {
     async getComparisonForDownload(userId, comparisonId) {
         return this.getComparisonById(userId, comparisonId);
     }
+    async getClientUserIds(userId) {
+        const user = await this.userRepo.findOne({ where: { id: userId } });
+        if (!user)
+            return [userId];
+        const adminId = user.parentId || userId;
+        const clientUsers = await this.userRepo.find({
+            where: [
+                { id: adminId },
+                { parentId: adminId },
+            ],
+        });
+        return [...new Set([userId, ...clientUsers.map(u => u.id)])];
+    }
     async getTeamUserIds(userId) {
         const user = await this.userRepo.findOne({ where: { id: userId } });
         if (!user)
@@ -522,7 +705,7 @@ let TieBreakerService = class TieBreakerService {
     }
 };
 exports.TieBreakerService = TieBreakerService;
-exports.TieBreakerService = TieBreakerService = __decorate([
+exports.TieBreakerService = TieBreakerService = TieBreakerService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(entities_1.TieBreakerComparison)),
     __param(1, (0, typeorm_1.InjectRepository)(entities_1.TieBreakerInfluencer)),
@@ -536,6 +719,7 @@ exports.TieBreakerService = TieBreakerService = __decorate([
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
-        credits_service_1.CreditsService])
+        credits_service_1.CreditsService,
+        modash_service_1.ModashService])
 ], TieBreakerService);
 //# sourceMappingURL=tie-breaker.service.js.map

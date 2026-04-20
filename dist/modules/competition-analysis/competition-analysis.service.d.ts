@@ -3,6 +3,7 @@ import { CompetitionAnalysisReport, CompetitionBrand, CompetitionInfluencer, Com
 import { User } from '../users/entities/user.entity';
 import { CreditsService } from '../credits/credits.service';
 import { CreateCompetitionReportDto, UpdateCompetitionReportDto, ShareCompetitionReportDto, CompetitionReportFilterDto, CompetitionReportListResponseDto, CompetitionReportDetailDto, CompetitionInfluencerDto, CompetitionPostDto, DashboardStatsDto, ChartDataDto, EnhancedChartDataDto, PostsFilterDto, InfluencersFilterDto } from './dto';
+import { ModashService } from '../discovery/services/modash.service';
 export declare class CompetitionAnalysisService {
     private readonly reportRepo;
     private readonly brandRepo;
@@ -11,13 +12,16 @@ export declare class CompetitionAnalysisService {
     private readonly shareRepo;
     private readonly userRepo;
     private readonly creditsService;
-    constructor(reportRepo: Repository<CompetitionAnalysisReport>, brandRepo: Repository<CompetitionBrand>, influencerRepo: Repository<CompetitionInfluencer>, postRepo: Repository<CompetitionPost>, shareRepo: Repository<CompetitionShare>, userRepo: Repository<User>, creditsService: CreditsService);
+    private readonly modashService;
+    private readonly logger;
+    constructor(reportRepo: Repository<CompetitionAnalysisReport>, brandRepo: Repository<CompetitionBrand>, influencerRepo: Repository<CompetitionInfluencer>, postRepo: Repository<CompetitionPost>, shareRepo: Repository<CompetitionShare>, userRepo: Repository<User>, creditsService: CreditsService, modashService: ModashService);
     createReport(userId: string, dto: CreateCompetitionReportDto): Promise<{
         success: boolean;
         report: CompetitionAnalysisReport;
         creditsUsed: number;
     }>;
     private processReport;
+    private processBrandWithModash;
     private processBrand;
     private getRandomPostType;
     private generateFollowerCount;

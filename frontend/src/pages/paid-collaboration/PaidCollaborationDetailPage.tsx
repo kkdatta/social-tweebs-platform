@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useReportPolling } from '../../hooks/useReportPolling';
 import {
   ArrowLeft, Share2, Download, MoreVertical, Edit3, Trash2, RefreshCw,
   CheckCircle, Clock, AlertCircle, Loader, Eye, Heart, MessageCircle,
@@ -13,6 +14,7 @@ import {
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { paidCollaborationApi } from '../../services/api';
+import { SortableTh } from '../../components/SortableTh';
 
 interface Report {
   id: string;
@@ -99,6 +101,19 @@ interface ChartDataPoint {
   influencersCount: number;
 }
 
+type PcCatSortKey =
+  | 'category'
+  | 'accounts'
+  | 'followers'
+  | 'posts'
+  | 'likes'
+  | 'views'
+  | 'comments'
+  | 'shares'
+  | 'er';
+
+const PC_CATEGORY_TIER_ORDER = ['NANO', 'MICRO', 'MACRO', 'MEGA'];
+
 export const PaidCollaborationDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -131,9 +146,34 @@ export const PaidCollaborationDetailPage = () => {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
 
+  const [pcCatSort, setPcCatSort] = useState<{ key: PcCatSortKey; dir: 'asc' | 'desc' }>({
+    key: 'category',
+    dir: 'asc',
+  });
+
+  const loadReport = useCallback(async () => {
+    if (!id) return;
+    try {
+      setLoading(prev => prev === true ? true : false);
+      const [reportData, chartDataResult] = await Promise.all([
+        paidCollaborationApi.getById(id),
+        paidCollaborationApi.getChartData(id).catch(() => ({ data: [] })),
+      ]);
+      setReport(reportData);
+      setChartData(chartDataResult.data || []);
+      setNewTitle(reportData.title);
+    } catch (err) {
+      console.error('Failed to load report:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
   useEffect(() => {
     if (id) loadReport();
-  }, [id]);
+  }, [id, loadReport]);
+
+  useReportPolling(report?.status, loadReport);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -144,23 +184,6 @@ export const PaidCollaborationDetailPage = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  const loadReport = async () => {
-    try {
-      setLoading(true);
-      const [reportData, chartDataResult] = await Promise.all([
-        paidCollaborationApi.getById(id!),
-        paidCollaborationApi.getChartData(id!).catch(() => ({ data: [] })),
-      ]);
-      setReport(reportData);
-      setChartData(chartDataResult.data || []);
-      setNewTitle(reportData.title);
-    } catch (err) {
-      console.error('Failed to load report:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleUpdateTitle = async () => {
     if (!report || !newTitle.trim()) return;
@@ -415,6 +438,33 @@ export const PaidCollaborationDetailPage = () => {
     (postPage - 1) * ITEMS_PER_PAGE,
     postPage * ITEMS_PER_PAGE,
   );
+
+  const togglePcCatSort = (key: PcCatSortKey) => {
+    setPcCatSort(prev =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: key === 'category' ? 'asc' : 'desc' },
+    );
+  };
+
+  const sortedPcCategorizations = [...(report?.categorizations || [])].sort((a, b) => {
+    const m = pcCatSort.dir === 'asc' ? 1 : -1;
+    const k = pcCatSort.key;
+    if (k === 'category') {
+      return (
+        m * (PC_CATEGORY_TIER_ORDER.indexOf(a.category) - PC_CATEGORY_TIER_ORDER.indexOf(b.category))
+      );
+    }
+    if (k === 'accounts') return m * (a.accountsCount - b.accountsCount);
+    if (k === 'followers') return m * (a.followersCount - b.followersCount);
+    if (k === 'posts') return m * (a.postsCount - b.postsCount);
+    if (k === 'likes') return m * (a.likesCount - b.likesCount);
+    if (k === 'views') return m * (a.viewsCount - b.viewsCount);
+    if (k === 'comments') return m * (a.commentsCount - b.commentsCount);
+    if (k === 'shares') return m * (a.sharesCount - b.sharesCount);
+    if (k === 'er') return m * (a.engagementRate - b.engagementRate);
+    return 0;
+  });
 
   if (loading) {
     return (
@@ -806,19 +856,81 @@ export const PaidCollaborationDetailPage = () => {
                       <table className="w-full">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Accounts</th>
-                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Followers</th>
-                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Posts</th>
-                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Likes</th>
-                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Views</th>
-                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Comments</th>
-                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Shares</th>
-                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Avg ER</th>
+                            <SortableTh
+                              active={pcCatSort.key === 'category'}
+                              direction={pcCatSort.key === 'category' ? pcCatSort.dir : 'asc'}
+                              onClick={() => togglePcCatSort('category')}
+                            >
+                              Category
+                            </SortableTh>
+                            <SortableTh
+                              align="right"
+                              active={pcCatSort.key === 'accounts'}
+                              direction={pcCatSort.key === 'accounts' ? pcCatSort.dir : 'desc'}
+                              onClick={() => togglePcCatSort('accounts')}
+                            >
+                              Accounts
+                            </SortableTh>
+                            <SortableTh
+                              align="right"
+                              active={pcCatSort.key === 'followers'}
+                              direction={pcCatSort.key === 'followers' ? pcCatSort.dir : 'desc'}
+                              onClick={() => togglePcCatSort('followers')}
+                            >
+                              Followers
+                            </SortableTh>
+                            <SortableTh
+                              align="right"
+                              active={pcCatSort.key === 'posts'}
+                              direction={pcCatSort.key === 'posts' ? pcCatSort.dir : 'desc'}
+                              onClick={() => togglePcCatSort('posts')}
+                            >
+                              Posts
+                            </SortableTh>
+                            <SortableTh
+                              align="right"
+                              active={pcCatSort.key === 'likes'}
+                              direction={pcCatSort.key === 'likes' ? pcCatSort.dir : 'desc'}
+                              onClick={() => togglePcCatSort('likes')}
+                            >
+                              Likes
+                            </SortableTh>
+                            <SortableTh
+                              align="right"
+                              active={pcCatSort.key === 'views'}
+                              direction={pcCatSort.key === 'views' ? pcCatSort.dir : 'desc'}
+                              onClick={() => togglePcCatSort('views')}
+                            >
+                              Views
+                            </SortableTh>
+                            <SortableTh
+                              align="right"
+                              active={pcCatSort.key === 'comments'}
+                              direction={pcCatSort.key === 'comments' ? pcCatSort.dir : 'desc'}
+                              onClick={() => togglePcCatSort('comments')}
+                            >
+                              Comments
+                            </SortableTh>
+                            <SortableTh
+                              align="right"
+                              active={pcCatSort.key === 'shares'}
+                              direction={pcCatSort.key === 'shares' ? pcCatSort.dir : 'desc'}
+                              onClick={() => togglePcCatSort('shares')}
+                            >
+                              Shares
+                            </SortableTh>
+                            <SortableTh
+                              align="right"
+                              active={pcCatSort.key === 'er'}
+                              direction={pcCatSort.key === 'er' ? pcCatSort.dir : 'desc'}
+                              onClick={() => togglePcCatSort('er')}
+                            >
+                              Avg ER
+                            </SortableTh>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                          {report.categorizations.map((cat) => (
+                          {sortedPcCategorizations.map((cat) => (
                             <tr key={cat.category} className="hover:bg-gray-50">
                               <td className="px-4 py-3">
                                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(cat.category)}`}>

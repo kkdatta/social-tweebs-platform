@@ -8,7 +8,8 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, In, MoreThan, Raw } from 'typeorm';
+import { createHash } from 'crypto';
 import { PlatformType, ActionType, ModuleType, UserRole } from '../../../common/enums';
 import { CreditsService } from '../../credits/credits.service';
 import { InsightsService } from '../../insights/insights.service';
@@ -52,16 +53,14 @@ import {
   AudienceDataDto,
 } from '../dto/influencer.dto';
 
-// Credit costs per PRD:
-// Unblur: 0.04 per influencer (10 influencers = 0.4 credits)
-// Export: 1 credit per 25 influencers (0.04 per influencer)
-// View Insights: 1 credit (one-time per influencer)
-// Search: no per-result charge (unblur/export/insights only)
 const CREDIT_PER_UNBLUR = 0.04;
 const CREDIT_PER_INSIGHT = 1;
 const CREDIT_PER_REFRESH = 1;
-const CREDIT_PER_EXPORT_INFLUENCER = 0.04; // 1 credit / 25 influencers
+const CREDIT_PER_EXPORT_INFLUENCER = 0.04;
 const RESULTS_PER_PAGE = 10;
+const SEARCH_CACHE_TTL_DAYS = 30;
+const MODASH_RESULTS_PER_PAGE = 25;
+const AUTO_UNBLUR_COUNT = 3;
 
 @Injectable()
 export class DiscoveryService {
@@ -104,12 +103,56 @@ export class DiscoveryService {
     }
   }
 
-  // Search via Modash API (live mode)
+  /**
+   * Generate a deterministic cache key from search parameters.
+   * Same filters + platform = same hash, regardless of user/account.
+   */
+  private generateSearchCacheKey(dto: SearchInfluencersDto): string {
+    const cachePayload = {
+      platform: dto.platform,
+      influencer: dto.influencer || {},
+      audience: dto.audience || {},
+      sort: dto.sort || {},
+      page: dto.page || 0,
+    };
+    return createHash('sha256')
+      .update(JSON.stringify(cachePayload))
+      .digest('hex');
+  }
+
+  /**
+   * Search via Modash API with 30-day query-level caching.
+   * Cache is shared across ALL users and ALL accounts.
+   */
   private async searchInfluencersViaModash(
     userId: string,
     dto: SearchInfluencersDto,
   ): Promise<SearchResponseDto> {
-    // 1. Create search record
+    const cacheKey = this.generateSearchCacheKey(dto);
+    const cacheCutoff = new Date();
+    cacheCutoff.setDate(cacheCutoff.getDate() - SEARCH_CACHE_TTL_DAYS);
+
+    // Check for cached search (any user, any account) within 30 days
+    const cachedSearch = await this.searchRepository.findOne({
+      where: {
+        status: SearchStatus.COMPLETED,
+        filtersApplied: Raw(
+          (alias) => `${alias} @> :cacheFilter::jsonb`,
+          { cacheFilter: JSON.stringify({ _cacheKey: cacheKey }) },
+        ),
+        createdAt: MoreThan(cacheCutoff),
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (cachedSearch) {
+      this.logger.log(`Search cache HIT (key=${cacheKey.substring(0, 12)}…) — serving from DB, 0 Modash credits`);
+      return this.serveCachedSearch(userId, cachedSearch, dto.platform);
+    }
+
+    // Cache MISS — call Modash
+    this.logger.log(`Search cache MISS (key=${cacheKey.substring(0, 12)}…) — calling Modash`);
+
     const search = this.searchRepository.create({
       userId,
       platform: dto.platform,
@@ -117,6 +160,7 @@ export class DiscoveryService {
         influencer: dto.influencer,
         audience: dto.audience,
         sort: dto.sort,
+        _cacheKey: cacheKey,
       },
       page: dto.page || 0,
       status: SearchStatus.IN_PROGRESS,
@@ -124,17 +168,14 @@ export class DiscoveryService {
     await this.searchRepository.save(search);
 
     try {
-      // 3. Call Modash API (ALWAYS - no caching)
       const modashResponse = await this.modashService.searchInfluencers(dto, userId);
 
-      // 4. Store results in DB
-      const { profiles, searchResults } = await this.storeSearchResults(
+      const { profiles } = await this.storeSearchResults(
         search,
         modashResponse,
         userId,
       );
 
-      // 5. Update search record (no per-result search credits)
       const balanceAfterSearch = await this.creditsService.getBalance(userId);
       search.status = SearchStatus.COMPLETED;
       search.resultCount = modashResponse.lookalikes.length;
@@ -143,29 +184,29 @@ export class DiscoveryService {
       search.creditsUsed = 0;
       await this.searchRepository.save(search);
 
-      // 6. Get unlocked profiles for this user
       const unlockedProfileIds = await this.getUnlockedProfileIds(userId, dto.platform);
 
-      // 7. Build response
-      const results: InfluencerResultDto[] = profiles.map((profile, index) => ({
-        id: profile.id,
-        platformUserId: profile.platformUserId,
-        platform: profile.platform,
-        username: profile.username ?? undefined,
-        fullName: profile.fullName ?? undefined,
-        profilePictureUrl: profile.profilePictureUrl ?? undefined,
-        biography: this.truncateBio(profile.biography),
-        followerCount: Number(profile.followerCount),
-        engagementRate: profile.engagementRate ? Number(profile.engagementRate) : undefined,
-        avgLikes: profile.avgLikes ? Number(profile.avgLikes) : undefined,
-        avgComments: profile.avgComments ? Number(profile.avgComments) : undefined,
-        avgViews: profile.avgViews ? Number(profile.avgViews) : undefined,
-        isVerified: profile.isVerified,
-        locationCountry: profile.locationCountry ?? undefined,
-        category: profile.category ?? undefined,
-        isBlurred: !unlockedProfileIds.has(profile.id),
-        rankPosition: index + 1,
-      }));
+      const results: InfluencerResultDto[] = profiles
+        .slice(0, RESULTS_PER_PAGE)
+        .map((profile, index) => ({
+          id: profile.id,
+          platformUserId: profile.platformUserId,
+          platform: profile.platform,
+          username: profile.username ?? undefined,
+          fullName: profile.fullName ?? undefined,
+          profilePictureUrl: profile.profilePictureUrl ?? undefined,
+          biography: this.truncateBio(profile.biography),
+          followerCount: Number(profile.followerCount),
+          engagementRate: profile.engagementRate ? Number(profile.engagementRate) : undefined,
+          avgLikes: profile.avgLikes ? Number(profile.avgLikes) : undefined,
+          avgComments: profile.avgComments ? Number(profile.avgComments) : undefined,
+          avgViews: profile.avgViews ? Number(profile.avgViews) : undefined,
+          isVerified: profile.isVerified,
+          locationCountry: profile.locationCountry ?? undefined,
+          category: profile.category ?? undefined,
+          isBlurred: index < AUTO_UNBLUR_COUNT ? false : !unlockedProfileIds.has(profile.id),
+          rankPosition: index + 1,
+        }));
 
       return {
         searchId: search.id,
@@ -179,12 +220,73 @@ export class DiscoveryService {
         remainingBalance: balanceAfterSearch.unifiedBalance,
       };
     } catch (error) {
-      // Update search as failed
       search.status = SearchStatus.FAILED;
       search.errorMessage = error.message;
       await this.searchRepository.save(search);
       throw error;
     }
+  }
+
+  /**
+   * Serve results from a previously cached search (0 Modash credits).
+   */
+  private async serveCachedSearch(
+    userId: string,
+    cachedSearch: DiscoverySearch,
+    platform: PlatformType,
+  ): Promise<SearchResponseDto> {
+    const searchResults = await this.searchResultRepository.find({
+      where: { searchId: cachedSearch.id },
+      order: { rankPosition: 'ASC' },
+    });
+
+    const profileIds = searchResults.map((sr) => sr.influencerProfileId);
+    const profiles = profileIds.length > 0
+      ? await this.profileRepository.find({ where: { id: In(profileIds) } })
+      : [];
+
+    const profileMap = new Map(profiles.map((p) => [p.id, p]));
+    const unlockedProfileIds = await this.getUnlockedProfileIds(userId, platform);
+    const balance = await this.creditsService.getBalance(userId);
+
+    const results: InfluencerResultDto[] = searchResults
+      .slice(0, RESULTS_PER_PAGE)
+      .map((sr, index) => {
+        const profile = profileMap.get(sr.influencerProfileId);
+        if (!profile) return null;
+        return {
+          id: profile.id,
+          platformUserId: profile.platformUserId,
+          platform: profile.platform,
+          username: profile.username ?? undefined,
+          fullName: profile.fullName ?? undefined,
+          profilePictureUrl: profile.profilePictureUrl ?? undefined,
+          biography: this.truncateBio(profile.biography),
+          followerCount: Number(profile.followerCount),
+          engagementRate: profile.engagementRate ? Number(profile.engagementRate) : undefined,
+          avgLikes: profile.avgLikes ? Number(profile.avgLikes) : undefined,
+          avgComments: profile.avgComments ? Number(profile.avgComments) : undefined,
+          avgViews: profile.avgViews ? Number(profile.avgViews) : undefined,
+          isVerified: profile.isVerified,
+          locationCountry: profile.locationCountry ?? undefined,
+          category: profile.category ?? undefined,
+          isBlurred: index < AUTO_UNBLUR_COUNT ? false : !unlockedProfileIds.has(profile.id),
+          rankPosition: index + 1,
+        };
+      })
+      .filter(Boolean) as InfluencerResultDto[];
+
+    return {
+      searchId: cachedSearch.id,
+      platform,
+      results,
+      resultCount: cachedSearch.resultCount || results.length,
+      totalAvailable: cachedSearch.totalAvailable || results.length,
+      page: cachedSearch.page || 0,
+      hasMore: cachedSearch.hasMore || false,
+      creditsUsed: 0,
+      remainingBalance: balance.unifiedBalance,
+    };
   }
 
   // Search from local database (offline mode - MODASH_ENABLED=false)
@@ -416,7 +518,6 @@ export class DiscoveryService {
     userId: string,
     profileId: string,
   ): Promise<ViewInsightsResponseDto> {
-    // Find profile
     const profile = await this.profileRepository.findOne({
       where: { id: profileId },
       relations: ['audienceData'],
@@ -426,38 +527,68 @@ export class DiscoveryService {
       throw new NotFoundException('Influencer profile not found');
     }
 
-    // Check if already accessed (free re-access)
+    // CLIENT-LEVEL: Check if ANY user in the same client account already unlocked this
+    const clientUserIds = await this.getClientUserIds(userId);
     const existingAccess = await this.insightsAccessRepository.findOne({
-      where: { userId, influencerProfileId: profileId },
+      where: clientUserIds.map((uid) => ({
+        userId: uid,
+        influencerProfileId: profileId,
+      })),
     });
 
     let isFirstAccess = !existingAccess;
     let creditsCharged = 0;
 
-    // Only charge credits if Modash is enabled (live mode)
     const isModashEnabled = this.modashService.isModashEnabled();
+    let updatedProfile = profile;
+    let modashReport: ModashReportResponse | undefined;
 
-    if (isFirstAccess && isModashEnabled) {
-      // Charge 1 credit for first access (only in live mode)
-      const balance = await this.creditsService.getBalance(userId);
-      if (balance.unifiedBalance < CREDIT_PER_INSIGHT) {
-        throw new BadRequestException(
-          `Insufficient credits. Required: ${CREDIT_PER_INSIGHT}, Available: ${balance.unifiedBalance}`,
-        );
+    if (isModashEnabled) {
+      // Check 7-day TTL — only call Modash if data is missing or stale AND this is first access
+      const isFresh = profile.modashFetchedAt &&
+        (Date.now() - new Date(profile.modashFetchedAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
+
+      if (isFirstAccess) {
+        const balance = await this.creditsService.getBalance(userId);
+        if (balance.unifiedBalance < CREDIT_PER_INSIGHT) {
+          throw new BadRequestException(
+            `Insufficient credits. Required: ${CREDIT_PER_INSIGHT}, Available: ${balance.unifiedBalance}`,
+          );
+        }
       }
 
-      await this.creditsService.deductCredits(userId, {
-        actionType: ActionType.INFLUENCER_INSIGHT,
-        module: ModuleType.UNIFIED_BALANCE,
-        quantity: 1,
-        resourceId: profileId,
-        resourceType: 'influencer_profile',
-      });
+      // PRD #3: On first access, serve existing DB data (even if stale). Do NOT auto-refresh.
+      // User must explicitly call Refresh Insights if they want fresh data.
+      // Only call Modash if data is completely missing (modashFetchedAt is epoch or null).
+      const hasFetchedBefore = profile.modashFetchedAt &&
+        new Date(profile.modashFetchedAt).getTime() > 86400000; // > 1 day from epoch = has been fetched before
+      if (!hasFetchedBefore && isFirstAccess) {
+        modashReport = await this.modashService.getInfluencerReport(
+          profile.platform,
+          profile.platformUserId,
+          userId,
+        );
+        await this.updateProfileFromReport(profile, modashReport);
+      }
 
-      creditsCharged = CREDIT_PER_INSIGHT;
+      if (isFirstAccess) {
+        await this.creditsService.deductCredits(userId, {
+          actionType: ActionType.INFLUENCER_INSIGHT,
+          module: ModuleType.UNIFIED_BALANCE,
+          quantity: 1,
+          resourceId: profileId,
+          resourceType: 'influencer_profile',
+        });
+        creditsCharged = CREDIT_PER_INSIGHT;
+      }
+
+      const refreshedProfile = await this.profileRepository.findOne({
+        where: { id: profileId },
+        relations: ['audienceData'],
+      });
+      if (refreshedProfile) updatedProfile = refreshedProfile;
     }
 
-    // Record or update access
     if (isFirstAccess) {
       const access = this.insightsAccessRepository.create({
         userId,
@@ -474,29 +605,6 @@ export class DiscoveryService {
       existingAccess.accessCount += 1;
       existingAccess.lastAccessedAt = new Date();
       await this.insightsAccessRepository.save(existingAccess);
-    }
-
-    let updatedProfile = profile;
-    let modashReport: ModashReportResponse | undefined;
-
-    if (isModashEnabled) {
-      modashReport = await this.modashService.getInfluencerReport(
-        profile.platform,
-        profile.platformUserId,
-        userId,
-      );
-
-      await this.updateProfileFromReport(profile, modashReport);
-
-      const refreshedProfile = await this.profileRepository.findOne({
-        where: { id: profileId },
-        relations: ['audienceData'],
-      });
-
-      if (!refreshedProfile) {
-        throw new NotFoundException('Profile not found after update');
-      }
-      updatedProfile = refreshedProfile;
     }
 
     const insightId = await this.insightsService.ensureInsightRecordForDiscoveryProfile(
@@ -522,14 +630,12 @@ export class DiscoveryService {
     userId: string,
     profileId: string,
   ): Promise<RefreshInsightsResponseDto> {
-    // Check if Modash is enabled - refresh only makes sense in live mode
     if (!this.modashService.isModashEnabled()) {
       throw new BadRequestException(
         'Refresh is not available in offline mode. Modash integration is disabled.',
       );
     }
 
-    // Find profile
     const profile = await this.profileRepository.findOne({
       where: { id: profileId },
     });
@@ -538,9 +644,13 @@ export class DiscoveryService {
       throw new NotFoundException('Influencer profile not found');
     }
 
-    // Check if user has access
+    // Check if any user in client account has access
+    const clientUserIds = await this.getClientUserIds(userId);
     const access = await this.insightsAccessRepository.findOne({
-      where: { userId, influencerProfileId: profileId },
+      where: clientUserIds.map((uid) => ({
+        userId: uid,
+        influencerProfileId: profileId,
+      })),
     });
 
     if (!access) {
@@ -549,7 +659,6 @@ export class DiscoveryService {
       );
     }
 
-    // Charge 1 credit for refresh
     const balance = await this.creditsService.getBalance(userId);
     if (balance.unifiedBalance < CREDIT_PER_REFRESH) {
       throw new BadRequestException(
@@ -557,6 +666,21 @@ export class DiscoveryService {
       );
     }
 
+    // Per spec: if data is already fresh (< 7 days), return same data but still charge 1 credit
+    const isFresh = profile.modashFetchedAt &&
+      (Date.now() - new Date(profile.modashFetchedAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
+
+    if (!isFresh) {
+      // Call Modash FIRST — only deduct credit on success (universal refresh guard)
+      const report = await this.modashService.getInfluencerReport(
+        profile.platform,
+        profile.platformUserId,
+        userId,
+      );
+      await this.updateProfileFromReport(profile, report);
+    }
+
+    // Deduct credit AFTER success (or for fresh data per spec)
     await this.creditsService.deductCredits(userId, {
       actionType: ActionType.REPORT_REFRESH,
       module: ModuleType.UNIFIED_BALANCE,
@@ -565,22 +689,10 @@ export class DiscoveryService {
       resourceType: 'influencer_profile',
     });
 
-    // Update refresh tracking
     access.refreshCount += 1;
     access.lastRefreshAt = new Date();
     await this.insightsAccessRepository.save(access);
 
-    // Call Modash for fresh data
-    const report = await this.modashService.getInfluencerReport(
-      profile.platform,
-      profile.platformUserId,
-      userId,
-    );
-
-    // Update profile
-    await this.updateProfileFromReport(profile, report);
-
-    // Get updated profile
     const updatedProfile = await this.profileRepository.findOne({
       where: { id: profileId },
       relations: ['audienceData'],
@@ -814,17 +926,14 @@ export class DiscoveryService {
       return { hasAccess: false, creditCost: CREDIT_PER_INSIGHT };
     }
 
-    // Check both user and parent (admin) access
-    const userIdsToCheck = [userId];
-    if (user.parentId) userIdsToCheck.push(user.parentId);
+    // Client-level check: all users under the same client account
+    const clientUserIds = await this.getClientUserIds(userId);
 
     const existingAccess = await this.insightsAccessRepository.findOne({
-      where: [
-        ...userIdsToCheck.map((uid) => ({
-          userId: uid,
-          influencerProfileId: profileId,
-        })),
-      ],
+      where: clientUserIds.map((uid) => ({
+        userId: uid,
+        influencerProfileId: profileId,
+      })),
     });
 
     if (existingAccess) {
@@ -875,28 +984,77 @@ export class DiscoveryService {
         return { locations: [], message: 'Error fetching locations', source: 'local' };
       }
     }
-    return this.modashService.getLocations(query);
+    const cacheKey = `locations_${query || 'all'}`;
+    const cached = this.getCachedDict(cacheKey);
+    if (cached) return cached;
+    const result = await this.modashService.getLocations(query);
+    this.setCachedDict(cacheKey, result);
+    return result;
+  }
+
+  private dictCache = new Map<string, { data: any; expiresAt: number }>();
+  private readonly DICT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+  private getCachedDict(key: string): any | null {
+    const entry = this.dictCache.get(key);
+    if (entry && Date.now() < entry.expiresAt) return entry.data;
+    this.dictCache.delete(key);
+    return null;
+  }
+
+  private setCachedDict(key: string, data: any): void {
+    this.dictCache.set(key, { data, expiresAt: Date.now() + this.DICT_CACHE_TTL_MS });
   }
 
   async getInterests(platform: PlatformType) {
     if (!this.modashService.isModashEnabled()) {
       return { interests: [], message: 'Modash integration disabled - no live data available' };
     }
-    return this.modashService.getInterests(platform);
+    const cacheKey = `interests_${platform}`;
+    const cached = this.getCachedDict(cacheKey);
+    if (cached) return cached;
+    const result = await this.modashService.getInterests(platform);
+    this.setCachedDict(cacheKey, result);
+    return result;
   }
 
   async getLanguages() {
     if (!this.modashService.isModashEnabled()) {
       return { languages: [], message: 'Modash integration disabled - no live data available' };
     }
-    return this.modashService.getLanguages();
+    const cached = this.getCachedDict('languages');
+    if (cached) return cached;
+    const result = await this.modashService.getLanguages();
+    this.setCachedDict('languages', result);
+    return result;
   }
 
   async getBrands(query?: string) {
     if (!this.modashService.isModashEnabled()) {
       return { brands: [], message: 'Modash integration disabled - no live data available' };
     }
-    return this.modashService.getBrands(query);
+    if (!query) {
+      const cached = this.getCachedDict('brands_all');
+      if (cached) return cached;
+    }
+    const result = await this.modashService.getBrands(query);
+    if (!query) this.setCachedDict('brands_all', result);
+    return result;
+  }
+
+  async getModashAccountInfo() {
+    if (!this.modashService.isModashEnabled()) {
+      return {
+        enabled: false,
+        message: 'Modash API is disabled (APP_MODE=development)',
+      };
+    }
+    const info = await this.modashService.getAccountInfo();
+    return {
+      enabled: true,
+      billing: info.billing,
+      rateLimits: info.rateLimits,
+    };
   }
 
   // ============ PRIVATE HELPER METHODS ============
@@ -937,9 +1095,10 @@ export class DiscoveryService {
         });
       }
 
-      // Update profile with Modash data
+      // Update profile with search-level data (NOT a full report).
+      // Set modashFetchedAt to epoch so the freshness check knows no report has been fetched.
       this.mapModashToProfile(profile, influencer);
-      profile.modashFetchedAt = new Date();
+      profile.modashFetchedAt = new Date(0);
       await this.profileRepository.save(profile);
       profiles.push(profile);
 
@@ -972,10 +1131,11 @@ export class DiscoveryService {
     profile.locationCity = modash.profile?.geo?.city?.name || null;
     profile.contactEmail = modash.profile?.contacts?.email || null;
 
-    profile.followerCount = modash.stats?.followers || 0;
+    const profileAny = modash.profile as any;
+    profile.followerCount = modash.stats?.followers || profileAny?.followers || 0;
     profile.followingCount = modash.stats?.following || 0;
     profile.postCount = modash.stats?.posts || 0;
-    profile.engagementRate = modash.stats?.engagementRate || null;
+    profile.engagementRate = modash.stats?.engagementRate || profileAny?.engagementRate || null;
     profile.avgLikes = modash.stats?.avgLikes || 0;
     profile.avgComments = modash.stats?.avgComments || 0;
     profile.avgViews = modash.stats?.avgViews || 0;
@@ -984,43 +1144,92 @@ export class DiscoveryService {
     profile.rawModashData = modash as any;
   }
 
+  /**
+   * Extract a numeric value from Modash stats fields which can be
+   * either a plain number or an object like {value: number, compared: number}.
+   */
+  private extractStatValue(stat: any): number | null {
+    if (stat == null) return null;
+    if (typeof stat === 'number') return stat;
+    if (typeof stat === 'object' && 'value' in stat) return stat.value;
+    return null;
+  }
+
+  /**
+   * Map a Modash profile report (after unwrapping response.profile) to our DB entity.
+   *
+   * The actual structure after unwrap is:
+   *   report.profile  → { fullname, username, picture, url, followers, engagementRate, avgLikes, avgComments }
+   *   report.bio, report.isVerified, report.accountType, report.postsCount, ... → top-level fields
+   *   report.stats    → { followers: {value,compared}, avgLikes: {value,compared}, ... }
+   *   report.audience → { credibility, genders, ages, geoCountries, ... }
+   *   report.avgLikes, report.avgComments → direct numbers (duplicated from profile sub-object)
+   */
   private async updateProfileFromReport(
     profile: InfluencerProfile,
     report: ModashReportResponse,
   ): Promise<void> {
-    // Update basic profile info
+    const r = report as any;
+
     if (report.profile) {
-      profile.username = report.profile.username ?? null;
-      profile.fullName = report.profile.fullname ?? null;
-      profile.profilePictureUrl = report.profile.picture ?? null;
-      profile.biography = report.profile.bio ?? null;
-      profile.isVerified = report.profile.isVerified || false;
-      profile.locationCountry = report.profile.geo?.country?.name ?? null;
-      profile.locationCity = report.profile.geo?.city?.name ?? null;
-      profile.contactEmail = report.profile.contacts?.email ?? null;
+      profile.username = report.profile.username ?? profile.username;
+      profile.fullName = report.profile.fullname ?? profile.fullName;
+      profile.profilePictureUrl = report.profile.picture ?? profile.profilePictureUrl;
     }
 
-    if (report.stats) {
-      profile.followerCount = report.stats.followers || 0;
-      profile.followingCount = report.stats.following || 0;
-      profile.postCount = report.stats.posts || 0;
-      profile.engagementRate = report.stats.engagementRate ?? null;
-      profile.avgLikes = report.stats.avgLikes || 0;
-      profile.avgComments = report.stats.avgComments || 0;
-      profile.avgViews = report.stats.avgViews || 0;
+    profile.biography = r.bio ?? profile.biography;
+    profile.isVerified = r.isVerified ?? profile.isVerified ?? false;
+    const rawAccountType = r.accountType ? String(r.accountType).toUpperCase() : null;
+    profile.isBusinessAccount = rawAccountType === 'BUSINESS';
+    profile.accountType = rawAccountType ?? profile.accountType;
+    profile.postCount = r.postsCount ?? profile.postCount ?? 0;
+
+    if (r.language?.name) {
+      // language info is at top level
+    }
+    if (r.contacts && Array.isArray(r.contacts) && r.contacts.length > 0) {
+      const emailContact = r.contacts.find((c: any) => c.type === 'email');
+      if (emailContact) profile.contactEmail = emailContact.value;
     }
 
-    if (report.audience) {
-      profile.audienceCredibility = report.audience.credibility ?? null;
+    const innerProfile = report.profile as any;
+    profile.followerCount =
+      innerProfile?.followers ??
+      this.extractStatValue(r.stats?.followers) ??
+      profile.followerCount ?? 0;
+    profile.engagementRate =
+      innerProfile?.engagementRate ??
+      profile.engagementRate ?? null;
+    profile.avgLikes =
+      r.avgLikes ??
+      innerProfile?.avgLikes ??
+      this.extractStatValue(r.stats?.avgLikes) ??
+      profile.avgLikes ?? 0;
+    profile.avgComments =
+      r.avgComments ??
+      innerProfile?.avgComments ??
+      this.extractStatValue(r.stats?.avgComments) ??
+      profile.avgComments ?? 0;
+    profile.avgViews =
+      r.avgReelsPlays ??
+      this.extractStatValue(r.stats?.avgViews) ??
+      profile.avgViews ?? 0;
+
+    if (r.audience?.credibility != null) {
+      profile.audienceCredibility = r.audience.credibility;
+    }
+
+    // Look for geo data in audience countries for location
+    if (r.audience?.geoCountries?.length > 0) {
+      profile.locationCountry = profile.locationCountry ?? r.audience.geoCountries[0].name;
     }
 
     profile.rawModashData = report as any;
     profile.modashFetchedAt = new Date();
     await this.profileRepository.save(profile);
 
-    // Update audience data
-    if (report.audience) {
-      await this.updateAudienceData(profile.id, report.audience);
+    if (r.audience) {
+      await this.updateAudienceData(profile.id, r.audience);
     }
   }
 
@@ -1035,76 +1244,29 @@ export class DiscoveryService {
 
     const audienceRecords: Partial<AudienceData>[] = [];
 
-    // Gender data
+    const pushIfValid = (dataType: AudienceDataType, key: string | undefined | null, weight: number) => {
+      if (key && weight != null) {
+        audienceRecords.push({ profileId, dataType, categoryKey: key, percentage: weight * 100 });
+      }
+    };
+
     if (audience.genders) {
-      for (const g of audience.genders) {
-        audienceRecords.push({
-          profileId,
-          dataType: AudienceDataType.GENDER,
-          categoryKey: g.code,
-          percentage: g.weight * 100,
-        });
-      }
+      for (const g of audience.genders) pushIfValid(AudienceDataType.GENDER, g.code, g.weight);
     }
-
-    // Age data
     if (audience.ages) {
-      for (const a of audience.ages) {
-        audienceRecords.push({
-          profileId,
-          dataType: AudienceDataType.AGE,
-          categoryKey: a.code,
-          percentage: a.weight * 100,
-        });
-      }
+      for (const a of audience.ages) pushIfValid(AudienceDataType.AGE, a.code, a.weight);
     }
-
-    // Country data
     if (audience.geoCountries) {
-      for (const c of audience.geoCountries) {
-        audienceRecords.push({
-          profileId,
-          dataType: AudienceDataType.LOCATION_COUNTRY,
-          categoryKey: c.name,
-          percentage: c.weight * 100,
-        });
-      }
+      for (const c of audience.geoCountries) pushIfValid(AudienceDataType.LOCATION_COUNTRY, c.name || c.code, c.weight);
     }
-
-    // City data
     if (audience.geoCities) {
-      for (const c of audience.geoCities) {
-        audienceRecords.push({
-          profileId,
-          dataType: AudienceDataType.LOCATION_CITY,
-          categoryKey: c.name,
-          percentage: c.weight * 100,
-        });
-      }
+      for (const c of audience.geoCities) pushIfValid(AudienceDataType.LOCATION_CITY, c.name || c.code, c.weight);
     }
-
-    // Interests
     if (audience.interests) {
-      for (const i of audience.interests) {
-        audienceRecords.push({
-          profileId,
-          dataType: AudienceDataType.INTEREST,
-          categoryKey: i.name,
-          percentage: i.weight * 100,
-        });
-      }
+      for (const i of audience.interests) pushIfValid(AudienceDataType.INTEREST, i.name, i.weight);
     }
-
-    // Languages
     if (audience.languages) {
-      for (const l of audience.languages) {
-        audienceRecords.push({
-          profileId,
-          dataType: AudienceDataType.LANGUAGE,
-          categoryKey: l.name,
-          percentage: l.weight * 100,
-        });
-      }
+      for (const l of audience.languages) pushIfValid(AudienceDataType.LANGUAGE, l.name || l.code, l.weight);
     }
 
     // Save all audience data
@@ -1191,6 +1353,25 @@ export class DiscoveryService {
       lastUpdatedAt: profile.lastUpdatedAt,
       modashFetchedAt: profile.modashFetchedAt,
     };
+  }
+
+  /**
+   * Get all user IDs within the same client account (parent + children).
+   * Used for client-level unlock/access sharing.
+   */
+  private async getClientUserIds(userId: string): Promise<string[]> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) return [userId];
+
+    const adminId = user.role === UserRole.ADMIN ? userId : user.parentId;
+    if (!adminId) return [userId];
+
+    const children = await this.userRepository.find({
+      where: { parentId: adminId },
+      select: ['id'],
+    });
+
+    return [adminId, ...children.map((c) => c.id)];
   }
 
   private truncateBio(bio: string | null, maxLength: number = 100): string {

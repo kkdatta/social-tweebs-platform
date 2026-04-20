@@ -22,4 +22,21 @@ export declare class DiscoveryController {
     getInterests(platform: PlatformType): Promise<any>;
     getLanguages(): Promise<any>;
     getBrands(query?: string): Promise<any>;
+    getModashAccountInfo(): Promise<{
+        enabled: boolean;
+        message: string;
+        billing?: undefined;
+        rateLimits?: undefined;
+    } | {
+        enabled: boolean;
+        billing: {
+            credits: number;
+            rawRequests: number;
+        };
+        rateLimits: {
+            discoveryRatelimit: number;
+            rawRatelimit: number;
+        };
+        message?: undefined;
+    }>;
 }

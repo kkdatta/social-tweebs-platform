@@ -62,6 +62,29 @@ const formatNum = (num: number | undefined | null): string => {
   return num.toLocaleString();
 };
 
+/** Modash items often use `weight` (0–1); mock/local data may use `percentage` (0–100). */
+const itemWeightOrPct = (item: any): number | null => {
+  if (!item || typeof item !== 'object') return null;
+  if (typeof item.percentage === 'number' && Number.isFinite(item.percentage)) return item.percentage;
+  if (typeof item.usagePercentage === 'number' && Number.isFinite(item.usagePercentage)) return item.usagePercentage;
+  if (typeof item.weight === 'number' && Number.isFinite(item.weight)) return item.weight * 100;
+  return null;
+};
+
+/** Percentage for display (includes %). */
+const pctDisplay = (pct: number | null, digits = 1): string =>
+  pct != null && Number.isFinite(pct) ? `${pct.toFixed(digits)}%` : '—';
+
+const brandRowLabel = (b: any): string => b?.brand ?? b?.name ?? '—';
+const interestRowLabel = (int: any): string => int?.category ?? int?.name ?? '—';
+
+const locationRowLabel = (loc: any, tab: 'country' | 'state' | 'city'): string => {
+  if (!loc || typeof loc !== 'object') return '—';
+  if (tab === 'country') return loc.name ?? loc.country ?? loc.code ?? '—';
+  if (tab === 'state') return loc.name ?? loc.state ?? loc.code ?? '—';
+  return loc.name ?? loc.city ?? loc.code ?? '—';
+};
+
 const InsightsPage: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -323,7 +346,7 @@ const InsightsPage: React.FC = () => {
             {insights.bio && <p className="text-xs sm:text-sm text-gray-600 mt-1 line-clamp-2">{insights.bio}</p>}
             <div className="flex flex-wrap items-center gap-2 sm:gap-4 mt-2 text-xs sm:text-sm text-gray-500">
               {insights.locationCountry && <span className="flex items-center gap-1"><MapPin className="w-3 h-3 sm:w-4 sm:h-4" />{insights.locationCountry}</span>}
-              <span className="flex items-center gap-1"><Calendar className="w-3 h-3 sm:w-4 sm:h-4" />Report: {new Date(insights.lastRefreshedAt).toLocaleDateString()}</span>
+              <span className="flex items-center gap-1"><Calendar className="w-3 h-3 sm:w-4 sm:h-4" />Report: {insights.lastRefreshedAt ? new Date(insights.lastRefreshedAt).toLocaleDateString() : '—'}</span>
               <span className="flex items-center gap-1"><Users className="w-3 h-3 sm:w-4 sm:h-4" />{formatNum(s.followerCount)} followers</span>
             </div>
           </div>
@@ -389,14 +412,18 @@ const InsightsPage: React.FC = () => {
             {/* Word Cloud */}
             <div className="card p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Word Cloud</h3>
-              {insights.wordCloud && insights.wordCloud.length > 0 ? (
+              {insights.wordCloud && Array.isArray(insights.wordCloud) && insights.wordCloud.length > 0 ? (
                 <div className="flex flex-wrap gap-2 justify-center items-center min-h-[250px]">
-                  {insights.wordCloud.map((word: any, i: number) => (
-                    <span key={i} className="inline-block px-2 py-1 rounded-lg transition-transform hover:scale-110"
-                      style={{ fontSize: `${Math.max(12, Math.min(36, word.value / 3))}px`, color: COLORS[i % COLORS.length], fontWeight: word.value > 60 ? 700 : 400, opacity: 0.7 + (word.value / 300) }}>
-                      {word.text}
-                    </span>
-                  ))}
+                  {insights.wordCloud.map((word: any, i: number) => {
+                    const wv = Number(word?.value);
+                    const safe = Number.isFinite(wv) ? wv : 0;
+                    return (
+                      <span key={i} className="inline-block px-2 py-1 rounded-lg transition-transform hover:scale-110"
+                        style={{ fontSize: `${Math.max(12, Math.min(36, safe / 3))}px`, color: COLORS[i % COLORS.length], fontWeight: safe > 60 ? 700 : 400, opacity: Math.min(0.95, 0.7 + safe / 300) }}>
+                        {word?.text ?? '—'}
+                      </span>
+                    );
+                  })}
                 </div>
               ) : <p className="text-gray-500 text-center py-16">No word cloud data available</p>}
             </div>
@@ -419,7 +446,7 @@ const InsightsPage: React.FC = () => {
                           <td className="px-3 py-2 text-primary-600 font-medium">@{l.username}</td>
                           <td className="px-3 py-2 text-gray-700">{l.fullName || '-'}</td>
                           <td className="px-3 py-2 text-right text-gray-700">{formatNum(l.followers)}</td>
-                          <td className="px-3 py-2 text-right"><span className="text-green-600 font-medium">{(l.similarity * 100).toFixed(0)}%</span></td>
+                          <td className="px-3 py-2 text-right"><span className="text-green-600 font-medium">{l.similarity != null && Number.isFinite(l.similarity) ? `${(l.similarity * 100).toFixed(0)}%` : '—'}</span></td>
                         </tr>
                       ))}
                     </tbody>
@@ -446,7 +473,7 @@ const InsightsPage: React.FC = () => {
                           <td className="px-3 py-2 text-primary-600 font-medium">@{l.username}</td>
                           <td className="px-3 py-2 text-gray-700">{l.fullName || '-'}</td>
                           <td className="px-3 py-2 text-right text-gray-700">{formatNum(l.followers)}</td>
-                          <td className="px-3 py-2 text-right"><span className="text-blue-600 font-medium">{(l.overlap * 100).toFixed(0)}%</span></td>
+                          <td className="px-3 py-2 text-right"><span className="text-blue-600 font-medium">{l.overlap != null && Number.isFinite(l.overlap) ? `${(l.overlap * 100).toFixed(0)}%` : '—'}</span></td>
                         </tr>
                       ))}
                     </tbody>
@@ -460,13 +487,17 @@ const InsightsPage: React.FC = () => {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Influencer Brand Affinity</h3>
               {insights.brandAffinity && insights.brandAffinity.length > 0 ? (
                 <div className="space-y-3">
-                  {insights.brandAffinity.slice(0, 5).map((b: any, i: number) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <span className="text-sm text-gray-600 w-24 truncate">{b.brand}</span>
-                      <div className="flex-1 bg-gray-200 rounded-full h-2"><div className="h-2 rounded-full" style={{ width: `${Math.min(b.percentage * 4, 100)}%`, backgroundColor: COLORS[i % COLORS.length] }}></div></div>
-                      <span className="text-sm font-medium w-12 text-right">{b.percentage.toFixed(1)}%</span>
-                    </div>
-                  ))}
+                  {insights.brandAffinity.slice(0, 5).map((b: any, i: number) => {
+                    const p = itemWeightOrPct(b);
+                    const barW = p != null ? Math.min(p * 4, 100) : 0;
+                    return (
+                      <div key={i} className="flex items-center gap-3">
+                        <span className="text-sm text-gray-600 w-24 truncate">{brandRowLabel(b)}</span>
+                        <div className="flex-1 bg-gray-200 rounded-full h-2"><div className="h-2 rounded-full" style={{ width: `${barW}%`, backgroundColor: COLORS[i % COLORS.length] }}></div></div>
+                        <span className="text-sm font-medium w-14 text-right shrink-0">{pctDisplay(p)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : <p className="text-gray-500 text-center py-8">No brand affinity data</p>}
             </div>
@@ -476,13 +507,17 @@ const InsightsPage: React.FC = () => {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Influencer Interests</h3>
               {insights.interests && insights.interests.length > 0 ? (
                 <div className="space-y-3">
-                  {insights.interests.slice(0, 5).map((int: any, i: number) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <span className="text-sm text-gray-600 w-28 truncate">{int.category}</span>
-                      <div className="flex-1 bg-gray-200 rounded-full h-2"><div className="h-2 rounded-full" style={{ width: `${Math.min(int.percentage * 2, 100)}%`, backgroundColor: COLORS[i % COLORS.length] }}></div></div>
-                      <span className="text-sm font-medium w-12 text-right">{int.percentage.toFixed(1)}%</span>
-                    </div>
-                  ))}
+                  {insights.interests.slice(0, 5).map((int: any, i: number) => {
+                    const p = itemWeightOrPct(int);
+                    const barW = p != null ? Math.min(p * 2, 100) : 0;
+                    return (
+                      <div key={i} className="flex items-center gap-3">
+                        <span className="text-sm text-gray-600 w-28 truncate">{interestRowLabel(int)}</span>
+                        <div className="flex-1 bg-gray-200 rounded-full h-2"><div className="h-2 rounded-full" style={{ width: `${barW}%`, backgroundColor: COLORS[i % COLORS.length] }}></div></div>
+                        <span className="text-sm font-medium w-14 text-right shrink-0">{pctDisplay(p)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : <p className="text-gray-500 text-center py-8">No interest data</p>}
             </div>
@@ -586,7 +621,7 @@ const InsightsPage: React.FC = () => {
                     <div key={i} className="p-3 bg-gray-50 rounded-xl text-center">
                       <Hash className="w-5 h-5 text-primary-500 mx-auto mb-1" />
                       <p className="font-medium text-gray-900 text-sm truncate">{h.tag}</p>
-                      <p className="text-xs text-gray-500 mt-1">{h.usagePercentage?.toFixed(1) || 0}% usage</p>
+                      <p className="text-xs text-gray-500 mt-1">{pctDisplay(itemWeightOrPct(h))} usage</p>
                       <p className="text-xs text-gray-400">{h.count || 0} posts</p>
                     </div>
                   ))}
@@ -683,8 +718,8 @@ const InsightsPage: React.FC = () => {
                       {locData.slice(0, 5).map((loc: any, i: number) => (
                         <div key={i} className="flex items-center gap-3">
                           <Globe className="w-4 h-4 text-gray-400 shrink-0" />
-                          <span className="text-sm text-gray-700 flex-1 truncate">{loc[nameKey]}</span>
-                          <span className="text-sm font-medium w-12 text-right">{loc.percentage}%</span>
+                          <span className="text-sm text-gray-700 flex-1 truncate">{locationRowLabel(loc, locationTab) || loc[nameKey]}</span>
+                          <span className="text-sm font-medium w-14 text-right shrink-0">{pctDisplay(itemWeightOrPct(loc))}</span>
                           <span className="text-xs text-gray-400 w-16 text-right">{formatNum(loc.followers)}</span>
                         </div>
                       ))}
@@ -803,13 +838,17 @@ const InsightsPage: React.FC = () => {
             <div className="card p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Brand Affinity</h3>
               <div className="space-y-3">
-                {currentAud.brandAffinity.slice(0, 5).map((b: any, i: number) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600 w-24 truncate">{b.brand}</span>
-                    <div className="flex-1 bg-gray-200 rounded-full h-2"><div className="h-2 rounded-full" style={{ width: `${Math.min(b.percentage * 4, 100)}%`, backgroundColor: COLORS[i % COLORS.length] }}></div></div>
-                    <span className="text-sm font-medium w-12 text-right">{b.percentage.toFixed(1)}%</span>
-                  </div>
-                ))}
+                {currentAud.brandAffinity.slice(0, 5).map((b: any, i: number) => {
+                  const p = itemWeightOrPct(b);
+                  const barW = p != null ? Math.min(p * 4, 100) : 0;
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <span className="text-sm text-gray-600 w-24 truncate">{brandRowLabel(b)}</span>
+                      <div className="flex-1 bg-gray-200 rounded-full h-2"><div className="h-2 rounded-full" style={{ width: `${barW}%`, backgroundColor: COLORS[i % COLORS.length] }}></div></div>
+                      <span className="text-sm font-medium w-14 text-right shrink-0">{pctDisplay(p)}</span>
+                    </div>
+                  );
+                })}
               </div>
               <button onClick={() => setViewMoreData({
                 title: 'Audience Brand Affinity',
@@ -824,13 +863,17 @@ const InsightsPage: React.FC = () => {
             <div className="card p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Interests</h3>
               <div className="space-y-3">
-                {currentAud.interests.slice(0, 5).map((int: any, i: number) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600 w-32 truncate">{int.category}</span>
-                    <div className="flex-1 bg-gray-200 rounded-full h-2"><div className="h-2 rounded-full" style={{ width: `${Math.min(int.percentage * 2, 100)}%`, backgroundColor: COLORS[i % COLORS.length] }}></div></div>
-                    <span className="text-sm font-medium w-12 text-right">{int.percentage.toFixed(1)}%</span>
-                  </div>
-                ))}
+                {currentAud.interests.slice(0, 5).map((int: any, i: number) => {
+                  const p = itemWeightOrPct(int);
+                  const barW = p != null ? Math.min(p * 2, 100) : 0;
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <span className="text-sm text-gray-600 w-32 truncate">{interestRowLabel(int)}</span>
+                      <div className="flex-1 bg-gray-200 rounded-full h-2"><div className="h-2 rounded-full" style={{ width: `${barW}%`, backgroundColor: COLORS[i % COLORS.length] }}></div></div>
+                      <span className="text-sm font-medium w-14 text-right shrink-0">{pctDisplay(p)}</span>
+                    </div>
+                  );
+                })}
               </div>
               <button onClick={() => setViewMoreData({
                 title: 'Audience Interests',

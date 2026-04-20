@@ -2,6 +2,7 @@ import { Repository } from 'typeorm';
 import { MentionTrackingReport, MentionTrackingInfluencer, MentionTrackingPost, MentionTrackingShare } from './entities';
 import { User } from '../users/entities/user.entity';
 import { CreditsService } from '../credits/credits.service';
+import { ModashRawService } from '../discovery/services/modash-raw.service';
 import { CreateMentionTrackingReportDto, UpdateMentionTrackingReportDto, ShareMentionTrackingReportDto, MentionTrackingReportFilterDto, MentionTrackingReportListResponseDto, MentionTrackingReportDetailDto, MentionTrackingInfluencerDto, MentionTrackingPostDto, DashboardStatsDto, ChartDataDto, PostsFilterDto, InfluencersFilterDto } from './dto';
 export declare class MentionTrackingService {
     private readonly reportRepo;
@@ -10,13 +11,17 @@ export declare class MentionTrackingService {
     private readonly shareRepo;
     private readonly userRepo;
     private readonly creditsService;
-    constructor(reportRepo: Repository<MentionTrackingReport>, influencerRepo: Repository<MentionTrackingInfluencer>, postRepo: Repository<MentionTrackingPost>, shareRepo: Repository<MentionTrackingShare>, userRepo: Repository<User>, creditsService: CreditsService);
+    private readonly modashRawService;
+    private readonly logger;
+    constructor(reportRepo: Repository<MentionTrackingReport>, influencerRepo: Repository<MentionTrackingInfluencer>, postRepo: Repository<MentionTrackingPost>, shareRepo: Repository<MentionTrackingShare>, userRepo: Repository<User>, creditsService: CreditsService, modashRawService: ModashRawService);
     createReport(userId: string, dto: CreateMentionTrackingReportDto): Promise<{
         success: boolean;
         report: MentionTrackingReport;
         creditsUsed: number;
     }>;
     private processReport;
+    private processReportWithRawApi;
+    private processReportSimulated;
     private generateFollowerCount;
     private categorizeInfluencer;
     private generateInfluencerName;

@@ -14,6 +14,7 @@ const sentiments_service_1 = require("./sentiments.service");
 const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
 const credits_module_1 = require("../credits/credits.module");
+const discovery_module_1 = require("../discovery/discovery.module");
 let SentimentsModule = class SentimentsModule {
 };
 exports.SentimentsModule = SentimentsModule;
@@ -29,6 +30,7 @@ exports.SentimentsModule = SentimentsModule = __decorate([
                 user_entity_1.User,
             ]),
             credits_module_1.CreditsModule,
+            discovery_module_1.DiscoveryModule,
         ],
         controllers: [sentiments_controller_1.SentimentsController],
         providers: [sentiments_service_1.SentimentsService],

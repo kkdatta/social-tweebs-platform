@@ -200,6 +200,8 @@ export interface SearchResponse {
   page: number;
   influencers: InfluencerProfile[];
   creditsUsed: number;
+  remainingBalance?: number;
+  hasMore?: boolean;
   isExactMatch?: boolean;
 }
 

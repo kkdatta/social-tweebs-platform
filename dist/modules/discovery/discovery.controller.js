@@ -68,6 +68,9 @@ let DiscoveryController = class DiscoveryController {
     async getBrands(query) {
         return this.discoveryService.getBrands(query);
     }
+    async getModashAccountInfo() {
+        return this.discoveryService.getModashAccountInfo();
+    }
 };
 exports.DiscoveryController = DiscoveryController;
 __decorate([
@@ -232,6 +235,16 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], DiscoveryController.prototype, "getBrands", null);
+__decorate([
+    (0, common_1.Get)('modash/account'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Get Modash account info',
+        description: 'Returns remaining credits, raw API requests, and rate limits. No cost.',
+    }),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], DiscoveryController.prototype, "getModashAccountInfo", null);
 exports.DiscoveryController = DiscoveryController = __decorate([
     (0, swagger_1.ApiTags)('Discovery'),
     (0, swagger_1.ApiBearerAuth)(),

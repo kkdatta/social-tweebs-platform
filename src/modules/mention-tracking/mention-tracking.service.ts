@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Between } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -14,6 +14,7 @@ import {
 import { User } from '../users/entities/user.entity';
 import { CreditsService } from '../credits/credits.service';
 import { ActionType, ModuleType } from '../../common/enums';
+import { ModashRawService } from '../discovery/services/modash-raw.service';
 import {
   CreateMentionTrackingReportDto,
   UpdateMentionTrackingReportDto,
@@ -34,6 +35,8 @@ const CREDIT_PER_REPORT = 1;
 
 @Injectable()
 export class MentionTrackingService {
+  private readonly logger = new Logger(MentionTrackingService.name);
+
   constructor(
     @InjectRepository(MentionTrackingReport)
     private readonly reportRepo: Repository<MentionTrackingReport>,
@@ -46,6 +49,7 @@ export class MentionTrackingService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly creditsService: CreditsService,
+    private readonly modashRawService: ModashRawService,
   ) {}
 
   /**
@@ -75,14 +79,13 @@ export class MentionTrackingService {
       throw new BadRequestException('TikTok does not support keyword search');
     }
 
-    // Check and deduct credits
-    await this.creditsService.deductCredits(userId, {
-      actionType: ActionType.REPORT_GENERATION,
-      quantity: CREDIT_PER_REPORT,
-      module: ModuleType.MENTION_TRACKING,
-      resourceId: 'new-mention-report',
-      resourceType: 'mention_report_creation',
-    });
+    // Validate balance upfront but defer deduction until after success (universal refresh guard)
+    const balance = await this.creditsService.getBalance(userId);
+    if ((balance.unifiedBalance || 0) < CREDIT_PER_REPORT) {
+      throw new BadRequestException(
+        `Insufficient credits. Required: ${CREDIT_PER_REPORT}, Available: ${balance.unifiedBalance}`,
+      );
+    }
 
     // Create report
     const report = new MentionTrackingReport();
@@ -123,131 +126,403 @@ export class MentionTrackingService {
     if (!report) return;
 
     try {
-      // Update status to PROCESSING
       report.status = MentionReportStatus.PROCESSING;
       await this.reportRepo.save(report);
-      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      let totalInfluencers = 0;
-      let totalPosts = 0;
-      let totalLikes = 0;
-      let totalViews = 0;
-      let totalComments = 0;
-      let totalShares = 0;
-      let totalFollowers = 0;
-
-      // Generate random influencers (simulate API fetch)
-      const influencerCount = Math.floor(Math.random() * 20) + 10;
-      const allSearchTerms = [
-        ...report.hashtags.map(h => h.startsWith('#') ? h : `#${h}`),
-        ...report.usernames.map(u => u.startsWith('@') ? u : `@${u}`),
-        ...report.keywords,
-      ];
-
-      for (let i = 0; i < influencerCount; i++) {
-        const followerCount = this.generateFollowerCount();
-        const category = this.categorizeInfluencer(followerCount);
-        
-        const influencer = new MentionTrackingInfluencer();
-        influencer.reportId = reportId;
-        influencer.platform = report.platforms[Math.floor(Math.random() * report.platforms.length)];
-        influencer.influencerName = this.generateInfluencerName();
-        influencer.influencerUsername = influencer.influencerName.toLowerCase().replace(/\s/g, '_');
-        influencer.platformUserId = `user_${Date.now()}_${i}`;
-        influencer.profilePictureUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(influencer.influencerName)}&background=random`;
-        influencer.followerCount = followerCount;
-        influencer.category = category;
-        influencer.audienceCredibility = Math.floor(Math.random() * 30) + 70; // 70-100%
-        influencer.displayOrder = i;
-
-        const savedInfluencer = await this.influencerRepo.save(influencer);
-
-        // Generate posts for this influencer
-        const postsCount = Math.floor(Math.random() * 10) + 3;
-        let infLikes = 0, infViews = 0, infComments = 0, infShares = 0;
-
-        for (let j = 0; j < postsCount; j++) {
-          const post = new MentionTrackingPost();
-          post.reportId = reportId;
-          post.influencerId = savedInfluencer.id;
-          post.platform = savedInfluencer.platform;
-          post.postId = `post_${Date.now()}_${i}_${j}`;
-          post.postType = ['IMAGE', 'VIDEO', 'REEL', 'CAROUSEL'][Math.floor(Math.random() * 4)];
-          post.thumbnailUrl = `https://picsum.photos/400/400?random=${Date.now() + i + j}`;
-          
-          // Generate description with matched terms
-          const matchedTerms = allSearchTerms.filter(() => Math.random() > 0.4);
-          post.description = `Amazing content! ${matchedTerms.join(' ')} Check this out! #influencer #lifestyle`;
-          post.matchedHashtags = matchedTerms.filter(t => t.startsWith('#'));
-          post.matchedUsernames = matchedTerms.filter(t => t.startsWith('@'));
-          post.matchedKeywords = matchedTerms.filter(t => !t.startsWith('#') && !t.startsWith('@'));
-          
-          post.likesCount = Math.floor(Math.random() * 15000) + 500;
-          post.commentsCount = Math.floor(Math.random() * 800) + 20;
-          post.viewsCount = Math.floor(Math.random() * 80000) + 2000;
-          post.sharesCount = Math.floor(Math.random() * 400) + 10;
-          const postFc = Number(savedInfluencer.followerCount) || 0;
-          post.engagementRate = postFc > 0 ? ((post.likesCount + post.commentsCount) / postFc) * 100 : 0;
-          post.isSponsored = Math.random() > 0.7;
-          
-          // Random date within the report's date range
-          const startMs = new Date(report.dateRangeStart).getTime();
-          const endMs = new Date(report.dateRangeEnd).getTime();
-          const randomMs = startMs + Math.random() * (endMs - startMs);
-          post.postDate = new Date(randomMs);
-          post.postUrl = `https://instagram.com/p/${post.postId}`;
-
-          await this.postRepo.save(post);
-
-          infLikes += Number(post.likesCount) || 0;
-          infViews += Number(post.viewsCount) || 0;
-          infComments += Number(post.commentsCount) || 0;
-          infShares += Number(post.sharesCount) || 0;
-        }
-
-        // Update influencer metrics
-        savedInfluencer.postsCount = postsCount;
-        savedInfluencer.likesCount = infLikes;
-        savedInfluencer.viewsCount = infViews;
-        savedInfluencer.commentsCount = infComments;
-        savedInfluencer.sharesCount = infShares;
-        const infFc = Number(savedInfluencer.followerCount) || 0;
-        const infDenom = postsCount * infFc;
-        savedInfluencer.avgEngagementRate = infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
-        await this.influencerRepo.save(savedInfluencer);
-
-        totalPosts += postsCount;
-        totalLikes += infLikes;
-        totalViews += infViews;
-        totalComments += infComments;
-        totalShares += infShares;
-        totalFollowers += Number(savedInfluencer.followerCount) || 0;
-        totalInfluencers++;
+      if (this.modashRawService.isRawApiEnabled()) {
+        await this.processReportWithRawApi(report);
+      } else {
+        await this.processReportSimulated(report);
       }
 
-      // Update report metrics
-      report.totalInfluencers = totalInfluencers;
-      report.totalPosts = totalPosts;
-      report.totalLikes = totalLikes;
-      report.totalViews = totalViews;
-      report.totalComments = totalComments;
-      report.totalShares = totalShares;
-      report.totalFollowers = totalFollowers;
-      const avgFollowersPerInf = totalInfluencers > 0 ? totalFollowers / totalInfluencers : 0;
-      const reportEngDenom = totalPosts * avgFollowersPerInf;
-      report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
-      report.engagementViewsRate = totalViews > 0 
-        ? ((totalLikes + totalComments) / totalViews) * 100 
-        : 0;
-      report.status = MentionReportStatus.COMPLETED;
-      report.completedAt = new Date();
-      await this.reportRepo.save(report);
-
+      // Re-read report to get final status set by processReportWithRawApi/Simulated
+      const finalReport = await this.reportRepo.findOne({ where: { id: reportId } });
+      if (finalReport && finalReport.status === MentionReportStatus.COMPLETED) {
+        await this.creditsService.deductCredits(finalReport.ownerId, {
+          actionType: ActionType.REPORT_GENERATION,
+          quantity: CREDIT_PER_REPORT,
+          module: ModuleType.MENTION_TRACKING,
+          resourceId: reportId,
+          resourceType: 'mention_report_creation',
+        });
+        this.logger.log(`Mention tracking ${reportId}: charged ${CREDIT_PER_REPORT} credits after success`);
+      }
     } catch (error) {
       report.status = MentionReportStatus.FAILED;
       report.errorMessage = error.message || 'Processing failed';
       await this.reportRepo.save(report);
+      this.logger.error(`Mention tracking ${reportId} failed — NO credits charged`);
     }
+  }
+
+  private async processReportWithRawApi(report: MentionTrackingReport): Promise<void> {
+    this.logger.log(`Processing mention tracking via Modash Raw API for report ${report.id}`);
+
+    let totalInfluencers = 0;
+    let totalPosts = 0;
+    let totalLikes = 0;
+    let totalViews = 0;
+    let totalComments = 0;
+    let totalShares = 0;
+    let totalFollowers = 0;
+
+    const allSearchTerms = [
+      ...report.hashtags.map(h => h.startsWith('#') ? h : `#${h}`),
+      ...report.usernames.map(u => u.startsWith('@') ? u : `@${u}`),
+      ...report.keywords,
+    ];
+    const startMs = new Date(report.dateRangeStart).getTime();
+    const endMs = new Date(report.dateRangeEnd).getTime();
+
+    const rawPosts: Array<{ platform: string; userId: string; username: string; postId: string; description: string; likes: number; comments: number; views: number; shares: number; timestamp: number; thumbnail?: string }> = [];
+    const failedTerms: string[] = [];
+    let totalTerms = 0;
+
+    const configuredTerms =
+      (report.hashtags?.length || 0) +
+      (report.usernames?.length || 0) +
+      (report.keywords?.length || 0);
+    if (configuredTerms === 0) {
+      report.status = MentionReportStatus.FAILED;
+      report.errorMessage = 'No hashtags, usernames, or keywords configured for this report';
+      await this.reportRepo.save(report);
+      return;
+    }
+
+    for (const platform of report.platforms) {
+      const plat = platform.toUpperCase();
+
+      for (const hashtag of report.hashtags) {
+        totalTerms++;
+        const tag = hashtag.replace(/^#/, '');
+        try {
+          if (plat === 'INSTAGRAM') {
+            const feed = await this.modashRawService.getIgHashtagFeed(tag);
+            for (const p of (feed.data || [])) {
+              const ts = (p.taken_at || 0) * 1000;
+              if (ts >= startMs && ts <= endMs) {
+                rawPosts.push({
+                  platform, userId: p.user?.pk || '', username: p.user?.username || '',
+                  postId: p.id || p.code, description: p.caption?.text || '',
+                  likes: p.like_count || 0, comments: p.comment_count || 0,
+                  views: p.play_count || 0, shares: 0, timestamp: ts,
+                  thumbnail: p.image_versions2?.candidates?.[0]?.url,
+                });
+              }
+            }
+          } else if (plat === 'TIKTOK') {
+            const info = await this.modashRawService.getTiktokChallengeInfo(tag);
+            if (info?.id) {
+              const feed = await this.modashRawService.getTiktokChallengeFeed(info.id);
+              for (const p of (feed.data || [])) {
+                const ts = (p.createTime || 0) * 1000;
+                if (ts >= startMs && ts <= endMs) {
+                  rawPosts.push({
+                    platform, userId: p.author?.uniqueId || '', username: p.author?.uniqueId || '',
+                    postId: p.id, description: p.desc || '',
+                    likes: p.stats?.diggCount || 0, comments: p.stats?.commentCount || 0,
+                    views: p.stats?.playCount || 0, shares: p.stats?.shareCount || 0,
+                    timestamp: ts, thumbnail: p.video?.cover,
+                  });
+                }
+              }
+            }
+          }
+        } catch (err) {
+          failedTerms.push(`#${tag} on ${plat}`);
+          this.logger.warn(`Raw API error fetching hashtag "${tag}" on ${plat}: ${err.message}`);
+        }
+      }
+
+      for (const username of report.usernames) {
+        const handle = username.replace(/^@/, '');
+        // 404 Guard: skip empty handles (Modash counts 404 as consumed request)
+        if (!handle || handle.trim().length === 0) {
+          failedTerms.push(`@${handle} — invalid handle skipped`);
+          continue;
+        }
+        totalTerms++;
+        try {
+          if (plat === 'INSTAGRAM') {
+            const feed = await this.modashRawService.getIgUserTagsFeed(handle);
+            for (const p of (feed.data || [])) {
+              const ts = (p.taken_at || 0) * 1000;
+              if (ts >= startMs && ts <= endMs) {
+                rawPosts.push({
+                  platform, userId: p.user?.pk || '', username: p.user?.username || handle,
+                  postId: p.id || p.code, description: p.caption?.text || '',
+                  likes: p.like_count || 0, comments: p.comment_count || 0,
+                  views: p.play_count || 0, shares: 0, timestamp: ts,
+                  thumbnail: p.image_versions2?.candidates?.[0]?.url,
+                });
+              }
+            }
+          }
+        } catch (err) {
+          failedTerms.push(`@${handle} on ${plat}`);
+          this.logger.warn(`Raw API error fetching user "${handle}" on ${plat}: ${err.message}`);
+        }
+      }
+
+      for (const keyword of report.keywords) {
+        const kw = (keyword || '').trim();
+        if (!kw) continue;
+        totalTerms++;
+        try {
+          if (plat === 'INSTAGRAM') {
+            const tag = kw.replace(/^#/, '').replace(/\s+/g, '');
+            if (!tag) {
+              totalTerms--;
+              continue;
+            }
+            const feed = await this.modashRawService.getIgHashtagFeed(tag);
+            for (const p of (feed.data || [])) {
+              const ts = (p.taken_at || 0) * 1000;
+              if (ts >= startMs && ts <= endMs) {
+                rawPosts.push({
+                  platform,
+                  userId: p.user?.pk || '',
+                  username: p.user?.username || '',
+                  postId: p.id || p.code,
+                  description: p.caption?.text || '',
+                  likes: p.like_count || 0,
+                  comments: p.comment_count || 0,
+                  views: p.play_count || 0,
+                  shares: 0,
+                  timestamp: ts,
+                  thumbnail: p.image_versions2?.candidates?.[0]?.url,
+                });
+              }
+            }
+          } else if (plat === 'TIKTOK') {
+            const challengeName = kw.replace(/^#/, '');
+            const info = await this.modashRawService.getTiktokChallengeInfo(challengeName);
+            if (info?.id) {
+              const feed = await this.modashRawService.getTiktokChallengeFeed(info.id);
+              for (const p of (feed.data || [])) {
+                const ts = (p.createTime || 0) * 1000;
+                if (ts >= startMs && ts <= endMs) {
+                  rawPosts.push({
+                    platform,
+                    userId: p.author?.uniqueId || '',
+                    username: p.author?.uniqueId || '',
+                    postId: p.id,
+                    description: p.desc || '',
+                    likes: p.stats?.diggCount || 0,
+                    comments: p.stats?.commentCount || 0,
+                    views: p.stats?.playCount || 0,
+                    shares: p.stats?.shareCount || 0,
+                    timestamp: ts,
+                    thumbnail: p.video?.cover,
+                  });
+                }
+              }
+            } else {
+              failedTerms.push(`keyword "${kw}" on TIKTOK (no matching challenge)`);
+            }
+          } else {
+            failedTerms.push(`keyword "${kw}" on ${plat} (not supported — use Instagram or TikTok)`);
+          }
+        } catch (err) {
+          failedTerms.push(`keyword "${kw}" on ${plat}`);
+          this.logger.warn(`Raw API error fetching keyword "${kw}" on ${plat}: ${err.message}`);
+        }
+      }
+    }
+
+    if (failedTerms.length > 0 && failedTerms.length === totalTerms) {
+      report.status = MentionReportStatus.FAILED;
+      report.errorMessage = `All search terms failed: ${failedTerms.join(', ')}`;
+      await this.reportRepo.save(report);
+      return;
+    }
+
+    const influencerMap = new Map<string, { inf: MentionTrackingInfluencer; likes: number; views: number; comments: number; shares: number; posts: number }>();
+
+    for (const rp of rawPosts) {
+      const key = `${rp.platform}_${rp.username}`;
+      if (!influencerMap.has(key)) {
+        const influencer = new MentionTrackingInfluencer();
+        influencer.reportId = report.id;
+        influencer.platform = rp.platform;
+        influencer.influencerUsername = rp.username;
+        influencer.influencerName = rp.username;
+        influencer.platformUserId = rp.userId;
+        influencer.followerCount = 0;
+        influencer.category = InfluencerCategory.NANO;
+        influencer.displayOrder = influencerMap.size;
+        const savedInf = await this.influencerRepo.save(influencer);
+        influencerMap.set(key, { inf: savedInf, likes: 0, views: 0, comments: 0, shares: 0, posts: 0 });
+      }
+
+      const entry = influencerMap.get(key)!;
+      const post = new MentionTrackingPost();
+      post.reportId = report.id;
+      post.influencerId = entry.inf.id;
+      post.platform = rp.platform;
+      post.postId = rp.postId;
+      post.postType = 'IMAGE';
+      post.thumbnailUrl = rp.thumbnail || '';
+      post.description = rp.description;
+      post.matchedHashtags = allSearchTerms.filter(t => t.startsWith('#') && rp.description.toLowerCase().includes(t.replace('#', '').toLowerCase()));
+      post.matchedUsernames = allSearchTerms.filter(t => t.startsWith('@') && rp.description.toLowerCase().includes(t.replace('@', '').toLowerCase()));
+      post.matchedKeywords = allSearchTerms.filter(t => !t.startsWith('#') && !t.startsWith('@') && rp.description.toLowerCase().includes(t.toLowerCase()));
+      post.likesCount = rp.likes;
+      post.commentsCount = rp.comments;
+      post.viewsCount = rp.views;
+      post.sharesCount = rp.shares;
+      post.postDate = new Date(rp.timestamp);
+      post.postUrl = '';
+      await this.postRepo.save(post);
+
+      entry.likes += rp.likes;
+      entry.views += rp.views;
+      entry.comments += rp.comments;
+      entry.shares += rp.shares;
+      entry.posts++;
+      totalPosts++;
+      totalLikes += rp.likes;
+      totalViews += rp.views;
+      totalComments += rp.comments;
+      totalShares += rp.shares;
+    }
+
+    for (const [, entry] of influencerMap) {
+      entry.inf.postsCount = entry.posts;
+      entry.inf.likesCount = entry.likes;
+      entry.inf.viewsCount = entry.views;
+      entry.inf.commentsCount = entry.comments;
+      entry.inf.sharesCount = entry.shares;
+      const fc = Number(entry.inf.followerCount) || 0;
+      const denom = entry.posts * fc;
+      entry.inf.avgEngagementRate = denom > 0 ? ((entry.likes + entry.comments) / denom) * 100 : 0;
+      await this.influencerRepo.save(entry.inf);
+      totalFollowers += fc;
+      totalInfluencers++;
+    }
+
+    report.totalInfluencers = totalInfluencers;
+    report.totalPosts = totalPosts;
+    report.totalLikes = totalLikes;
+    report.totalViews = totalViews;
+    report.totalComments = totalComments;
+    report.totalShares = totalShares;
+    report.totalFollowers = totalFollowers;
+    const avgFollowersPerInf = totalInfluencers > 0 ? totalFollowers / totalInfluencers : 0;
+    const reportEngDenom = totalPosts * avgFollowersPerInf;
+    report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
+    report.engagementViewsRate = totalViews > 0 ? ((totalLikes + totalComments) / totalViews) * 100 : 0;
+    report.status = MentionReportStatus.COMPLETED;
+    report.completedAt = new Date();
+    if (failedTerms.length > 0) {
+      report.errorMessage = `Partial results: failed to fetch data for ${failedTerms.join(', ')}`;
+    }
+    await this.reportRepo.save(report);
+  }
+
+  private async processReportSimulated(report: MentionTrackingReport): Promise<void> {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    let totalInfluencers = 0;
+    let totalPosts = 0;
+    let totalLikes = 0;
+    let totalViews = 0;
+    let totalComments = 0;
+    let totalShares = 0;
+    let totalFollowers = 0;
+
+    const influencerCount = Math.floor(Math.random() * 20) + 10;
+    const allSearchTerms = [
+      ...report.hashtags.map(h => h.startsWith('#') ? h : `#${h}`),
+      ...report.usernames.map(u => u.startsWith('@') ? u : `@${u}`),
+      ...report.keywords,
+    ];
+
+    for (let i = 0; i < influencerCount; i++) {
+      const followerCount = this.generateFollowerCount();
+      const category = this.categorizeInfluencer(followerCount);
+      
+      const influencer = new MentionTrackingInfluencer();
+      influencer.reportId = report.id;
+      influencer.platform = report.platforms[Math.floor(Math.random() * report.platforms.length)];
+      influencer.influencerName = this.generateInfluencerName();
+      influencer.influencerUsername = influencer.influencerName.toLowerCase().replace(/\s/g, '_');
+      influencer.platformUserId = `user_${Date.now()}_${i}`;
+      influencer.profilePictureUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(influencer.influencerName)}&background=random`;
+      influencer.followerCount = followerCount;
+      influencer.category = category;
+      influencer.audienceCredibility = Math.floor(Math.random() * 30) + 70;
+      influencer.displayOrder = i;
+
+      const savedInfluencer = await this.influencerRepo.save(influencer);
+      const postsCount = Math.floor(Math.random() * 10) + 3;
+      let infLikes = 0, infViews = 0, infComments = 0, infShares = 0;
+
+      for (let j = 0; j < postsCount; j++) {
+        const post = new MentionTrackingPost();
+        post.reportId = report.id;
+        post.influencerId = savedInfluencer.id;
+        post.platform = savedInfluencer.platform;
+        post.postId = `post_${Date.now()}_${i}_${j}`;
+        post.postType = ['IMAGE', 'VIDEO', 'REEL', 'CAROUSEL'][Math.floor(Math.random() * 4)];
+        post.thumbnailUrl = `https://picsum.photos/400/400?random=${Date.now() + i + j}`;
+        const matchedTerms = allSearchTerms.filter(() => Math.random() > 0.4);
+        post.description = `Amazing content! ${matchedTerms.join(' ')} Check this out! #influencer #lifestyle`;
+        post.matchedHashtags = matchedTerms.filter(t => t.startsWith('#'));
+        post.matchedUsernames = matchedTerms.filter(t => t.startsWith('@'));
+        post.matchedKeywords = matchedTerms.filter(t => !t.startsWith('#') && !t.startsWith('@'));
+        post.likesCount = Math.floor(Math.random() * 15000) + 500;
+        post.commentsCount = Math.floor(Math.random() * 800) + 20;
+        post.viewsCount = Math.floor(Math.random() * 80000) + 2000;
+        post.sharesCount = Math.floor(Math.random() * 400) + 10;
+        const postFc = Number(savedInfluencer.followerCount) || 0;
+        post.engagementRate = postFc > 0 ? ((post.likesCount + post.commentsCount) / postFc) * 100 : 0;
+        post.isSponsored = Math.random() > 0.7;
+        const startMs = new Date(report.dateRangeStart).getTime();
+        const endMs = new Date(report.dateRangeEnd).getTime();
+        post.postDate = new Date(startMs + Math.random() * (endMs - startMs));
+        post.postUrl = `https://instagram.com/p/${post.postId}`;
+        await this.postRepo.save(post);
+
+        infLikes += Number(post.likesCount) || 0;
+        infViews += Number(post.viewsCount) || 0;
+        infComments += Number(post.commentsCount) || 0;
+        infShares += Number(post.sharesCount) || 0;
+      }
+
+      savedInfluencer.postsCount = postsCount;
+      savedInfluencer.likesCount = infLikes;
+      savedInfluencer.viewsCount = infViews;
+      savedInfluencer.commentsCount = infComments;
+      savedInfluencer.sharesCount = infShares;
+      const infFc = Number(savedInfluencer.followerCount) || 0;
+      const infDenom = postsCount * infFc;
+      savedInfluencer.avgEngagementRate = infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
+      await this.influencerRepo.save(savedInfluencer);
+
+      totalPosts += postsCount;
+      totalLikes += infLikes;
+      totalViews += infViews;
+      totalComments += infComments;
+      totalShares += infShares;
+      totalFollowers += Number(savedInfluencer.followerCount) || 0;
+      totalInfluencers++;
+    }
+
+    report.totalInfluencers = totalInfluencers;
+    report.totalPosts = totalPosts;
+    report.totalLikes = totalLikes;
+    report.totalViews = totalViews;
+    report.totalComments = totalComments;
+    report.totalShares = totalShares;
+    report.totalFollowers = totalFollowers;
+    const avgFollowersPerInf = totalInfluencers > 0 ? totalFollowers / totalInfluencers : 0;
+    const reportEngDenom = totalPosts * avgFollowersPerInf;
+    report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
+    report.engagementViewsRate = totalViews > 0 ? ((totalLikes + totalComments) / totalViews) * 100 : 0;
+    report.status = MentionReportStatus.COMPLETED;
+    report.completedAt = new Date();
+    await this.reportRepo.save(report);
   }
 
   private generateFollowerCount(): number {
@@ -478,14 +753,13 @@ export class MentionTrackingService {
       throw new BadRequestException('Only failed reports can be retried');
     }
 
-    // Deduct credits for retry
-    await this.creditsService.deductCredits(userId, {
-      actionType: ActionType.REPORT_REFRESH,
-      quantity: CREDIT_PER_REPORT,
-      module: ModuleType.MENTION_TRACKING,
-      resourceId: reportId,
-      resourceType: 'mention_report_retry',
-    });
+    // Validate balance upfront but defer deduction until after success (universal refresh guard)
+    const balance = await this.creditsService.getBalance(userId);
+    if ((balance.unifiedBalance || 0) < CREDIT_PER_REPORT) {
+      throw new BadRequestException(
+        `Insufficient credits. Required: ${CREDIT_PER_REPORT}, Available: ${balance.unifiedBalance}`,
+      );
+    }
 
     // Delete existing data
     await this.postRepo.delete({ reportId });
@@ -495,7 +769,6 @@ export class MentionTrackingService {
     report.status = MentionReportStatus.PENDING;
     report.errorMessage = undefined;
     report.retryCount += 1;
-    report.creditsUsed += CREDIT_PER_REPORT;
     report.totalInfluencers = 0;
     report.totalPosts = 0;
     report.totalLikes = 0;
@@ -504,7 +777,7 @@ export class MentionTrackingService {
     report.totalShares = 0;
     await this.reportRepo.save(report);
 
-    // Trigger processing
+    // Trigger processing -- credits deducted only on success inside processReport
     setTimeout(() => this.processReport(reportId), 2000);
 
     return { success: true, report, creditsUsed: CREDIT_PER_REPORT };

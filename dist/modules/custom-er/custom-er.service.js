@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var CustomErService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CustomErService = void 0;
 const common_1 = require("@nestjs/common");
@@ -20,12 +21,19 @@ const uuid_1 = require("uuid");
 const XLSX = require("xlsx");
 const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
-let CustomErService = class CustomErService {
-    constructor(reportRepo, postRepo, shareRepo, userRepo) {
+const influencer_profile_entity_1 = require("../discovery/entities/influencer-profile.entity");
+const modash_service_1 = require("../discovery/services/modash.service");
+const modash_raw_service_1 = require("../discovery/services/modash-raw.service");
+let CustomErService = CustomErService_1 = class CustomErService {
+    constructor(reportRepo, postRepo, shareRepo, userRepo, profileRepo, modashService, modashRawService) {
         this.reportRepo = reportRepo;
         this.postRepo = postRepo;
         this.shareRepo = shareRepo;
         this.userRepo = userRepo;
+        this.profileRepo = profileRepo;
+        this.modashService = modashService;
+        this.modashRawService = modashRawService;
+        this.logger = new common_1.Logger(CustomErService_1.name);
     }
     async createReport(userId, dto) {
         const startDate = new Date(dto.dateRangeStart);
@@ -47,9 +55,19 @@ let CustomErService = class CustomErService {
         report.ownerId = userId;
         report.createdById = userId;
         report.shareUrlToken = `er_share_${(0, uuid_1.v4)().substring(0, 8)}`;
-        report.influencerName = 'Test Influencer';
-        report.influencerUsername = 'test_influencer';
-        report.followerCount = 50000;
+        const cachedProfile = await this.profileRepo.findOne({
+            where: { id: dto.influencerProfileId },
+        });
+        if (cachedProfile) {
+            report.influencerName = cachedProfile.fullName || cachedProfile.username || 'Unknown';
+            report.influencerUsername = cachedProfile.username || '';
+            report.followerCount = Number(cachedProfile.followerCount) || 0;
+        }
+        else {
+            report.influencerName = 'Unknown Influencer';
+            report.influencerUsername = '';
+            report.followerCount = 0;
+        }
         const savedReport = await this.reportRepo.save(report);
         setTimeout(() => this.processReport(savedReport.id), 2000);
         return { success: true, report: savedReport };
@@ -61,93 +79,248 @@ let CustomErService = class CustomErService {
         try {
             report.status = entities_1.CustomErReportStatus.PROCESSING;
             await this.reportRepo.save(report);
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            const followerCountNum = Number(report.followerCount) || 0;
-            if (followerCountNum === 0) {
-                report.followerCount = Math.floor(Math.random() * 90000) + 10000;
-                await this.reportRepo.save(report);
+            if (this.modashRawService.isRawApiEnabled()) {
+                await this.processReportWithRawApi(report);
             }
-            const fcForMetrics = Number(report.followerCount) || 0;
-            const numPosts = Math.floor(Math.random() * 20) + 10;
-            const posts = [];
-            let totalLikes = 0, totalViews = 0, totalComments = 0, totalShares = 0;
-            let sponsoredLikes = 0, sponsoredViews = 0, sponsoredComments = 0, sponsoredShares = 0;
-            let sponsoredCount = 0;
-            for (let i = 0; i < numPosts; i++) {
-                const isSponsored = Math.random() < 0.2;
-                const likes = Math.floor(Math.random() * 5000) + 500;
-                const views = Math.floor(Math.random() * 30000) + 5000;
-                const comments = Math.floor(Math.random() * 300) + 20;
-                const shares = Math.floor(Math.random() * 100) + 10;
-                const post = new entities_1.CustomErPost();
-                post.reportId = reportId;
-                post.postId = `post_${Date.now()}_${i}`;
-                post.postUrl = `https://instagram.com/p/${post.postId}`;
-                post.postType = ['IMAGE', 'VIDEO', 'REEL', 'CAROUSEL'][Math.floor(Math.random() * 4)];
-                post.thumbnailUrl = `https://picsum.photos/400/400?random=${i}`;
-                post.description = isSponsored
-                    ? `AD: Check out this amazing product! #sponsored #ad`
-                    : `Beautiful day! #lifestyle #photography`;
-                post.hashtags = isSponsored ? ['#sponsored', '#ad', '#partnership'] : ['#lifestyle', '#photography'];
-                post.mentions = isSponsored ? ['@brand_partner'] : [];
-                post.likesCount = likes;
-                post.viewsCount = views;
-                post.commentsCount = comments;
-                post.sharesCount = shares;
-                post.engagementRate = fcForMetrics > 0
-                    ? Math.min(((likes + comments) / fcForMetrics) * 100, 99999999.9999)
-                    : 0;
-                post.isSponsored = isSponsored;
-                const rangeStart = new Date(report.dateRangeStart).getTime();
-                const rangeEnd = new Date(report.dateRangeEnd).getTime();
-                post.postDate = new Date(rangeStart + Math.random() * (rangeEnd - rangeStart));
-                posts.push(post);
-                totalLikes += likes;
-                totalViews += views;
-                totalComments += comments;
-                totalShares += shares;
-                if (isSponsored) {
-                    sponsoredCount++;
-                    sponsoredLikes += likes;
-                    sponsoredViews += views;
-                    sponsoredComments += comments;
-                    sponsoredShares += shares;
-                }
+            else {
+                await this.processReportSimulated(report);
             }
-            await this.postRepo.save(posts);
-            report.allPostsCount = numPosts;
-            report.allLikesCount = totalLikes;
-            report.allViewsCount = totalViews;
-            report.allCommentsCount = totalComments;
-            report.allSharesCount = totalShares;
-            report.allAvgEngagementRate = fcForMetrics > 0 && numPosts > 0
-                ? Math.min(((totalLikes + totalComments) / fcForMetrics / numPosts) * 100, 99999999.9999)
-                : 0;
-            report.allEngagementViewsRate = totalViews > 0
-                ? Math.min(((totalLikes + totalComments) / totalViews) * 100, 99999999.9999)
-                : 0;
-            if (sponsoredCount > 0) {
-                report.hasSponsoredPosts = true;
-                report.sponsoredPostsCount = sponsoredCount;
-                report.sponsoredLikesCount = sponsoredLikes;
-                report.sponsoredViewsCount = sponsoredViews;
-                report.sponsoredCommentsCount = sponsoredComments;
-                report.sponsoredSharesCount = sponsoredShares;
-                report.sponsoredAvgEngagementRate = fcForMetrics > 0 && sponsoredCount > 0
-                    ? Math.min(((sponsoredLikes + sponsoredComments) / fcForMetrics / sponsoredCount) * 100, 99999999.9999)
-                    : 0;
-                report.sponsoredEngagementViewsRate = sponsoredViews > 0
-                    ? Math.min(((sponsoredLikes + sponsoredComments) / sponsoredViews) * 100, 99999999.9999)
-                    : 0;
-            }
-            report.status = entities_1.CustomErReportStatus.COMPLETED;
-            report.completedAt = new Date();
-            await this.reportRepo.save(report);
         }
         catch (error) {
             report.status = entities_1.CustomErReportStatus.FAILED;
             report.errorMessage = error.message || 'Processing failed';
             await this.reportRepo.save(report);
+        }
+    }
+    async processReportWithRawApi(report) {
+        this.logger.log(`Processing custom ER via Modash Raw API for report ${report.id}`);
+        const fcForMetrics = Number(report.followerCount) || 0;
+        const rangeStart = new Date(report.dateRangeStart).getTime();
+        const rangeEnd = new Date(report.dateRangeEnd).getTime();
+        const plat = (report.platform || 'instagram').toUpperCase();
+        let cachedProfile = await this.profileRepo.findOne({
+            where: { id: report.influencerProfileId },
+        });
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        if (cachedProfile && cachedProfile.modashFetchedAt && cachedProfile.modashFetchedAt < sevenDaysAgo) {
+            try {
+                if (this.modashService.isModashEnabled()) {
+                    const platformMap = {
+                        INSTAGRAM: 'INSTAGRAM', TIKTOK: 'TIKTOK', YOUTUBE: 'YOUTUBE',
+                    };
+                    const reportPlatform = platformMap[(report.platform || 'INSTAGRAM').toUpperCase()] || 'INSTAGRAM';
+                    const freshReport = await this.modashService.getInfluencerReport(reportPlatform, cachedProfile.platformUserId);
+                    if (freshReport?.stats) {
+                        cachedProfile.followerCount = freshReport.stats.followers || cachedProfile.followerCount;
+                        cachedProfile.modashFetchedAt = new Date();
+                        await this.profileRepo.save(cachedProfile);
+                        report.followerCount = Number(cachedProfile.followerCount) || 0;
+                    }
+                }
+            }
+            catch (err) {
+                this.logger.warn(`Discovery fallback for Custom ER failed (non-critical): ${err.message}`);
+            }
+        }
+        const rawUserId = cachedProfile?.platformUserId || report.influencerUsername || '';
+        const rawPosts = [];
+        try {
+            if (plat === 'INSTAGRAM') {
+                const feed = await this.modashRawService.getIgUserFeed(rawUserId);
+                for (const p of (feed.data || [])) {
+                    const ts = (p.taken_at || 0) * 1000;
+                    if (ts >= rangeStart && ts <= rangeEnd) {
+                        const caption = p.caption?.text || '';
+                        rawPosts.push({
+                            id: p.id || p.code,
+                            description: caption,
+                            likes: p.like_count || 0,
+                            comments: p.comment_count || 0,
+                            views: p.play_count || 0,
+                            shares: 0,
+                            timestamp: ts,
+                            thumbnail: p.image_versions2?.candidates?.[0]?.url,
+                            isSponsored: /\b(ad|sponsored|partner|collab)\b/i.test(caption),
+                        });
+                    }
+                }
+            }
+            else if (plat === 'TIKTOK') {
+                const feed = await this.modashRawService.getTiktokUserFeed(rawUserId);
+                for (const p of (feed.data || [])) {
+                    const ts = (p.createTime || 0) * 1000;
+                    if (ts >= rangeStart && ts <= rangeEnd) {
+                        rawPosts.push({
+                            id: p.id,
+                            description: p.desc || '',
+                            likes: p.stats?.diggCount || 0,
+                            comments: p.stats?.commentCount || 0,
+                            views: p.stats?.playCount || 0,
+                            shares: p.stats?.shareCount || 0,
+                            timestamp: ts,
+                            thumbnail: p.video?.cover,
+                            isSponsored: /\b(ad|sponsored|partner|collab)\b/i.test(p.desc || ''),
+                        });
+                    }
+                }
+            }
+            else if (plat === 'YOUTUBE') {
+                const feed = await this.modashRawService.getYoutubeUploadedVideos(rawUserId);
+                for (const p of (feed.data || [])) {
+                    const ts = new Date(p.publishedAt).getTime();
+                    if (ts >= rangeStart && ts <= rangeEnd) {
+                        rawPosts.push({
+                            id: p.videoId,
+                            description: p.title || '',
+                            likes: p.likeCount || 0,
+                            comments: p.commentCount || 0,
+                            views: p.viewCount || 0,
+                            shares: 0,
+                            timestamp: ts,
+                            thumbnail: p.thumbnail,
+                            isSponsored: /\b(ad|sponsored|partner|collab)\b/i.test(p.title || ''),
+                        });
+                    }
+                }
+            }
+        }
+        catch (err) {
+            this.logger.error(`Raw API error for custom ER report ${report.id}: ${err.message}`);
+            report.status = entities_1.CustomErReportStatus.FAILED;
+            report.errorMessage = `Failed to fetch data from platform: ${err.message}`;
+            await this.reportRepo.save(report);
+            return;
+        }
+        if (rawPosts.length === 0) {
+            this.logger.warn(`No posts found in date range for ${rawUserId}; completing with zero metrics`);
+            report.allPostsCount = 0;
+            report.status = entities_1.CustomErReportStatus.COMPLETED;
+            report.completedAt = new Date();
+            report.errorMessage = undefined;
+            await this.reportRepo.save(report);
+            return;
+        }
+        const posts = [];
+        let totalLikes = 0, totalViews = 0, totalComments = 0, totalShares = 0;
+        let sponsoredLikes = 0, sponsoredViews = 0, sponsoredComments = 0, sponsoredShares = 0;
+        let sponsoredCount = 0;
+        for (const rp of rawPosts) {
+            const post = new entities_1.CustomErPost();
+            post.reportId = report.id;
+            post.postId = rp.id;
+            post.postUrl = '';
+            post.postType = 'IMAGE';
+            post.thumbnailUrl = rp.thumbnail || '';
+            post.description = rp.description;
+            post.likesCount = rp.likes;
+            post.viewsCount = rp.views;
+            post.commentsCount = rp.comments;
+            post.sharesCount = rp.shares;
+            post.engagementRate = fcForMetrics > 0
+                ? Math.min(((rp.likes + rp.comments) / fcForMetrics) * 100, 99999999.9999)
+                : 0;
+            post.isSponsored = rp.isSponsored;
+            post.postDate = new Date(rp.timestamp);
+            posts.push(post);
+            totalLikes += rp.likes;
+            totalViews += rp.views;
+            totalComments += rp.comments;
+            totalShares += rp.shares;
+            if (rp.isSponsored) {
+                sponsoredCount++;
+                sponsoredLikes += rp.likes;
+                sponsoredViews += rp.views;
+                sponsoredComments += rp.comments;
+                sponsoredShares += rp.shares;
+            }
+        }
+        await this.postRepo.save(posts);
+        this.updateReportMetrics(report, posts.length, fcForMetrics, totalLikes, totalViews, totalComments, totalShares, sponsoredCount, sponsoredLikes, sponsoredViews, sponsoredComments, sponsoredShares);
+        report.status = entities_1.CustomErReportStatus.COMPLETED;
+        report.completedAt = new Date();
+        await this.reportRepo.save(report);
+    }
+    async processReportSimulated(report) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const followerCountNum = Number(report.followerCount) || 0;
+        if (followerCountNum === 0) {
+            report.followerCount = Math.floor(Math.random() * 90000) + 10000;
+            await this.reportRepo.save(report);
+        }
+        const fcForMetrics = Number(report.followerCount) || 0;
+        const numPosts = Math.floor(Math.random() * 20) + 10;
+        const posts = [];
+        let totalLikes = 0, totalViews = 0, totalComments = 0, totalShares = 0;
+        let sponsoredLikes = 0, sponsoredViews = 0, sponsoredComments = 0, sponsoredShares = 0;
+        let sponsoredCount = 0;
+        for (let i = 0; i < numPosts; i++) {
+            const isSponsored = Math.random() < 0.2;
+            const likes = Math.floor(Math.random() * 5000) + 500;
+            const views = Math.floor(Math.random() * 30000) + 5000;
+            const comments = Math.floor(Math.random() * 300) + 20;
+            const shares = Math.floor(Math.random() * 100) + 10;
+            const post = new entities_1.CustomErPost();
+            post.reportId = report.id;
+            post.postId = `post_${Date.now()}_${i}`;
+            post.postUrl = `https://instagram.com/p/${post.postId}`;
+            post.postType = ['IMAGE', 'VIDEO', 'REEL', 'CAROUSEL'][Math.floor(Math.random() * 4)];
+            post.thumbnailUrl = `https://picsum.photos/400/400?random=${i}`;
+            post.description = isSponsored
+                ? `AD: Check out this amazing product! #sponsored #ad`
+                : `Beautiful day! #lifestyle #photography`;
+            post.hashtags = isSponsored ? ['#sponsored', '#ad', '#partnership'] : ['#lifestyle', '#photography'];
+            post.mentions = isSponsored ? ['@brand_partner'] : [];
+            post.likesCount = likes;
+            post.viewsCount = views;
+            post.commentsCount = comments;
+            post.sharesCount = shares;
+            post.engagementRate = fcForMetrics > 0
+                ? Math.min(((likes + comments) / fcForMetrics) * 100, 99999999.9999)
+                : 0;
+            post.isSponsored = isSponsored;
+            const rangeStart = new Date(report.dateRangeStart).getTime();
+            const rangeEnd = new Date(report.dateRangeEnd).getTime();
+            post.postDate = new Date(rangeStart + Math.random() * (rangeEnd - rangeStart));
+            posts.push(post);
+            totalLikes += likes;
+            totalViews += views;
+            totalComments += comments;
+            totalShares += shares;
+            if (isSponsored) {
+                sponsoredCount++;
+                sponsoredLikes += likes;
+                sponsoredViews += views;
+                sponsoredComments += comments;
+                sponsoredShares += shares;
+            }
+        }
+        await this.postRepo.save(posts);
+        this.updateReportMetrics(report, numPosts, fcForMetrics, totalLikes, totalViews, totalComments, totalShares, sponsoredCount, sponsoredLikes, sponsoredViews, sponsoredComments, sponsoredShares);
+        report.status = entities_1.CustomErReportStatus.COMPLETED;
+        report.completedAt = new Date();
+        await this.reportRepo.save(report);
+    }
+    updateReportMetrics(report, numPosts, fc, totalLikes, totalViews, totalComments, totalShares, sponsoredCount, sponsoredLikes, sponsoredViews, sponsoredComments, sponsoredShares) {
+        report.allPostsCount = numPosts;
+        report.allLikesCount = totalLikes;
+        report.allViewsCount = totalViews;
+        report.allCommentsCount = totalComments;
+        report.allSharesCount = totalShares;
+        report.allAvgEngagementRate = fc > 0 && numPosts > 0
+            ? Math.min(((totalLikes + totalComments) / fc / numPosts) * 100, 99999999.9999) : 0;
+        report.allEngagementViewsRate = totalViews > 0
+            ? Math.min(((totalLikes + totalComments) / totalViews) * 100, 99999999.9999) : 0;
+        if (sponsoredCount > 0) {
+            report.hasSponsoredPosts = true;
+            report.sponsoredPostsCount = sponsoredCount;
+            report.sponsoredLikesCount = sponsoredLikes;
+            report.sponsoredViewsCount = sponsoredViews;
+            report.sponsoredCommentsCount = sponsoredComments;
+            report.sponsoredSharesCount = sponsoredShares;
+            report.sponsoredAvgEngagementRate = fc > 0 && sponsoredCount > 0
+                ? Math.min(((sponsoredLikes + sponsoredComments) / fc / sponsoredCount) * 100, 99999999.9999) : 0;
+            report.sponsoredEngagementViewsRate = sponsoredViews > 0
+                ? Math.min(((sponsoredLikes + sponsoredComments) / sponsoredViews) * 100, 99999999.9999) : 0;
         }
     }
     async getReports(userId, filters) {
@@ -566,15 +739,19 @@ let CustomErService = class CustomErService {
     }
 };
 exports.CustomErService = CustomErService;
-exports.CustomErService = CustomErService = __decorate([
+exports.CustomErService = CustomErService = CustomErService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(entities_1.CustomErReport)),
     __param(1, (0, typeorm_1.InjectRepository)(entities_1.CustomErPost)),
     __param(2, (0, typeorm_1.InjectRepository)(entities_1.CustomErShare)),
     __param(3, (0, typeorm_1.InjectRepository)(user_entity_1.User)),
+    __param(4, (0, typeorm_1.InjectRepository)(influencer_profile_entity_1.InfluencerProfile)),
     __metadata("design:paramtypes", [typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
-        typeorm_2.Repository])
+        typeorm_2.Repository,
+        typeorm_2.Repository,
+        modash_service_1.ModashService,
+        modash_raw_service_1.ModashRawService])
 ], CustomErService);
 //# sourceMappingURL=custom-er.service.js.map

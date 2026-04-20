@@ -12,6 +12,7 @@ const typeorm_1 = require("@nestjs/typeorm");
 const discovery_controller_1 = require("./discovery.controller");
 const discovery_service_1 = require("./services/discovery.service");
 const modash_service_1 = require("./services/modash.service");
+const modash_raw_service_1 = require("./services/modash-raw.service");
 const entities_1 = require("./entities");
 const credits_module_1 = require("../credits/credits.module");
 const insights_module_1 = require("../insights/insights.module");
@@ -38,8 +39,8 @@ exports.DiscoveryModule = DiscoveryModule = __decorate([
             (0, common_1.forwardRef)(() => insights_module_1.InsightsModule),
         ],
         controllers: [discovery_controller_1.DiscoveryController],
-        providers: [discovery_service_1.DiscoveryService, modash_service_1.ModashService],
-        exports: [discovery_service_1.DiscoveryService, modash_service_1.ModashService],
+        providers: [discovery_service_1.DiscoveryService, modash_service_1.ModashService, modash_raw_service_1.ModashRawService],
+        exports: [discovery_service_1.DiscoveryService, modash_service_1.ModashService, modash_raw_service_1.ModashRawService],
     })
 ], DiscoveryModule);
 //# sourceMappingURL=discovery.module.js.map

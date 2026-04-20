@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var CompetitionAnalysisService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CompetitionAnalysisService = void 0;
 const common_1 = require("@nestjs/common");
@@ -21,6 +22,7 @@ const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
 const credits_service_1 = require("../credits/credits.service");
 const enums_1 = require("../../common/enums");
+const modash_service_1 = require("../discovery/services/modash.service");
 const CREDIT_PER_REPORT = 1;
 const BRAND_COLORS = [
     '#4F46E5',
@@ -29,8 +31,8 @@ const BRAND_COLORS = [
     '#EF4444',
     '#8B5CF6',
 ];
-let CompetitionAnalysisService = class CompetitionAnalysisService {
-    constructor(reportRepo, brandRepo, influencerRepo, postRepo, shareRepo, userRepo, creditsService) {
+let CompetitionAnalysisService = CompetitionAnalysisService_1 = class CompetitionAnalysisService {
+    constructor(reportRepo, brandRepo, influencerRepo, postRepo, shareRepo, userRepo, creditsService, modashService) {
         this.reportRepo = reportRepo;
         this.brandRepo = brandRepo;
         this.influencerRepo = influencerRepo;
@@ -38,6 +40,8 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
         this.shareRepo = shareRepo;
         this.userRepo = userRepo;
         this.creditsService = creditsService;
+        this.modashService = modashService;
+        this.logger = new common_1.Logger(CompetitionAnalysisService_1.name);
     }
     async createReport(userId, dto) {
         if (dto.brands.length < 2 || dto.brands.length > 5) {
@@ -48,13 +52,10 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
                 throw new common_1.BadRequestException(`Brand "${brand.brandName}" must have at least one of: hashtags, username, or keywords`);
             }
         }
-        await this.creditsService.deductCredits(userId, {
-            actionType: enums_1.ActionType.REPORT_GENERATION,
-            quantity: CREDIT_PER_REPORT,
-            module: enums_1.ModuleType.COMPETITION_ANALYSIS,
-            resourceId: 'new-competition-report',
-            resourceType: 'competition_report_creation',
-        });
+        const balance = await this.creditsService.getBalance(userId);
+        if ((balance.unifiedBalance || 0) < CREDIT_PER_REPORT) {
+            throw new common_1.BadRequestException(`Insufficient credits. Required: ${CREDIT_PER_REPORT}, Available: ${balance.unifiedBalance}`);
+        }
         const report = new entities_1.CompetitionAnalysisReport();
         report.title = dto.title || 'Untitled Competition Report';
         report.platforms = dto.platforms;
@@ -99,7 +100,6 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
         try {
             report.status = entities_1.CompetitionReportStatus.IN_PROGRESS;
             await this.reportRepo.save(report);
-            await new Promise(resolve => setTimeout(resolve, 1000));
             let totalInfluencers = 0;
             let totalPosts = 0;
             let totalLikes = 0;
@@ -108,7 +108,13 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
             let totalShares = 0;
             let totalFollowers = 0;
             for (const brand of report.brands) {
-                const brandResult = await this.processBrand(reportId, brand, report);
+                let brandResult;
+                if (this.modashService.isModashEnabled()) {
+                    brandResult = await this.processBrandWithModash(reportId, brand, report);
+                }
+                else {
+                    brandResult = await this.processBrand(reportId, brand, report);
+                }
                 totalInfluencers += brandResult.influencerCount;
                 totalPosts += brandResult.postsCount;
                 totalLikes += brandResult.totalLikes;
@@ -130,12 +136,109 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
             report.status = entities_1.CompetitionReportStatus.COMPLETED;
             report.completedAt = new Date();
             await this.reportRepo.save(report);
+            await this.creditsService.deductCredits(report.ownerId, {
+                actionType: enums_1.ActionType.REPORT_GENERATION,
+                quantity: CREDIT_PER_REPORT,
+                module: enums_1.ModuleType.COMPETITION_ANALYSIS,
+                resourceId: reportId,
+                resourceType: 'competition_report_creation',
+            });
         }
         catch (error) {
             report.status = entities_1.CompetitionReportStatus.FAILED;
             report.errorMessage = error.message || 'Processing failed';
             await this.reportRepo.save(report);
+            this.logger.error(`Competition report ${reportId} failed — NO credits charged`);
         }
+    }
+    async processBrandWithModash(reportId, brand, report) {
+        this.logger.log(`Processing brand ${brand.brandName} via Modash for report ${reportId}`);
+        const brandHandle = brand.username || brand.brandName;
+        const platform = (report.platforms?.[0]?.toLowerCase() || 'instagram');
+        const collabPosts = await this.modashService.getCollaborationPosts(brandHandle, platform, { limit: 30 }, report.ownerId);
+        try {
+            const summaryResp = await this.modashService.getCollaborationSummary(brandHandle, platform, undefined, report.ownerId);
+            const summary = summaryResp?.brand?.summary || summaryResp?.influencer?.summary;
+            if (summary) {
+                brand.totalFollowers = summary.total_followers || brand.totalFollowers || 0;
+                brand.avgEngagementRate = summary.avg_engagement_rate ?? brand.avgEngagementRate;
+            }
+        }
+        catch (summaryErr) {
+            this.logger.warn(`Collaboration summary for ${brandHandle} failed (non-critical): ${summaryErr.message}`);
+        }
+        const posts = collabPosts.brand?.posts || collabPosts.influencer?.posts || [];
+        const seenInfluencers = new Map();
+        let brandTotalLikes = 0, brandTotalViews = 0, brandTotalComments = 0, brandTotalShares = 0;
+        for (const modashPost of posts) {
+            const compPost = new entities_1.CompetitionPost();
+            compPost.reportId = reportId;
+            compPost.brandId = brand.id;
+            compPost.platform = brand.platform || report.platforms?.[0] || 'INSTAGRAM';
+            compPost.postId = modashPost.post_id;
+            compPost.postType = entities_1.PostType.PHOTO;
+            compPost.thumbnailUrl = modashPost.post_thumbnail || '';
+            compPost.description = modashPost.description || modashPost.title || '';
+            compPost.likesCount = modashPost.stats?.likes || 0;
+            compPost.commentsCount = modashPost.stats?.comments || 0;
+            compPost.viewsCount = modashPost.stats?.views || modashPost.stats?.plays || 0;
+            compPost.sharesCount = modashPost.stats?.shares || 0;
+            const compTs = modashPost.post_timestamp
+                ? (modashPost.post_timestamp > 1e12 ? modashPost.post_timestamp : modashPost.post_timestamp * 1000)
+                : Date.now();
+            compPost.postDate = new Date(compTs);
+            compPost.isSponsored = modashPost.label?.includes('Sponsorship') || false;
+            await this.postRepo.save(compPost);
+            brandTotalLikes += compPost.likesCount;
+            brandTotalViews += compPost.viewsCount;
+            brandTotalComments += compPost.commentsCount;
+            brandTotalShares += compPost.sharesCount;
+            const infKey = modashPost.username || modashPost.user_id || `unknown_${modashPost.post_id}`;
+            if (!seenInfluencers.has(infKey)) {
+                seenInfluencers.set(infKey, { likes: 0, views: 0, comments: 0, shares: 0, posts: 0, followers: 0 });
+            }
+            const inf = seenInfluencers.get(infKey);
+            inf.likes += compPost.likesCount;
+            inf.views += compPost.viewsCount;
+            inf.comments += compPost.commentsCount;
+            inf.shares += compPost.sharesCount;
+            inf.posts++;
+        }
+        let brandTotalFollowers = 0;
+        for (const [username, data] of seenInfluencers) {
+            const compInf = new entities_1.CompetitionInfluencer();
+            compInf.reportId = reportId;
+            compInf.brandId = brand.id;
+            compInf.platform = brand.platform || report.platforms?.[0] || 'INSTAGRAM';
+            compInf.influencerName = username;
+            compInf.influencerUsername = username;
+            compInf.followerCount = data.followers;
+            compInf.postsCount = data.posts;
+            compInf.likesCount = data.likes;
+            compInf.viewsCount = data.views;
+            compInf.commentsCount = data.comments;
+            compInf.sharesCount = data.shares;
+            compInf.category = entities_1.InfluencerCategory.NANO;
+            await this.influencerRepo.save(compInf);
+            brandTotalFollowers += data.followers;
+        }
+        brand.influencerCount = seenInfluencers.size;
+        brand.postsCount = posts.length;
+        brand.totalLikes = brandTotalLikes;
+        brand.totalViews = brandTotalViews;
+        brand.totalComments = brandTotalComments;
+        brand.totalShares = brandTotalShares;
+        brand.totalFollowers = brandTotalFollowers;
+        await this.brandRepo.save(brand);
+        return {
+            influencerCount: seenInfluencers.size,
+            postsCount: posts.length,
+            totalLikes: brandTotalLikes,
+            totalViews: brandTotalViews,
+            totalComments: brandTotalComments,
+            totalShares: brandTotalShares,
+            totalFollowers: brandTotalFollowers,
+        };
     }
     async processBrand(reportId, brand, report) {
         const influencerCount = Math.floor(Math.random() * 15) + 5;
@@ -449,13 +552,10 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
         if (report.status !== entities_1.CompetitionReportStatus.FAILED) {
             throw new common_1.BadRequestException('Only failed reports can be retried');
         }
-        await this.creditsService.deductCredits(userId, {
-            actionType: enums_1.ActionType.REPORT_REFRESH,
-            quantity: CREDIT_PER_REPORT,
-            module: enums_1.ModuleType.COMPETITION_ANALYSIS,
-            resourceId: reportId,
-            resourceType: 'competition_report_retry',
-        });
+        const balance = await this.creditsService.getBalance(userId);
+        if ((balance.unifiedBalance || 0) < CREDIT_PER_REPORT) {
+            throw new common_1.BadRequestException(`Insufficient credits. Required: ${CREDIT_PER_REPORT}, Available: ${balance.unifiedBalance}`);
+        }
         await this.postRepo.delete({ reportId });
         await this.influencerRepo.delete({ reportId });
         for (const brand of report.brands) {
@@ -470,7 +570,6 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
         report.status = entities_1.CompetitionReportStatus.PENDING;
         report.errorMessage = undefined;
         report.retryCount += 1;
-        report.creditsUsed += CREDIT_PER_REPORT;
         report.totalInfluencers = 0;
         report.totalPosts = 0;
         report.totalLikes = 0;
@@ -953,7 +1052,7 @@ let CompetitionAnalysisService = class CompetitionAnalysisService {
     }
 };
 exports.CompetitionAnalysisService = CompetitionAnalysisService;
-exports.CompetitionAnalysisService = CompetitionAnalysisService = __decorate([
+exports.CompetitionAnalysisService = CompetitionAnalysisService = CompetitionAnalysisService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(entities_1.CompetitionAnalysisReport)),
     __param(1, (0, typeorm_1.InjectRepository)(entities_1.CompetitionBrand)),
@@ -967,6 +1066,7 @@ exports.CompetitionAnalysisService = CompetitionAnalysisService = __decorate([
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
-        credits_service_1.CreditsService])
+        credits_service_1.CreditsService,
+        modash_service_1.ModashService])
 ], CompetitionAnalysisService);
 //# sourceMappingURL=competition-analysis.service.js.map

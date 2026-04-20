@@ -132,7 +132,7 @@ const LoginPage: React.FC = () => {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="input pl-10"
+                  className="input !pl-11"
                   placeholder="you@company.com"
                   required
                   autoComplete="email"
@@ -156,7 +156,7 @@ const LoginPage: React.FC = () => {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="input pl-10 pr-10"
+                  className="input !pl-11 pr-10"
                   placeholder="Enter your password"
                   required
                   autoComplete="current-password"

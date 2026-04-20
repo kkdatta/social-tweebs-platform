@@ -24,6 +24,11 @@ export declare class SentimentsController {
         success: boolean;
         deleted: number;
     }>;
+    retryReport(userId: string, reportId: string): Promise<{
+        success: boolean;
+        report: import("./entities").SentimentReport;
+        creditsUsed: number;
+    }>;
     shareReport(userId: string, reportId: string, dto: ShareSentimentReportDto): Promise<{
         success: boolean;
         shareUrl?: string;

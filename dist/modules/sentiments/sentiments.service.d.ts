@@ -2,6 +2,7 @@ import { Repository } from 'typeorm';
 import { SentimentReport, SentimentPost, SentimentEmotion, SentimentWordCloud, SentimentShare } from './entities';
 import { User } from '../users/entities/user.entity';
 import { CreditsService } from '../credits/credits.service';
+import { ModashRawService } from '../discovery/services/modash-raw.service';
 import { CreateSentimentReportDto, UpdateSentimentReportDto, ShareSentimentReportDto, SentimentReportFilterDto, SentimentReportListResponseDto, SentimentReportDetailDto, DashboardStatsDto } from './dto';
 export declare class SentimentsService {
     private readonly reportRepo;
@@ -11,7 +12,9 @@ export declare class SentimentsService {
     private readonly shareRepo;
     private readonly userRepo;
     private readonly creditsService;
-    constructor(reportRepo: Repository<SentimentReport>, postRepo: Repository<SentimentPost>, emotionRepo: Repository<SentimentEmotion>, wordCloudRepo: Repository<SentimentWordCloud>, shareRepo: Repository<SentimentShare>, userRepo: Repository<User>, creditsService: CreditsService);
+    private readonly modashRawService;
+    private readonly logger;
+    constructor(reportRepo: Repository<SentimentReport>, postRepo: Repository<SentimentPost>, emotionRepo: Repository<SentimentEmotion>, wordCloudRepo: Repository<SentimentWordCloud>, shareRepo: Repository<SentimentShare>, userRepo: Repository<User>, creditsService: CreditsService, modashRawService: ModashRawService);
     createReport(userId: string, dto: CreateSentimentReportDto): Promise<{
         success: boolean;
         reports: SentimentReport[];
@@ -19,6 +22,9 @@ export declare class SentimentsService {
     }>;
     private extractUsernameFromUrl;
     private processReport;
+    private processReportWithRawApi;
+    private analyzeCommentSentiment;
+    private extractMediaIdFromUrl;
     private simulateSinglePostProcessing;
     private simulateProfileProcessing;
     private saveEmotionsForPost;
@@ -31,6 +37,11 @@ export declare class SentimentsService {
     updateReport(userId: string, reportId: string, dto: UpdateSentimentReportDto): Promise<{
         success: boolean;
         report: SentimentReport;
+    }>;
+    retryReport(userId: string, reportId: string): Promise<{
+        success: boolean;
+        report: SentimentReport;
+        creditsUsed: number;
     }>;
     deleteReport(userId: string, reportId: string): Promise<{
         success: boolean;

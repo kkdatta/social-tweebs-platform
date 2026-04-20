@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var SentimentsService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SentimentsService = void 0;
 const common_1 = require("@nestjs/common");
@@ -22,9 +23,11 @@ const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
 const credits_service_1 = require("../credits/credits.service");
 const enums_1 = require("../../common/enums");
+const modash_raw_service_1 = require("../discovery/services/modash-raw.service");
 const CREDIT_PER_URL = 1;
-let SentimentsService = class SentimentsService {
-    constructor(reportRepo, postRepo, emotionRepo, wordCloudRepo, shareRepo, userRepo, creditsService) {
+const CREDIT_PER_RETRY = 1;
+let SentimentsService = SentimentsService_1 = class SentimentsService {
+    constructor(reportRepo, postRepo, emotionRepo, wordCloudRepo, shareRepo, userRepo, creditsService, modashRawService) {
         this.reportRepo = reportRepo;
         this.postRepo = postRepo;
         this.emotionRepo = emotionRepo;
@@ -32,17 +35,16 @@ let SentimentsService = class SentimentsService {
         this.shareRepo = shareRepo;
         this.userRepo = userRepo;
         this.creditsService = creditsService;
+        this.modashRawService = modashRawService;
+        this.logger = new common_1.Logger(SentimentsService_1.name);
     }
     async createReport(userId, dto) {
         const urlCount = dto.urls.length;
         const totalCredits = urlCount * CREDIT_PER_URL;
-        await this.creditsService.deductCredits(userId, {
-            actionType: enums_1.ActionType.REPORT_GENERATION,
-            quantity: totalCredits,
-            module: enums_1.ModuleType.SOCIAL_SENTIMENTS,
-            resourceId: 'new-sentiment-reports',
-            resourceType: 'sentiment_report_creation',
-        });
+        const balance = await this.creditsService.getBalance(userId);
+        if ((balance.unifiedBalance || 0) < totalCredits) {
+            throw new common_1.BadRequestException(`Insufficient credits. Required: ${totalCredits}, Available: ${balance.unifiedBalance}`);
+        }
         const reports = [];
         for (const url of dto.urls) {
             const report = new entities_1.SentimentReport();
@@ -86,15 +88,16 @@ let SentimentsService = class SentimentsService {
         try {
             report.status = entities_1.SentimentReportStatus.AGGREGATING;
             await this.reportRepo.save(report);
-            await new Promise(resolve => setTimeout(resolve, 500));
             report.status = entities_1.SentimentReportStatus.IN_PROCESS;
             await this.reportRepo.save(report);
-            await new Promise(resolve => setTimeout(resolve, 1000));
             report.influencerUsername = this.extractUsernameFromUrl(report.targetUrl, report.platform);
             if (report.influencerUsername !== 'unknown') {
                 report.influencerName = `@${report.influencerUsername}`;
             }
-            if (report.reportType === entities_1.ReportType.PROFILE) {
+            if (this.modashRawService.isRawApiEnabled()) {
+                await this.processReportWithRawApi(report);
+            }
+            else if (report.reportType === entities_1.ReportType.PROFILE) {
                 await this.simulateProfileProcessing(report);
             }
             else {
@@ -103,12 +106,154 @@ let SentimentsService = class SentimentsService {
             report.status = entities_1.SentimentReportStatus.COMPLETED;
             report.completedAt = new Date();
             await this.reportRepo.save(report);
+            await this.creditsService.deductCredits(report.ownerId, {
+                actionType: enums_1.ActionType.REPORT_GENERATION,
+                quantity: CREDIT_PER_URL,
+                module: enums_1.ModuleType.SOCIAL_SENTIMENTS,
+                resourceId: reportId,
+                resourceType: 'sentiment_report_creation',
+            });
+            this.logger.log(`Sentiment report ${reportId}: charged ${CREDIT_PER_URL} credits after success`);
         }
         catch (error) {
             report.status = entities_1.SentimentReportStatus.FAILED;
             report.errorMessage = error.message || 'Processing failed';
             await this.reportRepo.save(report);
+            this.logger.error(`Sentiment report ${reportId} failed — NO credits charged`);
         }
+    }
+    async processReportWithRawApi(report) {
+        this.logger.log(`Processing sentiments via Modash Raw API for report ${report.id}`);
+        const mediaId = this.extractMediaIdFromUrl(report.targetUrl, report.platform);
+        if (!mediaId || mediaId === 'unknown') {
+            report.status = entities_1.SentimentReportStatus.FAILED;
+            report.errorMessage = 'Could not extract valid media ID from URL. Private or deleted content will consume API quota — skipping.';
+            await this.reportRepo.save(report);
+            return;
+        }
+        const comments = [];
+        try {
+            const plat = (report.platform || '').toUpperCase();
+            if (plat === 'INSTAGRAM' || plat === 'INSTA') {
+                const result = await this.modashRawService.getIgMediaComments(mediaId);
+                for (const c of (result.data || [])) {
+                    comments.push({ text: c.text, author: c.user?.username || '', likes: c.comment_like_count || 0 });
+                }
+            }
+            else if (plat === 'TIKTOK') {
+                const result = await this.modashRawService.getTiktokComments(mediaId);
+                for (const c of (result.data || [])) {
+                    comments.push({ text: c.text, author: c.user?.unique_id || '', likes: c.digg_count || 0 });
+                }
+            }
+            else if (plat === 'YOUTUBE') {
+                const result = await this.modashRawService.getYoutubeVideoComments(mediaId);
+                for (const c of (result.data || [])) {
+                    comments.push({ text: c.text, author: c.authorDisplayName || '', likes: c.likeCount || 0 });
+                }
+            }
+        }
+        catch (err) {
+            this.logger.error(`Raw API error for sentiment report ${report.id}: ${err.message}`);
+            report.status = entities_1.SentimentReportStatus.FAILED;
+            report.errorMessage = `Failed to fetch comments from platform: ${err.message}`;
+            await this.reportRepo.save(report);
+            return;
+        }
+        if (comments.length === 0) {
+            this.logger.warn(`No comments found for ${report.targetUrl}`);
+            report.positivePercentage = 0;
+            report.neutralPercentage = 0;
+            report.negativePercentage = 0;
+            report.overallSentimentScore = 0;
+            report.status = entities_1.SentimentReportStatus.COMPLETED;
+            report.completedAt = new Date();
+            report.errorMessage = 'No comments found for this content';
+            await this.reportRepo.save(report);
+            return;
+        }
+        let positiveCount = 0;
+        let neutralCount = 0;
+        let negativeCount = 0;
+        const wordFreq = new Map();
+        for (const comment of comments) {
+            const sentiment = this.analyzeCommentSentiment(comment.text);
+            if (sentiment > 0.2)
+                positiveCount++;
+            else if (sentiment < -0.2)
+                negativeCount++;
+            else
+                neutralCount++;
+            const words = comment.text.toLowerCase().replace(/[^a-zA-Z\s]/g, '').split(/\s+/).filter(w => w.length > 3);
+            for (const word of words) {
+                wordFreq.set(word, (wordFreq.get(word) || 0) + 1);
+            }
+        }
+        const total = comments.length;
+        const positivePct = (positiveCount / total) * 100;
+        const neutralPct = (neutralCount / total) * 100;
+        const negativePct = (negativeCount / total) * 100;
+        report.overallSentimentScore = positivePct * 1.2 - negativePct * 0.5 + 20;
+        report.positivePercentage = Number(positivePct.toFixed(2));
+        report.neutralPercentage = Number(neutralPct.toFixed(2));
+        report.negativePercentage = Number(negativePct.toFixed(2));
+        const post = new entities_1.SentimentPost();
+        post.reportId = report.id;
+        post.postId = mediaId;
+        post.postUrl = report.targetUrl;
+        post.description = `Analyzed ${total} real comments`;
+        post.commentsCount = total;
+        post.commentsAnalyzed = total;
+        post.sentimentScore = report.overallSentimentScore;
+        post.positivePercentage = report.positivePercentage;
+        post.neutralPercentage = report.neutralPercentage;
+        post.negativePercentage = report.negativePercentage;
+        post.postDate = new Date();
+        const savedPost = await this.postRepo.save(post);
+        await this.saveEmotionsForPost(report.id, savedPost.id, total);
+        const topWords = [...wordFreq.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 30);
+        for (const [word, count] of topWords) {
+            const wc = new entities_1.SentimentWordCloud();
+            wc.reportId = report.id;
+            wc.postId = savedPost.id;
+            wc.word = word;
+            wc.frequency = count;
+            wc.sentiment = count > total * 0.1 ? 'positive' : 'neutral';
+            await this.wordCloudRepo.save(wc);
+        }
+    }
+    analyzeCommentSentiment(text) {
+        const positiveWords = ['love', 'great', 'amazing', 'awesome', 'beautiful', 'best', 'good', 'excellent', 'perfect', 'wonderful', 'fantastic', 'incredible', 'like', 'happy', 'thank', 'fire', 'nice', 'cool', 'inspo'];
+        const negativeWords = ['hate', 'bad', 'terrible', 'worst', 'ugly', 'horrible', 'awful', 'poor', 'stupid', 'boring', 'fake', 'scam', 'trash', 'cringe', 'disappointing', 'disgusting'];
+        const lower = text.toLowerCase();
+        let score = 0;
+        for (const w of positiveWords) {
+            if (lower.includes(w))
+                score += 0.3;
+        }
+        for (const w of negativeWords) {
+            if (lower.includes(w))
+                score -= 0.4;
+        }
+        return Math.max(-1, Math.min(1, score));
+    }
+    extractMediaIdFromUrl(url, platform) {
+        const plat = (platform || '').toUpperCase();
+        if (plat === 'INSTAGRAM' || plat === 'INSTA') {
+            const m = url.match(/instagram\.com\/(?:p|reel)\/([^\/\?]+)/i);
+            return m ? m[1] : 'unknown';
+        }
+        if (plat === 'TIKTOK') {
+            const m = url.match(/tiktok\.com\/@[^\/]+\/video\/(\d+)/i);
+            return m ? m[1] : 'unknown';
+        }
+        if (plat === 'YOUTUBE') {
+            const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\?]+)/i);
+            return m ? m[1] : 'unknown';
+        }
+        return 'unknown';
     }
     async simulateSinglePostProcessing(report) {
         const reportId = report.id;
@@ -323,6 +468,25 @@ let SentimentsService = class SentimentsService {
             report.isPublic = dto.isPublic;
         const savedReport = await this.reportRepo.save(report);
         return { success: true, report: savedReport };
+    }
+    async retryReport(userId, reportId) {
+        const report = await this.reportRepo.findOne({ where: { id: reportId } });
+        if (!report)
+            throw new common_1.NotFoundException('Report not found');
+        await this.checkReportAccess(userId, report, 'edit');
+        if (report.status !== entities_1.SentimentReportStatus.FAILED) {
+            throw new common_1.BadRequestException('Only failed reports can be retried');
+        }
+        const balanceCheck = await this.creditsService.getBalance(userId);
+        if (balanceCheck.unifiedBalance < CREDIT_PER_RETRY) {
+            throw new common_1.BadRequestException(`Insufficient credits. Required: ${CREDIT_PER_RETRY}, Available: ${balanceCheck.unifiedBalance}`);
+        }
+        report.status = entities_1.SentimentReportStatus.PENDING;
+        report.errorMessage = undefined;
+        report.completedAt = undefined;
+        const saved = await this.reportRepo.save(report);
+        setTimeout(() => this.processReport(saved.id), 2000);
+        return { success: true, report: saved, creditsUsed: CREDIT_PER_RETRY };
     }
     async deleteReport(userId, reportId) {
         const report = await this.reportRepo.findOne({ where: { id: reportId } });
@@ -588,7 +752,7 @@ let SentimentsService = class SentimentsService {
     }
 };
 exports.SentimentsService = SentimentsService;
-exports.SentimentsService = SentimentsService = __decorate([
+exports.SentimentsService = SentimentsService = SentimentsService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(entities_1.SentimentReport)),
     __param(1, (0, typeorm_1.InjectRepository)(entities_1.SentimentPost)),
@@ -602,6 +766,7 @@ exports.SentimentsService = SentimentsService = __decorate([
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
-        credits_service_1.CreditsService])
+        credits_service_1.CreditsService,
+        modash_raw_service_1.ModashRawService])
 ], SentimentsService);
 //# sourceMappingURL=sentiments.service.js.map

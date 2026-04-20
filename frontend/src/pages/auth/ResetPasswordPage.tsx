@@ -95,7 +95,7 @@ const ResetPasswordPage: React.FC = () => {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="input pl-10 pr-10"
+                className="input !pl-11 pr-10"
                 placeholder="Min 8 characters"
                 required
                 minLength={8}
@@ -120,7 +120,7 @@ const ResetPasswordPage: React.FC = () => {
                 type={showPassword ? 'text' : 'password'}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="input pl-10"
+                className="input !pl-11"
                 placeholder="Confirm your password"
                 required
                 minLength={8}

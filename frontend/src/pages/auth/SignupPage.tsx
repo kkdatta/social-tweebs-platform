@@ -180,7 +180,7 @@ const SignupPage: React.FC = () => {
                     type="text"
                     value={formData.fullName}
                     onChange={handleChange}
-                    className="input pl-9 sm:pl-10 text-sm sm:text-base"
+                    className="input !pl-11 text-sm sm:text-base"
                     placeholder="John Doe"
                     autoComplete="name"
                     autoCapitalize="words"
@@ -200,7 +200,7 @@ const SignupPage: React.FC = () => {
                     type="tel"
                     value={formData.phoneNumber}
                     onChange={handleChange}
-                    className="input pl-9 sm:pl-10 text-sm sm:text-base"
+                    className="input !pl-11 text-sm sm:text-base"
                     placeholder="1234567890"
                     pattern="[0-9]{10,15}"
                     autoComplete="tel"
@@ -221,7 +221,7 @@ const SignupPage: React.FC = () => {
                   type="email"
                   value={formData.email}
                   onChange={handleChange}
-                  className="input pl-9 sm:pl-10 text-sm sm:text-base"
+                  className="input !pl-11 text-sm sm:text-base"
                   placeholder="you@company.com"
                   autoComplete="email"
                   autoCapitalize="none"
@@ -241,7 +241,7 @@ const SignupPage: React.FC = () => {
                   type="text"
                   value={formData.businessName}
                   onChange={handleChange}
-                  className="input pl-9 sm:pl-10 text-sm sm:text-base"
+                  className="input !pl-11 text-sm sm:text-base"
                   placeholder="Your Company"
                   autoComplete="organization"
                   required
@@ -293,7 +293,7 @@ const SignupPage: React.FC = () => {
                     type={showPassword ? 'text' : 'password'}
                     value={formData.password}
                     onChange={handleChange}
-                    className="input pl-9 sm:pl-10 pr-10 text-sm sm:text-base"
+                    className="input !pl-11 pr-10 text-sm sm:text-base"
                     placeholder="Min 8 characters"
                     autoComplete="new-password"
                     required
@@ -320,7 +320,7 @@ const SignupPage: React.FC = () => {
                     type={showPassword ? 'text' : 'password'}
                     value={formData.confirmPassword}
                     onChange={handleChange}
-                    className="input pl-9 sm:pl-10 text-sm sm:text-base"
+                    className="input !pl-11 text-sm sm:text-base"
                     placeholder="Confirm password"
                     autoComplete="new-password"
                     required

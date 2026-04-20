@@ -25,6 +25,7 @@ const credits_service_1 = require("../credits/credits.service");
 const enums_1 = require("../../common/enums");
 const campaign_dto_1 = require("./dto/campaign.dto");
 const CREDIT_PER_CAMPAIGN = 1;
+const FREE_CAMPAIGN_QUOTA = 10;
 let CampaignsService = CampaignsService_1 = class CampaignsService {
     constructor(campaignRepo, influencerRepo, deliverableRepo, metricRepo, postRepo, shareRepo, userRepo, creditsService, dataSource, mailService, configService) {
         this.campaignRepo = campaignRepo;
@@ -40,19 +41,43 @@ let CampaignsService = CampaignsService_1 = class CampaignsService {
         this.configService = configService;
         this.logger = new common_1.Logger(CampaignsService_1.name);
     }
+    async getClientAdminId(userId) {
+        const user = await this.userRepo.findOne({ where: { id: userId } });
+        if (!user)
+            return userId;
+        return user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' ? userId : (user.parentId || userId);
+    }
+    async getClientCampaignCount(clientAdminId) {
+        const children = await this.userRepo.find({
+            where: { parentId: clientAdminId },
+            select: ['id'],
+        });
+        const allUserIds = [clientAdminId, ...children.map((c) => c.id)];
+        return this.campaignRepo.count({
+            where: { ownerId: (0, typeorm_2.In)(allUserIds) },
+        });
+    }
     async createCampaign(userId, dto) {
         const balanceInfo = await this.creditsService.getBalance(userId);
         const userCredits = balanceInfo.totalBalance || 0;
+        const clientAdminId = await this.getClientAdminId(userId);
+        const campaignCount = await this.getClientCampaignCount(clientAdminId);
+        const isFreeQuota = campaignCount < FREE_CAMPAIGN_QUOTA;
         if (userCredits < campaign_dto_1.MIN_CREDITS_FOR_CAMPAIGN) {
             throw new common_1.BadRequestException(`Minimum ${campaign_dto_1.MIN_CREDITS_FOR_CAMPAIGN} credits required in your account to create a campaign. Current balance: ${userCredits}`);
         }
-        await this.creditsService.deductCredits(userId, {
-            actionType: enums_1.ActionType.REPORT_GENERATION,
-            quantity: CREDIT_PER_CAMPAIGN,
-            module: enums_1.ModuleType.CAMPAIGN_TRACKING,
-            resourceId: 'new-campaign',
-            resourceType: 'campaign_creation',
-        });
+        if (!isFreeQuota) {
+            await this.creditsService.deductCredits(userId, {
+                actionType: enums_1.ActionType.REPORT_GENERATION,
+                quantity: CREDIT_PER_CAMPAIGN,
+                module: enums_1.ModuleType.CAMPAIGN_TRACKING,
+                resourceId: 'new-campaign',
+                resourceType: 'campaign_creation',
+            });
+        }
+        else {
+            this.logger.log(`Campaign freemium: client has ${campaignCount}/${FREE_CAMPAIGN_QUOTA} free campaigns used — this one is FREE`);
+        }
         const campaign = new campaign_entity_1.Campaign();
         campaign.name = dto.name;
         campaign.description = dto.description;

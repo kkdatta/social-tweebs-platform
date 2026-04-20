@@ -425,10 +425,12 @@ const DiscoveryPage: React.FC = () => {
       
       setTotalResults(response.total);
       setCurrentPage(page);
-      setHasMore((page + 1) * PAGE_SIZE < response.total);
+      setHasMore(response.hasMore ?? (page + 1) * PAGE_SIZE < response.total);
       setIsExactMatch(response.isExactMatch !== false);
       
-      if (user && response.creditsUsed > 0) {
+      if (user && response.remainingBalance !== undefined) {
+        updateUser({ ...user, credits: response.remainingBalance });
+      } else if (user && response.creditsUsed > 0) {
         updateUser({ ...user, credits: user.credits - response.creditsUsed });
       }
     } catch (err: any) {
@@ -628,7 +630,445 @@ const DiscoveryPage: React.FC = () => {
   const blurredCount = influencers.filter((i) => i.isBlurred).length;
   const unblurCost = blurredCount * 0.04;
 
-  // Filter sidebar content
+  // Horizontal Filter Bar
+  const FilterBar = () => (
+    <div className="card p-3 space-y-3">
+      {/* Top Row: Platform, Bio Search, Sort, and Actions */}
+      <div className="flex flex-wrap items-end gap-3">
+        {/* Platform Selection */}
+        <div className="flex items-center gap-1">
+          {platforms.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              disabled={p.disabled}
+              title={p.disabled ? 'Coming soon' : p.name}
+              onClick={() => {
+                if (p.disabled) return;
+                setSelectedPlatform(p.id as Platform);
+                setCurrentPage(0);
+              }}
+              className={`flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                p.disabled
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-70 grayscale'
+                  : selectedPlatform === p.id
+                    ? `${p.color} text-white shadow`
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              <p.icon className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">{p.name}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Bio Search */}
+        <div className="flex-1 min-w-[200px]">
+          <input
+            type="text"
+            placeholder="Search by bio or name..."
+            value={filters.influencer?.bio || ''}
+            onChange={(e) => updateInfluencerFilter('bio', e.target.value)}
+            className="input py-2 text-sm w-full"
+          />
+        </div>
+
+        {/* Sort */}
+        <div className="flex gap-2">
+          <select
+            value={filters.sort?.field || 'followers'}
+            onChange={(e) => setFilters({ ...filters, sort: { ...filters.sort!, field: e.target.value as any } })}
+            className="input py-2 text-sm"
+          >
+            {SORT_FIELDS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+          <select
+            value={filters.sort?.direction || 'desc'}
+            onChange={(e) => setFilters({ ...filters, sort: { ...filters.sort!, direction: e.target.value as any } })}
+            className="input py-2 text-sm"
+          >
+            <option value="desc">High → Low</option>
+            <option value="asc">Low → High</option>
+          </select>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-2">
+          <button onClick={() => handleSearch(0)} disabled={isLoading} className="btn btn-primary py-2 px-4">
+            {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+          </button>
+          <button onClick={resetFilters} className="btn btn-secondary py-2 px-3">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Collapsed horizontal: category pills, expand on hover */}
+      <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+        <div className="relative group">
+          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+            <Users className="w-3.5 h-3.5" />
+            <span>Metrics</span>
+            {(filters.influencer?.followers || filters.influencer?.engagementRate || filters.influencer?.engagements || filters.influencer?.reelsPlays) && (
+              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            )}
+          </button>
+          <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Followers</label>
+                <div className="flex gap-2">
+                  <input type="number" placeholder="Min" value={filters.influencer?.followers?.min || ''} onChange={(e) => updateInfluencerFilter('followers', { ...filters.influencer?.followers, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+                  <input type="number" placeholder="Max" value={filters.influencer?.followers?.max || ''} onChange={(e) => updateInfluencerFilter('followers', { ...filters.influencer?.followers, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Min Engagement Rate (%)</label>
+                <input type="number" step="0.1" placeholder="e.g., 2.5" value={filters.influencer?.engagementRate ? filters.influencer.engagementRate * 100 : ''} onChange={(e) => updateInfluencerFilter('engagementRate', e.target.value ? parseFloat(e.target.value) / 100 : undefined)} className="input py-1.5 text-sm w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Engagements</label>
+                <div className="flex gap-2">
+                  <input type="number" placeholder="Min" value={filters.influencer?.engagements?.min || ''} onChange={(e) => updateInfluencerFilter('engagements', { ...filters.influencer?.engagements, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+                  <input type="number" placeholder="Max" value={filters.influencer?.engagements?.max || ''} onChange={(e) => updateInfluencerFilter('engagements', { ...filters.influencer?.engagements, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+                </div>
+              </div>
+              {selectedPlatform === 'INSTAGRAM' && (
+                <div>
+                  <label className="text-xs text-gray-600 mb-1 block flex items-center gap-1"><Play className="w-3 h-3" /> Reels Plays</label>
+                  <div className="flex gap-2">
+                    <input type="number" placeholder="Min" value={filters.influencer?.reelsPlays?.min || ''} onChange={(e) => updateInfluencerFilter('reelsPlays', { ...filters.influencer?.reelsPlays, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+                    <input type="number" placeholder="Max" value={filters.influencer?.reelsPlays?.max || ''} onChange={(e) => updateInfluencerFilter('reelsPlays', { ...filters.influencer?.reelsPlays, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="relative group">
+          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+            <Calendar className="w-3.5 h-3.5" />
+            <span>Activity</span>
+            {(filters.influencer?.lastposted || filters.influencer?.keywords || (filters.influencer?.textTags && filters.influencer.textTags.length > 0)) && (
+              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            )}
+          </button>
+          <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Posted Within (Days)</label>
+                <input type="number" min="30" placeholder="e.g., 30, 60, 90" value={filters.influencer?.lastposted || ''} onChange={(e) => updateInfluencerFilter('lastposted', e.target.value ? parseInt(e.target.value) : undefined)} className="input py-1.5 text-sm w-full" />
+                <p className="text-xs text-gray-400 mt-1">Find active influencers (min 30 days)</p>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Keywords in Posts</label>
+                <input type="text" placeholder="e.g., fitness, lifestyle" value={filters.influencer?.keywords || ''} onChange={(e) => updateInfluencerFilter('keywords', e.target.value)} className="input py-1.5 text-sm w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Hashtags & Mentions Used</label>
+                <TagInput tags={filters.influencer?.textTags || []} onChange={(tags) => updateInfluencerFilter('textTags', tags)} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative group">
+          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+            <Target className="w-3.5 h-3.5" />
+            <span>Lookalike</span>
+            {((filters.influencer?.relevance && filters.influencer.relevance.length > 0) || (filters.influencer?.audienceRelevance && filters.influencer.audienceRelevance.length > 0)) && (
+              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            )}
+          </button>
+          <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Similar Topics To</label>
+                <RelevanceInput values={filters.influencer?.relevance || []} onChange={(v) => updateInfluencerFilter('relevance', v)} placeholder="#hashtag or @username" />
+                <p className="text-xs text-gray-400 mt-1">Find similar content creators</p>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Similar Audience To</label>
+                <RelevanceInput values={filters.influencer?.audienceRelevance || []} onChange={(v) => updateInfluencerFilter('audienceRelevance', v)} placeholder="@username" />
+                <p className="text-xs text-gray-400 mt-1">Audience lookalike search</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative group">
+          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+            <TrendingUp className="w-3.5 h-3.5" />
+            <span>Growth</span>
+            {(filters.influencer?.followersGrowthRate || filters.influencer?.hasSponsoredPosts) && (
+              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            )}
+          </button>
+          <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Followers Growth Rate</label>
+                <div className="grid grid-cols-3 gap-1">
+                  <select value={filters.influencer?.followersGrowthRate?.interval || ''} onChange={(e) => updateInfluencerFilter('followersGrowthRate', { ...filters.influencer?.followersGrowthRate, interval: e.target.value || undefined })} className="input py-1.5 text-xs">
+                    <option value="">Period</option>
+                    {GROWTH_INTERVALS.map((i) => <option key={i.value} value={i.value}>{i.label}</option>)}
+                  </select>
+                  <select value={filters.influencer?.followersGrowthRate?.operator || ''} onChange={(e) => updateInfluencerFilter('followersGrowthRate', { ...filters.influencer?.followersGrowthRate, operator: e.target.value || undefined })} className="input py-1.5 text-xs">
+                    <option value="">Op</option>
+                    <option value="gt">&gt;</option>
+                    <option value="gte">≥</option>
+                    <option value="lt">&lt;</option>
+                    <option value="lte">≤</option>
+                  </select>
+                  <input type="number" step="0.01" placeholder="0.05" value={filters.influencer?.followersGrowthRate?.value || ''} onChange={(e) => updateInfluencerFilter('followersGrowthRate', { ...filters.influencer?.followersGrowthRate, value: e.target.value ? parseFloat(e.target.value) : undefined })} className="input py-1.5 text-xs" />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">0.05 = 5% growth</p>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={filters.influencer?.hasSponsoredPosts || false} onChange={(e) => updateInfluencerFilter('hasSponsoredPosts', e.target.checked || undefined)} className="w-4 h-4 text-primary-600 rounded" />
+                <span className="text-sm text-gray-700">Has Sponsored Posts</span>
+                <ShoppingBag className="w-3 h-3 text-green-500" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative group">
+          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+            <BadgeCheck className="w-3.5 h-3.5" />
+            <span>Account</span>
+            {(filters.influencer?.accountTypes?.length || filters.influencer?.isVerified || filters.influencer?.hasYouTube) && (
+              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            )}
+          </button>
+          <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Account Type</label>
+                <div className="flex flex-wrap gap-2">
+                  {ACCOUNT_TYPES.map((t) => (
+                    <label key={t.value} className="flex items-center gap-1 cursor-pointer">
+                      <input type="checkbox" checked={filters.influencer?.accountTypes?.includes(t.value) || false} onChange={(e) => {
+                        const current = filters.influencer?.accountTypes || [];
+                        const updated = e.target.checked ? [...current, t.value] : current.filter((v) => v !== t.value);
+                        updateInfluencerFilter('accountTypes', updated.length > 0 ? updated : undefined);
+                      }} className="w-3.5 h-3.5 text-primary-600 rounded" />
+                      <span className="text-sm text-gray-700">{t.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={filters.influencer?.isVerified || false} onChange={(e) => updateInfluencerFilter('isVerified', e.target.checked || undefined)} className="w-4 h-4 text-primary-600 rounded" />
+                <span className="text-sm text-gray-700">Verified Only</span>
+                <BadgeCheck className="w-4 h-4 text-blue-500" />
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={filters.influencer?.hasYouTube || false} onChange={(e) => updateInfluencerFilter('hasYouTube', e.target.checked || undefined)} className="w-4 h-4 text-primary-600 rounded" />
+                <span className="text-sm text-gray-700">Has YouTube</span>
+                <Youtube className="w-4 h-4 text-red-500" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative group">
+          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+            <Mail className="w-3.5 h-3.5" />
+            <span>Contact</span>
+            {(filters.influencer?.hasContactDetails && filters.influencer.hasContactDetails.length > 0) && (
+              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            )}
+          </button>
+          <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+            <div className="grid grid-cols-2 gap-2">
+              {CONTACT_TYPES.slice(0, 10).map((c) => {
+                const isSelected = filters.influencer?.hasContactDetails?.some((x) => x.contactType === c.value);
+                return (
+                  <label key={c.value} className="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" checked={isSelected || false} onChange={(e) => {
+                      const current = filters.influencer?.hasContactDetails || [];
+                      const updated = e.target.checked ? [...current, { contactType: c.value, filterAction: 'must' as const }] : current.filter((x) => x.contactType !== c.value);
+                      updateInfluencerFilter('hasContactDetails', updated.length > 0 ? updated : undefined);
+                    }} className="w-3.5 h-3.5 text-primary-600 rounded" />
+                    <span className="text-xs text-gray-700">{c.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="relative group">
+          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+            <Globe className="w-3.5 h-3.5" />
+            <span>Demographics</span>
+            {(filters.influencer?.location?.length || filters.influencer?.language || filters.influencer?.gender || filters.influencer?.age) && (
+              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            )}
+          </button>
+          <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Location</label>
+                <AsyncSelect
+                  value={filters.influencer?.location || []}
+                  onChange={(ids) => updateInfluencerFilter('location', ids.length > 0 ? ids : undefined)}
+                  fetchOptions={async (q) => (await discoveryApi.getLocations(q)).map((l) => ({ id: l.id, name: l.name }))}
+                  placeholder="Select locations..."
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-600 mb-1 block">Language</label>
+                  <select value={filters.influencer?.language || ''} onChange={(e) => updateInfluencerFilter('language', e.target.value || undefined)} className="input py-1.5 text-sm w-full">
+                    <option value="">Any</option>
+                    <option value="en">English</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="pt">Portuguese</option>
+                    <option value="hi">Hindi</option>
+                    <option value="ar">Arabic</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-600 mb-1 block">Gender</label>
+                  <select value={filters.influencer?.gender || ''} onChange={(e) => updateInfluencerFilter('gender', e.target.value || undefined)} className="input py-1.5 text-sm w-full">
+                    <option value="">Any</option>
+                    <option value="MALE">Male</option>
+                    <option value="FEMALE">Female</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Age</label>
+                <div className="flex gap-2">
+                  <select value={filters.influencer?.age?.min || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1">
+                    <option value="">Min</option>
+                    <option value="18">18</option>
+                    <option value="25">25</option>
+                    <option value="35">35</option>
+                    <option value="45">45</option>
+                  </select>
+                  <select value={filters.influencer?.age?.max || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1">
+                    <option value="">Max</option>
+                    <option value="25">25</option>
+                    <option value="35">35</option>
+                    <option value="45">45</option>
+                    <option value="65">65</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative group">
+          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+            <Users className="w-3.5 h-3.5 text-purple-500" />
+            <span>Audience</span>
+            {(filters.audience?.location?.length || filters.audience?.gender || filters.audience?.age?.length || filters.audience?.credibility) && (
+              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            )}
+          </button>
+          <div className="absolute top-full right-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+            <div className="bg-purple-50 p-2 rounded text-xs text-purple-700 mb-2">
+              <Info className="w-3 h-3 inline mr-1" />
+              Weights (0-1) set minimum thresholds. 0.3 = 30% of audience.
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Audience Location</label>
+                <AsyncSelect
+                  value={filters.audience?.location?.map((l) => l.id) || []}
+                  onChange={(ids) => updateAudienceFilter('location', ids.length > 0 ? ids.map((id) => ({ id, weight: 0.2 })) : undefined)}
+                  fetchOptions={async (q) => (await discoveryApi.getLocations(q)).map((l) => ({ id: l.id, name: l.name }))}
+                  placeholder="Select locations..."
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Audience Gender</label>
+                <select value={filters.audience?.gender?.id || ''} onChange={(e) => updateAudienceFilter('gender', e.target.value ? { id: e.target.value as any, weight: 0.5 } : undefined)} className="input py-1.5 text-sm w-full">
+                  <option value="">Any</option>
+                  <option value="MALE">Majority Male</option>
+                  <option value="FEMALE">Majority Female</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Audience Age</label>
+                <div className="flex flex-wrap gap-1">
+                  {AGE_GROUPS.map((a) => {
+                    const isSelected = filters.audience?.age?.some((x) => x.id === a.value);
+                    return (
+                      <label key={a.value} className="flex items-center gap-1 cursor-pointer">
+                        <input type="checkbox" checked={isSelected || false} onChange={(e) => {
+                          const current = filters.audience?.age || [];
+                          const updated = e.target.checked ? [...current, { id: a.value as any, weight: 0.3 }] : current.filter((x) => x.id !== a.value);
+                          updateAudienceFilter('age', updated.length > 0 ? updated : undefined);
+                        }} className="w-3.5 h-3.5 text-primary-600 rounded" />
+                        <span className="text-xs text-gray-700">{a.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Audience Credibility</label>
+                <input type="range" min="0" max="1" step="0.05" value={filters.audience?.credibility || 0} onChange={(e) => updateAudienceFilter('credibility', parseFloat(e.target.value) > 0 ? parseFloat(e.target.value) : undefined)} className="w-full" />
+                <div className="flex justify-between text-xs text-gray-400">
+                  <span>No filter</span>
+                  <span className="text-gray-700 font-medium">{filters.audience?.credibility ? `${Math.round(filters.audience.credibility * 100)}% real` : 'Not set'}</span>
+                  <span>100%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative group">
+          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+            <ShoppingBag className="w-3.5 h-3.5" />
+            <span>Brands</span>
+            {(filters.influencer?.brands?.length || filters.influencer?.interests?.length) && (
+              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            )}
+          </button>
+          <div className="absolute top-full right-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Brands Partnered With</label>
+                <AsyncSelect
+                  value={filters.influencer?.brands || []}
+                  onChange={(ids) => updateInfluencerFilter('brands', ids.length > 0 ? ids : undefined)}
+                  fetchOptions={async (q) => (await discoveryApi.getBrands(q)).map((b) => ({ id: b.id, name: b.name }))}
+                  placeholder="Search brands..."
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Interests</label>
+                <AsyncSelect
+                  value={filters.influencer?.interests || []}
+                  onChange={(ids) => updateInfluencerFilter('interests', ids.length > 0 ? ids : undefined)}
+                  fetchOptions={async (q) => {
+                    const results = await discoveryApi.getInterests(selectedPlatform);
+                    return q ? results.filter((i) => i.name.toLowerCase().includes(q.toLowerCase())) : results;
+                  }}
+                  placeholder="Select interests..."
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Full Filter Content (for mobile drawer)
   const FilterContent = () => (
     <div className="space-y-3">
       {/* Platform Selection */}
@@ -995,9 +1435,9 @@ const DiscoveryPage: React.FC = () => {
           <p className="text-gray-500 text-sm hidden sm:block">Search 500K+ influencers with powerful filters</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Mobile Filter Toggle */}
-          <button 
-            onClick={() => setShowFilters(true)} 
+          <button
+            type="button"
+            onClick={() => setShowFilters(true)}
             className="lg:hidden btn btn-secondary flex items-center gap-2"
           >
             <SlidersHorizontal className="w-4 h-4" />
@@ -1046,14 +1486,14 @@ const DiscoveryPage: React.FC = () => {
       )}
 
       {/* Main Layout */}
-      <div className="flex gap-4">
-        {/* Desktop Filters Sidebar */}
-        <div className="hidden lg:block w-80 flex-shrink-0">
-          <FilterContent />
+      <div className="space-y-4">
+        {/* Horizontal Filter Bar */}
+        <div className="hidden lg:block">
+          <FilterBar />
         </div>
 
         {/* Results Area */}
-        <div className="flex-1 min-w-0 space-y-4">
+        <div className="min-w-0 space-y-4">
           {/* Results Header */}
           <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -1173,9 +1613,9 @@ const DiscoveryPage: React.FC = () => {
               <Search className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <h3 className="font-semibold text-gray-900">No influencers found</h3>
               <p className="text-gray-500 text-sm mt-1">Try adjusting your filters</p>
-              <button onClick={() => setShowFilters(true)} className="btn btn-secondary mt-4 lg:hidden">
-                <SlidersHorizontal className="w-4 h-4 mr-2" />
-                Open Filters
+              <button onClick={resetFilters} className="btn btn-secondary mt-4">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Reset Filters
               </button>
             </div>
           )}

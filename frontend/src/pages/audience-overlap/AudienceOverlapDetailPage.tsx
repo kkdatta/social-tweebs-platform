@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useReportPolling } from '../../hooks/useReportPolling';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Edit, RefreshCw, Trash2, Share2,
@@ -52,14 +53,11 @@ export const AudienceOverlapDetailPage = () => {
   const [copied, setCopied] = useState(false);
   const [downloadingXlsx, setDownloadingXlsx] = useState(false);
 
-  useEffect(() => {
-    if (id) loadReport();
-  }, [id]);
-
-  const loadReport = async () => {
+  const loadReport = useCallback(async () => {
+    if (!id) return;
     try {
-      setLoading(true);
-      const data = await audienceOverlapApi.getById(id!);
+      setLoading(prev => prev === true ? true : false);
+      const data = await audienceOverlapApi.getById(id);
       setReport(data);
       setNewTitle(data.title);
     } catch (err) {
@@ -67,7 +65,13 @@ export const AudienceOverlapDetailPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    if (id) loadReport();
+  }, [id, loadReport]);
+
+  useReportPolling(report?.status, loadReport);
 
   const handleUpdateTitle = async () => {
     if (!report || !newTitle.trim()) return;

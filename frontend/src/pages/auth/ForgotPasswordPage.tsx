@@ -77,7 +77,7 @@ const ForgotPasswordPage: React.FC = () => {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="input pl-10"
+                className="input !pl-11"
                 placeholder="you@company.com"
                 required
                 autoComplete="email"

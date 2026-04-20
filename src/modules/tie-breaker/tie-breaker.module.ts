@@ -11,6 +11,7 @@ import { User } from '../users/entities/user.entity';
 import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
 import { UnlockedInfluencer } from '../credits/entities/unlocked-influencer.entity';
 import { CreditsModule } from '../credits/credits.module';
+import { DiscoveryModule } from '../discovery/discovery.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { CreditsModule } from '../credits/credits.module';
       UnlockedInfluencer,
     ]),
     CreditsModule,
+    DiscoveryModule,
   ],
   controllers: [TieBreakerController],
   providers: [TieBreakerService],

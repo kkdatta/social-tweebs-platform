@@ -44,6 +44,9 @@ let SentimentsController = class SentimentsController {
     async bulkDeleteReports(userId, dto) {
         return this.sentimentsService.bulkDeleteReports(userId, dto.reportIds);
     }
+    async retryReport(userId, reportId) {
+        return this.sentimentsService.retryReport(userId, reportId);
+    }
     async shareReport(userId, reportId, dto) {
         return this.sentimentsService.shareReport(userId, reportId, dto);
     }
@@ -144,6 +147,18 @@ __decorate([
     __metadata("design:paramtypes", [String, dto_1.BulkDeleteDto]),
     __metadata("design:returntype", Promise)
 ], SentimentsController.prototype, "bulkDeleteReports", null);
+__decorate([
+    (0, common_1.Post)(':id/retry'),
+    (0, swagger_1.ApiOperation)({ summary: 'Retry a failed sentiment report' }),
+    (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Report retry initiated' }),
+    (0, swagger_1.ApiResponse)({ status: 400, description: 'Report is not in FAILED status' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], SentimentsController.prototype, "retryReport", null);
 __decorate([
     (0, common_1.Post)(':id/share'),
     (0, swagger_1.ApiOperation)({ summary: 'Share report with user or get shareable link' }),

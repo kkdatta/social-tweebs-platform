@@ -28,7 +28,8 @@ let ModashService = ModashService_1 = class ModashService {
         this.isEnabled = this.configService.get('modash.enabled', false);
         this.baseUrl = this.configService.get('modash.apiUrl', 'https://api.modash.io/v1');
         this.apiKey = this.configService.get('modash.apiKey', '');
-        this.logger.log(`Modash API Integration: ${this.isEnabled ? 'ENABLED' : 'DISABLED (using local DB)'}`);
+        const appMode = this.configService.get('app.mode', 'development');
+        this.logger.log(`Modash API [APP_MODE=${appMode}]: ${this.isEnabled ? 'ENABLED (production DB + live API)' : 'DISABLED (dev DB + simulated data)'}`);
     }
     isModashEnabled() {
         return this.isEnabled;
@@ -73,7 +74,7 @@ let ModashService = ModashService_1 = class ModashService {
         try {
             const response = await this.makeRequest('GET', endpoint);
             responseStatus = 200;
-            return response;
+            return (response.profile || response);
         }
         catch (error) {
             responseStatus = error.status || 500;
@@ -95,21 +96,148 @@ let ModashService = ModashService_1 = class ModashService {
             });
         }
     }
-    async getLocations(query) {
-        const endpoint = `/dictionaries/locations${query ? `?query=${encodeURIComponent(query)}` : ''}`;
+    async getCollaborationPosts(id, platform, options, userId) {
+        const endpoint = '/collaborations/posts';
+        const requestBody = { id, platform, ...options };
+        const startTime = Date.now();
+        let responseStatus = 0;
+        let errorMessage;
+        try {
+            const response = await this.makeRequest('POST', endpoint, requestBody);
+            responseStatus = 200;
+            return response;
+        }
+        catch (error) {
+            responseStatus = error.status || 500;
+            errorMessage = error.message;
+            throw error;
+        }
+        finally {
+            await this.logApiCall({
+                userId,
+                endpoint,
+                httpMethod: 'POST',
+                requestPayload: requestBody,
+                responseStatusCode: responseStatus,
+                responseTimeMs: Date.now() - startTime,
+                modashCreditsConsumed: responseStatus === 200 ? 0.2 : 0,
+                errorMessage,
+            });
+        }
+    }
+    async getCollaborationSummary(id, platform, options, userId) {
+        const endpoint = '/collaborations/summary';
+        const requestBody = { id, platform, ...options };
+        const startTime = Date.now();
+        let responseStatus = 0;
+        let errorMessage;
+        try {
+            const response = await this.makeRequest('POST', endpoint, requestBody);
+            responseStatus = 200;
+            return response;
+        }
+        catch (error) {
+            responseStatus = error.status || 500;
+            errorMessage = error.message;
+            throw error;
+        }
+        finally {
+            await this.logApiCall({
+                userId,
+                endpoint,
+                httpMethod: 'POST',
+                requestPayload: requestBody,
+                responseStatusCode: responseStatus,
+                responseTimeMs: Date.now() - startTime,
+                modashCreditsConsumed: responseStatus === 200 ? 0.2 : 0,
+                errorMessage,
+            });
+        }
+    }
+    async getAudienceOverlap(platform, influencers, userId) {
+        const platformPath = this.getPlatformPath(platform);
+        const endpoint = `/${platformPath}/reports/audience/overlap`;
+        const requestBody = { influencers };
+        const startTime = Date.now();
+        let responseStatus = 0;
+        let errorMessage;
+        try {
+            const response = await this.makeRequest('POST', endpoint, requestBody);
+            responseStatus = 200;
+            return response;
+        }
+        catch (error) {
+            responseStatus = error.status || 500;
+            errorMessage = error.message;
+            throw error;
+        }
+        finally {
+            await this.logApiCall({
+                userId,
+                endpoint,
+                httpMethod: 'POST',
+                platform,
+                requestPayload: requestBody,
+                responseStatusCode: responseStatus,
+                responseTimeMs: Date.now() - startTime,
+                modashCreditsConsumed: responseStatus === 200 ? 1 : 0,
+                errorMessage,
+            });
+        }
+    }
+    async searchByEmail(emails, userId) {
+        const endpoint = '/email-search';
+        const requestBody = { emails };
+        const startTime = Date.now();
+        let responseStatus = 0;
+        let errorMessage;
+        try {
+            const response = await this.makeRequest('POST', endpoint, requestBody);
+            responseStatus = 200;
+            return response;
+        }
+        catch (error) {
+            responseStatus = error.status || 500;
+            errorMessage = error.message;
+            throw error;
+        }
+        finally {
+            await this.logApiCall({
+                userId,
+                endpoint,
+                httpMethod: 'POST',
+                requestPayload: { emailCount: emails.length },
+                responseStatusCode: responseStatus,
+                responseTimeMs: Date.now() - startTime,
+                modashCreditsConsumed: responseStatus === 200 ? emails.length * 0.02 : 0,
+                errorMessage,
+            });
+        }
+    }
+    async getAccountInfo() {
+        const endpoint = '/user/info';
+        return this.makeRequest('GET', endpoint);
+    }
+    async getLocations(query, platform) {
+        const platformPath = platform ? this.getPlatformPath(platform) : 'instagram';
+        const qs = query ? `?query=${encodeURIComponent(query)}` : '';
+        const endpoint = `/${platformPath}/locations${qs}`;
         return this.makeRequest('GET', endpoint);
     }
     async getInterests(platform) {
         const platformPath = this.getPlatformPath(platform);
-        const endpoint = `/${platformPath}/dictionaries/interests`;
+        const endpoint = `/${platformPath}/interests`;
         return this.makeRequest('GET', endpoint);
     }
-    async getLanguages() {
-        const endpoint = `/dictionaries/languages`;
+    async getLanguages(platform) {
+        const platformPath = platform ? this.getPlatformPath(platform) : 'instagram';
+        const endpoint = `/${platformPath}/languages`;
         return this.makeRequest('GET', endpoint);
     }
-    async getBrands(query) {
-        const endpoint = `/dictionaries/brands${query ? `?query=${encodeURIComponent(query)}` : ''}`;
+    async getBrands(query, platform) {
+        const platformPath = platform ? this.getPlatformPath(platform) : 'instagram';
+        const qs = query ? `?query=${encodeURIComponent(query)}` : '';
+        const endpoint = `/${platformPath}/brands${qs}`;
         return this.makeRequest('GET', endpoint);
     }
     async makeRequest(method, endpoint, body) {

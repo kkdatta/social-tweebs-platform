@@ -1,22 +1,32 @@
 import { Repository } from 'typeorm';
 import { AudienceOverlapReport, AudienceOverlapInfluencer, AudienceOverlapShare } from './entities';
 import { User } from '../users/entities/user.entity';
+import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
 import { CreditsService } from '../credits/credits.service';
+import { ModashService } from '../discovery/services/modash.service';
 import { CreateOverlapReportDto, UpdateOverlapReportDto, ShareOverlapReportDto, OverlapReportFilterDto, OverlapReportListResponseDto, OverlapReportDetailDto, DashboardStatsDto } from './dto';
 export declare class AudienceOverlapService {
     private readonly reportRepo;
     private readonly influencerRepo;
     private readonly shareRepo;
     private readonly userRepo;
+    private readonly profileRepo;
     private readonly creditsService;
-    constructor(reportRepo: Repository<AudienceOverlapReport>, influencerRepo: Repository<AudienceOverlapInfluencer>, shareRepo: Repository<AudienceOverlapShare>, userRepo: Repository<User>, creditsService: CreditsService);
+    private readonly modashService;
+    private readonly logger;
+    constructor(reportRepo: Repository<AudienceOverlapReport>, influencerRepo: Repository<AudienceOverlapInfluencer>, shareRepo: Repository<AudienceOverlapShare>, userRepo: Repository<User>, profileRepo: Repository<InfluencerProfile>, creditsService: CreditsService, modashService: ModashService);
+    private getClientAdminId;
+    private getClientOverlapQueryCount;
     createReport(userId: string, dto: CreateOverlapReportDto): Promise<{
         success: boolean;
         report: AudienceOverlapReport;
         creditsUsed: number;
     }>;
+    private processReportAndCharge;
     private addInfluencersToReport;
     private processReport;
+    private processReportWithModash;
+    private processReportSimulated;
     private processPendingReports;
     getReports(userId: string, filters: OverlapReportFilterDto): Promise<OverlapReportListResponseDto>;
     getReportById(userId: string, reportId: string): Promise<OverlapReportDetailDto>;

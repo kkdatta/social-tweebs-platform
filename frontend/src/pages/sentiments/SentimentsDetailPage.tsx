@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useReportPolling } from '../../hooks/useReportPolling';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Share2, Trash2, Download, Edit3, ExternalLink,
@@ -109,22 +110,36 @@ export const SentimentsDetailPage = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
-    if (id) {
-      loadReport();
-    }
-  }, [id]);
-
-  const loadReport = async () => {
+  const loadReport = useCallback(async () => {
+    if (!id) return;
     try {
-      setLoading(true);
-      const data = await sentimentsApi.getById(id!);
+      setLoading(prev => prev === true ? true : false);
+      const data = await sentimentsApi.getById(id);
       setReport(data);
       setNewTitle(data.title);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load report');
     } finally {
       setLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (id) {
+      loadReport();
+    }
+  }, [id, loadReport]);
+
+  useReportPolling(report?.status, loadReport);
+
+  const handleRetry = async () => {
+    if (!report?.id) return;
+    if (!confirm(`Retry this report? This will use ${1} credit.`)) return;
+    try {
+      await sentimentsApi.retry(report.id);
+      await loadReport();
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to retry report');
     }
   };
 
@@ -465,22 +480,33 @@ export const SentimentsDetailPage = () => {
         <div className={`p-6 rounded-xl ${
           report.status === 'FAILED' ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200'
         }`}>
-          <div className="flex items-center gap-3">
-            {report.status === 'FAILED' ? (
-              <AlertCircle className="w-8 h-8 text-red-500" />
-            ) : (
-              <Loader className="w-8 h-8 text-blue-500 animate-spin" />
-            )}
-            <div>
-              <h3 className="font-semibold text-gray-900">
-                {report.status === 'FAILED' ? 'Report Failed' : 'Report Processing'}
-              </h3>
-              <p className="text-gray-600">
-                {report.status === 'FAILED' 
-                  ? report.errorMessage || 'An error occurred while processing this report.'
-                  : 'Please wait while we analyze the sentiment data...'}
-              </p>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-3">
+              {report.status === 'FAILED' ? (
+                <AlertCircle className="w-8 h-8 text-red-500 shrink-0" />
+              ) : (
+                <Loader className="w-8 h-8 text-blue-500 animate-spin shrink-0" />
+              )}
+              <div>
+                <h3 className="font-semibold text-gray-900">
+                  {report.status === 'FAILED' ? 'Report Failed' : 'Report Processing'}
+                </h3>
+                <p className="text-gray-600">
+                  {report.status === 'FAILED'
+                    ? report.errorMessage || 'An error occurred while processing this report.'
+                    : 'Please wait while we analyze the sentiment data...'}
+                </p>
+              </div>
             </div>
+            {report.status === 'FAILED' && (
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-medium hover:bg-purple-700"
+              >
+                Retry (1 credit)
+              </button>
+            )}
           </div>
         </div>
       )}

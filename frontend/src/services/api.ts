@@ -153,6 +153,8 @@ export const discoveryApi = {
         match: r.match,
       })),
       creditsUsed: data.creditsUsed || 0,
+      remainingBalance: data.remainingBalance,
+      hasMore: data.hasMore,
       isExactMatch: data.isExactMatch,
     };
   },
@@ -1122,6 +1124,11 @@ export const sentimentsApi = {
     return response.data;
   },
 
+  retry: async (id: string) => {
+    const { data } = await api.post(`/api/v1/sentiments/${id}/retry`);
+    return data;
+  },
+
   getTeamMembers: async () => {
     const { data } = await api.get('/api/v1/team/members');
     return data;
@@ -1440,12 +1447,13 @@ export const influencerGroupsApi = {
     return data;
   },
 
-  // Add influencer to group
+  // Add influencer to group (requires influencerName and/or influencerProfileId and/or platformUserId)
   addInfluencer: async (groupId: string, influencerData: {
+    influencerProfileId?: string;
     platformUserId?: string;
-    influencerName: string;
+    influencerName?: string;
     influencerUsername?: string;
-    platform: string;
+    platform?: string;
     profilePictureUrl?: string;
     followerCount?: number;
     audienceCredibility?: number;
@@ -1460,14 +1468,15 @@ export const influencerGroupsApi = {
   // Bulk add influencers (XLSX import)
   bulkAddInfluencers: async (groupId: string, bulkData: {
     influencers: Array<{
+      influencerProfileId?: string;
       platformUserId?: string;
-      influencerName: string;
+      influencerName?: string;
       influencerUsername?: string;
-      platform: string;
+      platform?: string;
       profilePictureUrl?: string;
       followerCount?: number;
     }>;
-  }): Promise<{ addedCount: number; skippedCount: number }> => {
+  }): Promise<{ added: number; skipped: number }> => {
     const { data } = await api.post(`/api/v1/influencer-groups/${groupId}/members/bulk`, bulkData);
     return data;
   },

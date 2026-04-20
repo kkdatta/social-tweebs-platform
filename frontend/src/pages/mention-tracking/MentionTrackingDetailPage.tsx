@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useReportPolling } from '../../hooks/useReportPolling';
 import {
   ArrowLeft, Share2, Download, RefreshCw, Hash, AtSign,
   Users, FileText, Heart, Eye, MessageCircle, Share,
@@ -12,6 +13,7 @@ import {
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { mentionTrackingApi } from '../../services/api';
+import { SortableTh } from '../../components/SortableTh';
 
 interface Report {
   id: string;
@@ -66,10 +68,25 @@ export const MentionTrackingDetailPage = () => {
   // Header-level sponsored toggle (only when report was NOT created with sponsoredOnly)
   const [headerSponsoredToggle, setHeaderSponsoredToggle] = useState(false);
 
+  type MtOverviewCatSortKey =
+    | 'category'
+    | 'accounts'
+    | 'followers'
+    | 'posts'
+    | 'likes'
+    | 'views'
+    | 'comments'
+    | 'shares'
+    | 'er';
+
   // Influencer tab state
   const [infCategoryFilter, setInfCategoryFilter] = useState('ALL');
   const [infSortBy, setInfSortBy] = useState('likes');
   const [infSortOrder, setInfSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [overviewCatSort, setOverviewCatSort] = useState<{
+    key: MtOverviewCatSortKey;
+    dir: 'asc' | 'desc';
+  }>({ key: 'category', dir: 'asc' });
 
   // Posts tab state
   const [postCategoryFilter, setPostCategoryFilter] = useState('ALL');
@@ -77,16 +94,13 @@ export const MentionTrackingDetailPage = () => {
   const [postSortOrder, setPostSortOrder] = useState<'asc' | 'desc'>('desc');
   const [postPage, setPostPage] = useState(1);
 
-  useEffect(() => {
-    if (id) loadReport();
-  }, [id]);
-
-  const loadReport = async () => {
+  const loadReport = useCallback(async () => {
+    if (!id) return;
     try {
-      setLoading(true);
+      setLoading(prev => prev === true ? true : false);
       const [reportData, chartDataResponse] = await Promise.all([
-        mentionTrackingApi.getById(id!),
-        mentionTrackingApi.getChartData(id!).catch(() => []),
+        mentionTrackingApi.getById(id),
+        mentionTrackingApi.getChartData(id).catch(() => []),
       ]);
       setReport(reportData);
       setChartData(chartDataResponse);
@@ -95,7 +109,13 @@ export const MentionTrackingDetailPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    if (id) loadReport();
+  }, [id, loadReport]);
+
+  useReportPolling(report?.status, loadReport);
 
   const handleShare = async () => {
     try {
@@ -268,20 +288,75 @@ export const MentionTrackingDetailPage = () => {
     influencerCategoryMap.set(inf.id, inf.category);
   });
 
+  const CATEGORY_TIER_ORDER_MT = ['NANO', 'MICRO', 'MACRO', 'MEGA'];
+
+  const toggleOverviewCatSort = (key: MtOverviewCatSortKey) => {
+    setOverviewCatSort(prev =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: key === 'category' ? 'asc' : 'desc' },
+    );
+  };
+
+  const toggleInfSort = (key: string) => {
+    if (infSortBy === key) {
+      setInfSortOrder(o => (o === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setInfSortBy(key);
+      setInfSortOrder(['name', 'platform'].includes(key) ? 'asc' : 'desc');
+    }
+  };
+
+  const sortedCategorization = [...(report.categorization || [])].sort((a: any, b: any) => {
+    const m = overviewCatSort.dir === 'asc' ? 1 : -1;
+    const k = overviewCatSort.key;
+    if (k === 'category') {
+      return (
+        m *
+        (CATEGORY_TIER_ORDER_MT.indexOf(a.category) - CATEGORY_TIER_ORDER_MT.indexOf(b.category))
+      );
+    }
+    if (k === 'accounts') return m * (a.accountsCount - b.accountsCount);
+    if (k === 'followers') return m * (a.followersCount - b.followersCount);
+    if (k === 'posts') return m * (a.postsCount - b.postsCount);
+    if (k === 'likes') return m * (a.likesCount - b.likesCount);
+    if (k === 'views') return m * (a.viewsCount - b.viewsCount);
+    if (k === 'comments') return m * (a.commentsCount - b.commentsCount);
+    if (k === 'shares') return m * ((a.sharesCount || 0) - (b.sharesCount || 0));
+    if (k === 'er') return m * (a.engagementRate - b.engagementRate);
+    return 0;
+  });
+
   // --- Influencer list: filter + sort ---
   const filteredInfluencers = report.influencers
     .filter((inf: any) => infCategoryFilter === 'ALL' || inf.category === infCategoryFilter)
     .sort((a: any, b: any) => {
       const m = infSortOrder === 'desc' ? -1 : 1;
       switch (infSortBy) {
-        case 'recent': return m * (new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
-        case 'likes': return m * (a.likesCount - b.likesCount);
-        case 'followers': return m * (a.followerCount - b.followerCount);
-        case 'comments': return m * (a.commentsCount - b.commentsCount);
-        case 'shares': return m * ((a.sharesCount || 0) - (b.sharesCount || 0));
-        case 'credibility': return m * ((a.audienceCredibility || 0) - (b.audienceCredibility || 0));
-        case 'engagement': return m * ((a.avgEngagementRate || 0) - (b.avgEngagementRate || 0));
-        default: return 0;
+        case 'recent':
+          return m * (new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+        case 'likes':
+          return m * (a.likesCount - b.likesCount);
+        case 'followers':
+          return m * (a.followerCount - b.followerCount);
+        case 'posts':
+          return m * (a.postsCount - b.postsCount);
+        case 'views':
+          return m * (a.viewsCount - b.viewsCount);
+        case 'comments':
+          return m * (a.commentsCount - b.commentsCount);
+        case 'shares':
+          return m * ((a.sharesCount || 0) - (b.sharesCount || 0));
+        case 'credibility':
+          return m * ((a.audienceCredibility || 0) - (b.audienceCredibility || 0));
+        case 'engagement':
+          return m * ((a.avgEngagementRate || 0) - (b.avgEngagementRate || 0));
+        case 'name':
+          return m * (a.influencerName || '').localeCompare(b.influencerName || '');
+        case 'platform':
+          return m * (a.platform || '').localeCompare(b.platform || '');
+        default:
+          return 0;
       }
     });
 
@@ -570,19 +645,81 @@ export const MentionTrackingDetailPage = () => {
                   <table className="w-full">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Accounts</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Followers</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Posts</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Likes</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Views</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Comments</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Shares</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ER %</th>
+                        <SortableTh
+                          active={overviewCatSort.key === 'category'}
+                          direction={overviewCatSort.key === 'category' ? overviewCatSort.dir : 'asc'}
+                          onClick={() => toggleOverviewCatSort('category')}
+                        >
+                          Category
+                        </SortableTh>
+                        <SortableTh
+                          align="right"
+                          active={overviewCatSort.key === 'accounts'}
+                          direction={overviewCatSort.key === 'accounts' ? overviewCatSort.dir : 'desc'}
+                          onClick={() => toggleOverviewCatSort('accounts')}
+                        >
+                          Accounts
+                        </SortableTh>
+                        <SortableTh
+                          align="right"
+                          active={overviewCatSort.key === 'followers'}
+                          direction={overviewCatSort.key === 'followers' ? overviewCatSort.dir : 'desc'}
+                          onClick={() => toggleOverviewCatSort('followers')}
+                        >
+                          Followers
+                        </SortableTh>
+                        <SortableTh
+                          align="right"
+                          active={overviewCatSort.key === 'posts'}
+                          direction={overviewCatSort.key === 'posts' ? overviewCatSort.dir : 'desc'}
+                          onClick={() => toggleOverviewCatSort('posts')}
+                        >
+                          Posts
+                        </SortableTh>
+                        <SortableTh
+                          align="right"
+                          active={overviewCatSort.key === 'likes'}
+                          direction={overviewCatSort.key === 'likes' ? overviewCatSort.dir : 'desc'}
+                          onClick={() => toggleOverviewCatSort('likes')}
+                        >
+                          Likes
+                        </SortableTh>
+                        <SortableTh
+                          align="right"
+                          active={overviewCatSort.key === 'views'}
+                          direction={overviewCatSort.key === 'views' ? overviewCatSort.dir : 'desc'}
+                          onClick={() => toggleOverviewCatSort('views')}
+                        >
+                          Views
+                        </SortableTh>
+                        <SortableTh
+                          align="right"
+                          active={overviewCatSort.key === 'comments'}
+                          direction={overviewCatSort.key === 'comments' ? overviewCatSort.dir : 'desc'}
+                          onClick={() => toggleOverviewCatSort('comments')}
+                        >
+                          Comments
+                        </SortableTh>
+                        <SortableTh
+                          align="right"
+                          active={overviewCatSort.key === 'shares'}
+                          direction={overviewCatSort.key === 'shares' ? overviewCatSort.dir : 'desc'}
+                          onClick={() => toggleOverviewCatSort('shares')}
+                        >
+                          Shares
+                        </SortableTh>
+                        <SortableTh
+                          align="right"
+                          active={overviewCatSort.key === 'er'}
+                          direction={overviewCatSort.key === 'er' ? overviewCatSort.dir : 'desc'}
+                          onClick={() => toggleOverviewCatSort('er')}
+                        >
+                          ER %
+                        </SortableTh>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {report.categorization.map((cat: any) => (
+                      {sortedCategorization.map((cat: any) => (
                         <tr key={cat.category} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
                             <span className={`px-2 py-1 rounded text-xs font-medium ${getCategoryBadge(cat.category)}`}>
@@ -609,7 +746,7 @@ export const MentionTrackingDetailPage = () => {
           {/* ===== Influencers Tab ===== */}
           {activeTab === 'influencers' && (
             <div className="p-6">
-              <div className="flex flex-wrap gap-4 mb-4">
+              <div className="flex flex-wrap gap-4 mb-4 items-center">
                 <select
                   value={infCategoryFilter}
                   onChange={(e) => setInfCategoryFilter(e.target.value)}
@@ -621,26 +758,6 @@ export const MentionTrackingDetailPage = () => {
                   <option value="MACRO">Macro (100K-500K)</option>
                   <option value="MEGA">Mega (&gt;500K)</option>
                 </select>
-                <select
-                  value={infSortBy}
-                  onChange={(e) => setInfSortBy(e.target.value)}
-                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                >
-                  <option value="likes">Sort by Likes</option>
-                  <option value="followers">Sort by Followers</option>
-                  <option value="comments">Sort by Comments</option>
-                  <option value="shares">Sort by Shares</option>
-                  <option value="credibility">Sort by Credibility</option>
-                  <option value="engagement">Sort by ER</option>
-                  <option value="recent">Sort by Recent</option>
-                </select>
-                <button
-                  onClick={() => setInfSortOrder(infSortOrder === 'desc' ? 'asc' : 'desc')}
-                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm flex items-center gap-1"
-                >
-                  {infSortOrder === 'desc' ? 'Highest First' : 'Lowest First'}
-                  <ChevronDown className={`w-4 h-4 transition-transform ${infSortOrder === 'asc' ? 'rotate-180' : ''}`} />
-                </button>
                 <span className="ml-auto text-sm text-gray-500 self-center">
                   {filteredInfluencers.length} influencer{filteredInfluencers.length !== 1 ? 's' : ''}
                 </span>
@@ -650,16 +767,84 @@ export const MentionTrackingDetailPage = () => {
                 <table className="w-full">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Platform</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Influencer</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Followers</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Posts</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Likes</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Views</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Comments</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Shares</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Credibility</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ER %</th>
+                      <SortableTh
+                        active={infSortBy === 'platform'}
+                        direction={infSortBy === 'platform' ? infSortOrder : 'asc'}
+                        onClick={() => toggleInfSort('platform')}
+                      >
+                        Platform
+                      </SortableTh>
+                      <SortableTh
+                        active={infSortBy === 'name'}
+                        direction={infSortBy === 'name' ? infSortOrder : 'asc'}
+                        onClick={() => toggleInfSort('name')}
+                      >
+                        Influencer
+                      </SortableTh>
+                      <SortableTh
+                        align="right"
+                        active={infSortBy === 'followers'}
+                        direction={infSortBy === 'followers' ? infSortOrder : 'desc'}
+                        onClick={() => toggleInfSort('followers')}
+                      >
+                        Followers
+                      </SortableTh>
+                      <SortableTh
+                        align="right"
+                        active={infSortBy === 'posts'}
+                        direction={infSortBy === 'posts' ? infSortOrder : 'desc'}
+                        onClick={() => toggleInfSort('posts')}
+                      >
+                        Posts
+                      </SortableTh>
+                      <SortableTh
+                        align="right"
+                        active={infSortBy === 'likes'}
+                        direction={infSortBy === 'likes' ? infSortOrder : 'desc'}
+                        onClick={() => toggleInfSort('likes')}
+                      >
+                        Likes
+                      </SortableTh>
+                      <SortableTh
+                        align="right"
+                        active={infSortBy === 'views'}
+                        direction={infSortBy === 'views' ? infSortOrder : 'desc'}
+                        onClick={() => toggleInfSort('views')}
+                      >
+                        Views
+                      </SortableTh>
+                      <SortableTh
+                        align="right"
+                        active={infSortBy === 'comments'}
+                        direction={infSortBy === 'comments' ? infSortOrder : 'desc'}
+                        onClick={() => toggleInfSort('comments')}
+                      >
+                        Comments
+                      </SortableTh>
+                      <SortableTh
+                        align="right"
+                        active={infSortBy === 'shares'}
+                        direction={infSortBy === 'shares' ? infSortOrder : 'desc'}
+                        onClick={() => toggleInfSort('shares')}
+                      >
+                        Shares
+                      </SortableTh>
+                      <SortableTh
+                        align="right"
+                        active={infSortBy === 'credibility'}
+                        direction={infSortBy === 'credibility' ? infSortOrder : 'desc'}
+                        onClick={() => toggleInfSort('credibility')}
+                      >
+                        Credibility
+                      </SortableTh>
+                      <SortableTh
+                        align="right"
+                        active={infSortBy === 'engagement'}
+                        direction={infSortBy === 'engagement' ? infSortOrder : 'desc'}
+                        onClick={() => toggleInfSort('engagement')}
+                      >
+                        ER %
+                      </SortableTh>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">

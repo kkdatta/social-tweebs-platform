@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { CreditAccount } from '../credits/entities/credit-account.entity';
+import { UnlockedInfluencer } from '../credits/entities/unlocked-influencer.entity';
 import { UserStatus } from '../../common/enums';
 import { MailService } from '../../common/services/mail.service';
 
@@ -17,6 +18,8 @@ export class SchedulerService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(CreditAccount)
     private readonly creditAccountRepo: Repository<CreditAccount>,
+    @InjectRepository(UnlockedInfluencer)
+    private readonly unlockedInfluencerRepo: Repository<UnlockedInfluencer>,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
@@ -67,5 +70,23 @@ export class SchedulerService {
     }
 
     this.logger.log(`Account locking processed ${accounts.length} expired account(s)`);
+  }
+
+  /**
+   * Monthly Unblur Reset: On the 1st of every month at 00:05 UTC,
+   * delete all unblur records so profiles are re-blurred.
+   * Users must re-unblur manually. 0 credits charged for this system action.
+   */
+  @Cron('0 5 0 1 * *')
+  async handleMonthlyUnblurReset(): Promise<void> {
+    const result = await this.unlockedInfluencerRepo
+      .createQueryBuilder()
+      .delete()
+      .where('unlock_type = :type', { type: 'UNBLUR' })
+      .execute();
+
+    this.logger.log(
+      `Monthly unblur reset: removed ${result.affected || 0} unblur records. All profiles are now re-blurred.`,
+    );
   }
 }

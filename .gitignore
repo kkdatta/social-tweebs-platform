@@ -1,3 +1,6 @@
+# Large SQL dumps
+*.sql
+
 # Dependencies
 node_modules
 npm-debug.log*

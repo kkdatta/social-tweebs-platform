@@ -13,7 +13,9 @@ const audience_overlap_controller_1 = require("./audience-overlap.controller");
 const audience_overlap_service_1 = require("./audience-overlap.service");
 const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
+const influencer_profile_entity_1 = require("../discovery/entities/influencer-profile.entity");
 const credits_module_1 = require("../credits/credits.module");
+const discovery_module_1 = require("../discovery/discovery.module");
 let AudienceOverlapModule = class AudienceOverlapModule {
 };
 exports.AudienceOverlapModule = AudienceOverlapModule;
@@ -25,8 +27,10 @@ exports.AudienceOverlapModule = AudienceOverlapModule = __decorate([
                 entities_1.AudienceOverlapInfluencer,
                 entities_1.AudienceOverlapShare,
                 user_entity_1.User,
+                influencer_profile_entity_1.InfluencerProfile,
             ]),
             credits_module_1.CreditsModule,
+            discovery_module_1.DiscoveryModule,
         ],
         controllers: [audience_overlap_controller_1.AudienceOverlapController],
         providers: [audience_overlap_service_1.AudienceOverlapService],

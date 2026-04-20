@@ -14,6 +14,7 @@ const collab_check_service_1 = require("./collab-check.service");
 const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
 const credits_module_1 = require("../credits/credits.module");
+const discovery_module_1 = require("../discovery/discovery.module");
 let CollabCheckModule = class CollabCheckModule {
 };
 exports.CollabCheckModule = CollabCheckModule;
@@ -28,6 +29,7 @@ exports.CollabCheckModule = CollabCheckModule = __decorate([
                 user_entity_1.User,
             ]),
             credits_module_1.CreditsModule,
+            discovery_module_1.DiscoveryModule,
         ],
         controllers: [collab_check_controller_1.CollabCheckController],
         providers: [collab_check_service_1.CollabCheckService],

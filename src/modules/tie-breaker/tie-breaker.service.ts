@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -14,7 +14,8 @@ import { User } from '../users/entities/user.entity';
 import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
 import { UnlockedInfluencer } from '../credits/entities/unlocked-influencer.entity';
 import { CreditsService } from '../credits/credits.service';
-import { ActionType, ModuleType } from '../../common/enums';
+import { ActionType, ModuleType, PlatformType } from '../../common/enums';
+import { ModashService } from '../discovery/services/modash.service';
 import {
   CreateTieBreakerComparisonDto,
   UpdateTieBreakerComparisonDto,
@@ -31,6 +32,8 @@ const CREDIT_PER_UNBLUR = 1; // 1 credit per unblurred influencer
 
 @Injectable()
 export class TieBreakerService {
+  private readonly logger = new Logger(TieBreakerService.name);
+
   constructor(
     @InjectRepository(TieBreakerComparison)
     private readonly comparisonRepo: Repository<TieBreakerComparison>,
@@ -45,6 +48,7 @@ export class TieBreakerService {
     @InjectRepository(UnlockedInfluencer)
     private readonly unlockedRepo: Repository<UnlockedInfluencer>,
     private readonly creditsService: CreditsService,
+    private readonly modashService: ModashService,
   ) {}
 
   /**
@@ -59,27 +63,39 @@ export class TieBreakerService {
       throw new BadRequestException('You can compare 2 to 3 influencers at a time');
     }
 
-    // Check which influencers need to be unlocked
+    // Client-level unlock check: check unlocks for all users under the same client
+    const clientUserIds = await this.getClientUserIds(userId);
     const unlockedInfluencers = await this.unlockedRepo.find({
       where: {
-        userId,
+        userId: In(clientUserIds),
         influencerId: In(dto.influencerIds),
       },
     });
 
     const unlockedProfileIds = new Set(unlockedInfluencers.map(u => u.influencerId));
-    const influencersToUnlock = dto.influencerIds.filter(id => !unlockedProfileIds.has(id));
+
+    // Also check 7-day cached profiles (already-fetched profiles don't need unlock credit)
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const cachedProfiles = await this.profileRepo
+      .createQueryBuilder('p')
+      .where('p.id IN (:...ids)', { ids: dto.influencerIds })
+      .andWhere('p.last_updated_at >= :since', { since: sevenDaysAgo })
+      .getMany();
+    const recentlyCachedIds = new Set(cachedProfiles.map(p => p.id));
+
+    const influencersToUnlock = dto.influencerIds.filter(
+      id => !unlockedProfileIds.has(id) && !recentlyCachedIds.has(id),
+    );
     const creditsRequired = influencersToUnlock.length * CREDIT_PER_UNBLUR;
 
-    // Deduct credits for new unlocks
+    // Validate balance upfront but defer deduction until after success (universal refresh guard)
     if (creditsRequired > 0) {
-      await this.creditsService.deductCredits(userId, {
-        actionType: ActionType.PROFILE_UNLOCK,
-        quantity: creditsRequired,
-        module: ModuleType.TIE_BREAKER,
-        resourceId: 'tie-breaker-comparison',
-        resourceType: 'influencer_comparison_unlock',
-      });
+      const balance = await this.creditsService.getBalance(userId);
+      if ((balance.unifiedBalance || 0) < creditsRequired) {
+        throw new BadRequestException(
+          `Insufficient credits. Required: ${creditsRequired}, Available: ${balance.unifiedBalance}`,
+        );
+      }
     }
 
     // Create comparison record
@@ -191,23 +207,203 @@ export class TieBreakerService {
       where: { id: comparisonId },
       relations: ['influencers'],
     });
-
     if (!comparison) return;
 
     try {
-      // Update each influencer with detailed audience data
       for (const influencer of comparison.influencers) {
-        await this.populateInfluencerAudienceData(influencer);
+        if (this.modashService.isModashEnabled()) {
+          const usedCache = await this.populateFromCacheIfFresh(influencer);
+          if (!usedCache) {
+            await this.populateInfluencerFromModash(influencer);
+          }
+        } else {
+          await this.populateInfluencerAudienceData(influencer);
+        }
         await this.influencerRepo.save(influencer);
       }
 
       comparison.status = TieBreakerStatus.COMPLETED;
       comparison.completedAt = new Date();
       await this.comparisonRepo.save(comparison);
+
+      // Deduct credits ONLY after successful processing (universal refresh guard)
+      if (comparison.creditsUsed > 0) {
+        await this.creditsService.deductCredits(comparison.ownerId, {
+          actionType: ActionType.PROFILE_UNLOCK,
+          quantity: Number(comparison.creditsUsed),
+          module: ModuleType.TIE_BREAKER,
+          resourceId: comparisonId,
+          resourceType: 'influencer_comparison_unlock',
+        });
+        this.logger.log(`Tie breaker ${comparisonId}: charged ${comparison.creditsUsed} credits after success`);
+      }
     } catch (error) {
       comparison.status = TieBreakerStatus.FAILED;
-      comparison.errorMessage = error.message || 'Processing failed';
+      comparison.errorMessage = error instanceof Error ? error.message : 'Processing failed';
       await this.comparisonRepo.save(comparison);
+      this.logger.error(`Tie breaker ${comparisonId} failed — NO credits charged`);
+    }
+  }
+
+  private extractStat(val: any, fallback = 0): number {
+    if (val == null) return fallback;
+    if (typeof val === 'number') return val;
+    if (typeof val === 'object') {
+      if ('value' in val) return Number(val.value) || fallback;
+      if ('compared' in val) return Number(val.compared) || fallback;
+    }
+    return Number(val) || fallback;
+  }
+
+  /**
+   * If the cached_influencer_profiles row was fetched within 7 days,
+   * populate TieBreakerInfluencer from DB instead of burning a 1-credit Modash call.
+   */
+  private async populateFromCacheIfFresh(influencer: TieBreakerInfluencer): Promise<boolean> {
+    if (!influencer.influencerProfileId) return false;
+
+    const profile = await this.profileRepo.findOne({
+      where: { id: influencer.influencerProfileId },
+      relations: ['audienceData'],
+    });
+    if (!profile?.modashFetchedAt) return false;
+
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    if (profile.modashFetchedAt < sevenDaysAgo) return false;
+
+    this.logger.log(
+      `Tie-breaker: using cached profile for ${influencer.influencerUsername} (fetched ${profile.modashFetchedAt.toISOString()}) — saved 1 Modash credit`,
+    );
+
+    influencer.followerCount = Number(profile.followerCount) || influencer.followerCount;
+    influencer.followingCount = Number(profile.followingCount) || influencer.followingCount;
+    influencer.avgLikes = Number(profile.avgLikes) || influencer.avgLikes;
+    influencer.avgComments = Number(profile.avgComments) || influencer.avgComments;
+    influencer.avgViews = Number(profile.avgViews) || influencer.avgViews;
+    influencer.engagementRate = Number(profile.engagementRate) || influencer.engagementRate;
+    influencer.isVerified = profile.isVerified ?? influencer.isVerified;
+    influencer.audienceQuality = Number(profile.audienceCredibility) || influencer.audienceQuality;
+
+    if (profile.profilePictureUrl) {
+      influencer.profilePictureUrl = profile.profilePictureUrl;
+    }
+
+    // Populate audience demographics from rawModashData if available
+    if (profile.rawModashData?.audience) {
+      const aud = profile.rawModashData.audience;
+      if (aud.genders?.length) {
+        const male = aud.genders.find((g: any) => g.code === 'male');
+        const female = aud.genders.find((g: any) => g.code === 'female');
+        influencer.followersGenderData = {
+          male: male ? male.weight * 100 : 0,
+          female: female ? female.weight * 100 : 0,
+        };
+      }
+      if (aud.ages?.length) {
+        influencer.followersAgeData = aud.ages.map((a: any) => ({
+          ageRange: a.code,
+          male: a.weight * 50,
+          female: a.weight * 50,
+        }));
+      }
+      if (aud.geoCountries?.length) {
+        influencer.followersCountries = aud.geoCountries.map((g: any) => ({
+          country: g.name,
+          percentage: g.weight * 100,
+        }));
+      }
+      if (aud.geoCities?.length) {
+        influencer.followersCities = aud.geoCities.map((c: any) => ({
+          city: c.name,
+          percentage: c.weight * 100,
+        }));
+      }
+      if (aud.interests?.length) {
+        influencer.followersInterests = aud.interests.map((i: any) => ({
+          interest: i.name,
+          percentage: i.weight * 100,
+        }));
+      }
+    }
+
+    return true;
+  }
+
+  private async populateInfluencerFromModash(influencer: TieBreakerInfluencer): Promise<void> {
+    this.logger.log(`Fetching Modash report for tie-breaker influencer ${influencer.influencerUsername}`);
+    try {
+      const platformMap: Record<string, PlatformType> = {
+        instagram: PlatformType.INSTAGRAM,
+        youtube: PlatformType.YOUTUBE,
+        tiktok: PlatformType.TIKTOK,
+      };
+      const platform = platformMap[influencer.platform?.toLowerCase()] || PlatformType.INSTAGRAM;
+      const report = await this.modashService.getInfluencerReport(
+        platform,
+        influencer.platformUserId || influencer.influencerUsername || '',
+      );
+
+      if (report?.stats) {
+        influencer.followerCount = this.extractStat(report.stats.followers, influencer.followerCount);
+        influencer.followingCount = this.extractStat(report.stats.following, influencer.followingCount);
+        influencer.avgLikes = this.extractStat(report.stats.avgLikes, influencer.avgLikes);
+        influencer.avgComments = this.extractStat(report.stats.avgComments, influencer.avgComments);
+        influencer.avgViews = this.extractStat(report.stats.avgViews, influencer.avgViews);
+        influencer.avgReelViews = this.extractStat(report.stats.avgReelPlays, influencer.avgReelViews);
+        influencer.engagementRate = this.extractStat(report.stats.engagementRate, influencer.engagementRate);
+      }
+
+      if (report?.audience) {
+        influencer.audienceQuality = report.audience.credibility ?? influencer.audienceQuality;
+
+        if (report.audience.genders?.length) {
+          const male = report.audience.genders.find(g => g.code === 'male');
+          const female = report.audience.genders.find(g => g.code === 'female');
+          influencer.followersGenderData = {
+            male: male ? male.weight * 100 : 0,
+            female: female ? female.weight * 100 : 0,
+          };
+        }
+
+        if (report.audience.ages?.length) {
+          influencer.followersAgeData = report.audience.ages.map(a => ({
+            ageRange: a.code,
+            male: a.weight * 50,
+            female: a.weight * 50,
+          }));
+        }
+
+        if (report.audience.geoCountries?.length) {
+          influencer.followersCountries = report.audience.geoCountries.map(g => ({
+            country: g.name,
+            percentage: g.weight * 100,
+          }));
+        }
+
+        if (report.audience.geoCities?.length) {
+          influencer.followersCities = report.audience.geoCities.map(c => ({
+            city: c.name,
+            percentage: c.weight * 100,
+          }));
+        }
+
+        if (report.audience.interests?.length) {
+          influencer.followersInterests = report.audience.interests.map(i => ({
+            interest: i.name,
+            percentage: i.weight * 100,
+          }));
+        }
+      }
+
+      if (report?.profile) {
+        influencer.isVerified = report.profile.isVerified ?? influencer.isVerified;
+        if (report.profile.picture) {
+          influencer.profilePictureUrl = report.profile.picture;
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to fetch Modash data for ${influencer.influencerUsername}, using cached data`);
+      await this.populateInfluencerAudienceData(influencer);
     }
   }
 
@@ -579,6 +775,20 @@ export class TieBreakerService {
   }
 
   // ==================== Helper Methods ====================
+
+  private async getClientUserIds(userId: string): Promise<string[]> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) return [userId];
+
+    const adminId = user.parentId || userId;
+    const clientUsers = await this.userRepo.find({
+      where: [
+        { id: adminId },
+        { parentId: adminId },
+      ],
+    });
+    return [...new Set([userId, ...clientUsers.map(u => u.id)])];
+  }
 
   private async getTeamUserIds(userId: string): Promise<string[]> {
     const user = await this.userRepo.findOne({ where: { id: userId } });

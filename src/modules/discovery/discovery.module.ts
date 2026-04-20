@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { DiscoveryController } from './discovery.controller';
 import { DiscoveryService } from './services/discovery.service';
 import { ModashService } from './services/modash.service';
+import { ModashRawService } from './services/modash-raw.service';
 import {
   InfluencerProfile,
   AudienceData,
@@ -34,7 +35,7 @@ import { UnlockedInfluencer } from '../credits/entities/unlocked-influencer.enti
     forwardRef(() => InsightsModule),
   ],
   controllers: [DiscoveryController],
-  providers: [DiscoveryService, ModashService],
-  exports: [DiscoveryService, ModashService],
+  providers: [DiscoveryService, ModashService, ModashRawService],
+  exports: [DiscoveryService, ModashService, ModashRawService],
 })
 export class DiscoveryModule {}

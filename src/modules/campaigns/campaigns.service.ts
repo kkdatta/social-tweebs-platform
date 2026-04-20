@@ -47,6 +47,7 @@ import {
 } from './dto/campaign.dto';
 
 const CREDIT_PER_CAMPAIGN = 1;
+const FREE_CAMPAIGN_QUOTA = 10;
 
 @Injectable()
 export class CampaignsService {
@@ -75,22 +76,56 @@ export class CampaignsService {
 
   // ============ CAMPAIGN CRUD ============
 
+  /**
+   * Get the client admin ID for a user (for client-level counters).
+   */
+  private async getClientAdminId(userId: string): Promise<string> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) return userId;
+    return user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' ? userId : (user.parentId || userId);
+  }
+
+  /**
+   * Get total campaign count for a client account (lifetime).
+   */
+  private async getClientCampaignCount(clientAdminId: string): Promise<number> {
+    const children = await this.userRepo.find({
+      where: { parentId: clientAdminId },
+      select: ['id'],
+    });
+    const allUserIds = [clientAdminId, ...children.map((c) => c.id)];
+
+    return this.campaignRepo.count({
+      where: { ownerId: In(allUserIds) },
+    });
+  }
+
   async createCampaign(userId: string, dto: CreateCampaignDto): Promise<Campaign> {
     const balanceInfo = await this.creditsService.getBalance(userId);
     const userCredits = balanceInfo.totalBalance || 0;
+
+    // Freemium: first 10 campaigns per client are free, 11+ cost 1 credit
+    const clientAdminId = await this.getClientAdminId(userId);
+    const campaignCount = await this.getClientCampaignCount(clientAdminId);
+    const isFreeQuota = campaignCount < FREE_CAMPAIGN_QUOTA;
+
     if (userCredits < MIN_CREDITS_FOR_CAMPAIGN) {
       throw new BadRequestException(
         `Minimum ${MIN_CREDITS_FOR_CAMPAIGN} credits required in your account to create a campaign. Current balance: ${userCredits}`,
       );
     }
 
-    await this.creditsService.deductCredits(userId, {
-      actionType: ActionType.REPORT_GENERATION,
-      quantity: CREDIT_PER_CAMPAIGN,
-      module: ModuleType.CAMPAIGN_TRACKING,
-      resourceId: 'new-campaign',
-      resourceType: 'campaign_creation',
-    });
+    if (!isFreeQuota) {
+      await this.creditsService.deductCredits(userId, {
+        actionType: ActionType.REPORT_GENERATION,
+        quantity: CREDIT_PER_CAMPAIGN,
+        module: ModuleType.CAMPAIGN_TRACKING,
+        resourceId: 'new-campaign',
+        resourceType: 'campaign_creation',
+      });
+    } else {
+      this.logger.log(`Campaign freemium: client has ${campaignCount}/${FREE_CAMPAIGN_QUOTA} free campaigns used — this one is FREE`);
+    }
 
     const campaign = new Campaign();
     campaign.name = dto.name;

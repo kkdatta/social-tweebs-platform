@@ -225,35 +225,93 @@ export class InfluencerGroupService {
 
   // ============ MEMBER MANAGEMENT ============
 
+  /** Resolve platform and display name; requires at least one of name, profile id, or platform user id (DTO enforces). */
+  private normalizeAddInfluencerInput(
+    group: InfluencerGroup,
+    dto: AddInfluencerDto,
+  ): { platform: string; influencerName: string } {
+    const hasName = dto.influencerName?.trim();
+    const hasProfile = !!dto.influencerProfileId;
+    const hasPuid = !!dto.platformUserId?.trim();
+    if (!hasName && !hasProfile && !hasPuid) {
+      throw new BadRequestException('Provide influencerName, influencerProfileId, or platformUserId');
+    }
+
+    let platform: string;
+    if (dto.platform) {
+      if (!group.platforms.includes(dto.platform)) {
+        throw new BadRequestException(`Platform ${dto.platform} is not allowed in this group`);
+      }
+      platform = dto.platform;
+    } else {
+      platform = group.platforms[0];
+    }
+    if (!platform) {
+      throw new BadRequestException('Group has no platforms configured');
+    }
+
+    const influencerName =
+      dto.influencerName?.trim() ||
+      dto.platformUserId?.trim() ||
+      (dto.influencerProfileId ? `Profile ${dto.influencerProfileId.slice(0, 8)}` : '');
+
+    return { platform, influencerName };
+  }
+
+  private async findExistingGroupMember(
+    groupId: string,
+    platform: string,
+    dto: AddInfluencerDto,
+    resolvedName: string,
+  ): Promise<InfluencerGroupMember | null> {
+    if (dto.influencerProfileId) {
+      return this.memberRepo.findOne({
+        where: { groupId, influencerProfileId: dto.influencerProfileId },
+      });
+    }
+    if (dto.platformUserId?.trim()) {
+      return this.memberRepo.findOne({
+        where: { groupId, platform, platformUserId: dto.platformUserId.trim() },
+      });
+    }
+
+    const qb = this.memberRepo
+      .createQueryBuilder('m')
+      .where('m.groupId = :groupId', { groupId })
+      .andWhere('m.platform = :platform', { platform })
+      .andWhere('m.influencerName = :resolvedName', { resolvedName })
+      .andWhere('m.influencerProfileId IS NULL')
+      .andWhere('(m.platformUserId IS NULL OR m.platformUserId = :empty)', { empty: '' });
+    const u = dto.influencerUsername?.trim();
+    if (u) {
+      qb.andWhere('m.influencerUsername = :u', { u });
+    } else {
+      qb.andWhere('(m.influencerUsername IS NULL OR m.influencerUsername = :empty)', { empty: '' });
+    }
+    return qb.getOne();
+  }
+
   async addInfluencer(userId: string, groupId: string, dto: AddInfluencerDto): Promise<InfluencerGroupMember> {
     const group = await this.groupRepo.findOne({ where: { id: groupId } });
     if (!group) throw new NotFoundException('Group not found');
 
     await this.checkGroupAccess(userId, group, 'edit');
 
-    // Validate platform is allowed in this group
-    if (!group.platforms.includes(dto.platform)) {
-      throw new BadRequestException(`Platform ${dto.platform} is not allowed in this group`);
-    }
+    const { platform, influencerName } = this.normalizeAddInfluencerInput(group, dto);
 
-    // Check if influencer already exists in this group
-    const existing = await this.memberRepo.findOne({
-      where: {
-        groupId,
-        platform: dto.platform,
-        influencerUsername: dto.influencerUsername,
-      },
-    });
-
+    const existing = await this.findExistingGroupMember(groupId, platform, dto, influencerName);
     if (existing) {
       throw new ConflictException('Influencer already exists in this group');
     }
 
     const member = this.memberRepo.create({
       ...dto,
+      influencerName,
+      platform,
       groupId,
       addedById: userId,
       source: 'MANUAL',
+      followerCount: dto.followerCount ?? 0,
     });
 
     const saved = await this.memberRepo.save(member);
@@ -276,21 +334,9 @@ export class InfluencerGroupService {
 
     for (const influencer of dto.influencers) {
       try {
-        // Validate platform
-        if (!group.platforms.includes(influencer.platform)) {
-          skipped++;
-          continue;
-        }
+        const { platform, influencerName } = this.normalizeAddInfluencerInput(group, influencer);
 
-        // Check duplicate
-        const existing = await this.memberRepo.findOne({
-          where: {
-            groupId,
-            platform: influencer.platform,
-            influencerUsername: influencer.influencerUsername,
-          },
-        });
-
+        const existing = await this.findExistingGroupMember(groupId, platform, influencer, influencerName);
         if (existing) {
           skipped++;
           continue;
@@ -298,9 +344,12 @@ export class InfluencerGroupService {
 
         const member = this.memberRepo.create({
           ...influencer,
+          influencerName,
+          platform,
           groupId,
           addedById: userId,
           source: 'XLSX_IMPORT',
+          followerCount: influencer.followerCount ?? 0,
         });
 
         await this.memberRepo.save(member);
@@ -853,13 +902,12 @@ export class InfluencerGroupService {
     application.approvedAt = new Date();
     await this.applicationRepo.save(application);
 
-    // Create group member
     const member = this.memberRepo.create({
       groupId,
       influencerName: application.influencerName || application.platformUsername,
       influencerUsername: application.platformUsername,
       platform: application.platform,
-      platformUserId: application.platformUrl,
+      platformUserId: application.platformUsername || '',
       profilePictureUrl: application.profilePictureUrl,
       followerCount: application.followerCount,
       addedById: userId,

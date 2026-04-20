@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useReportPolling } from '../../hooks/useReportPolling';
 import {
   ArrowLeft,
   Share2,
@@ -42,6 +43,7 @@ import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import api from '../../services/api';
+import { SortableTh } from '../../components/SortableTh';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -211,20 +213,19 @@ const POST_TYPE_COLORS: Record<string, string> = {
   REEL: '#f97316',
 };
 
-const SORT_OPTIONS = [
-  { value: 'recent', label: 'Recent', order: 'desc' as const },
-  { value: 'recent', label: 'Oldest', order: 'asc' as const },
-  { value: 'likes', label: 'Most Liked', order: 'desc' as const },
-  { value: 'likes', label: 'Least Liked', order: 'asc' as const },
-  { value: 'comments', label: 'Most Commented', order: 'desc' as const },
-  { value: 'comments', label: 'Least Commented', order: 'asc' as const },
-  { value: 'credibility', label: 'Highest Credibility', order: 'desc' as const },
-  { value: 'credibility', label: 'Lowest Credibility', order: 'asc' as const },
-  { value: 'followers', label: 'Highest Followers', order: 'desc' as const },
-  { value: 'followers', label: 'Lowest Followers', order: 'asc' as const },
-];
+type CompPostSortField =
+  | 'recent'
+  | 'likes'
+  | 'comments'
+  | 'shares'
+  | 'views'
+  | 'engagement'
+  | 'credibility'
+  | 'followers';
 
 const API_PREFIX = '/api/v1/competition-analysis';
+
+const CATEGORY_TIER_ORDER = ['NANO', 'MICRO', 'MACRO', 'MEGA'];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -522,12 +523,33 @@ const CompetitionAnalysisDetailPage: React.FC = () => {
 
   // Post table state
   const [postPage, setPostPage] = useState(1);
-  const [postSortIdx, setPostSortIdx] = useState(0);
+  const [postSortBy, setPostSortBy] = useState<CompPostSortField>('recent');
+  const [postSortOrder, setPostSortOrder] = useState<'asc' | 'desc'>('desc');
   const [postCategoryFilter, setPostCategoryFilter] = useState('ALL');
   const [postBrandFilter, setPostBrandFilter] = useState('');
 
   // Category breakdown tab state
   const [categoryTab, setCategoryTab] = useState<string>('influencers');
+
+  type BrandOverviewSortKey =
+    | 'brandName'
+    | 'influencerCount'
+    | 'postsCount'
+    | 'totalLikes'
+    | 'totalViews'
+    | 'avgEngagementRate';
+  const [brandOverviewSort, setBrandOverviewSort] = useState<{
+    key: BrandOverviewSortKey;
+    dir: 'asc' | 'desc';
+  }>({ key: 'brandName', dir: 'asc' });
+
+  type CategoryBreakdownSort =
+    | { kind: 'category'; dir: 'asc' | 'desc' }
+    | { kind: 'brand'; brandId: string; dir: 'asc' | 'desc' };
+  const [categoryBreakdownSort, setCategoryBreakdownSort] = useState<CategoryBreakdownSort>({
+    kind: 'category',
+    dir: 'asc',
+  });
 
   const postsPerPage = 20;
 
@@ -570,12 +592,11 @@ const CompetitionAnalysisDetailPage: React.FC = () => {
   const fetchPosts = useCallback(async () => {
     if (!id) return;
     try {
-      const sort = SORT_OPTIONS[postSortIdx];
       const params = new URLSearchParams({
         page: postPage.toString(),
         limit: postsPerPage.toString(),
-        sortBy: sort.value,
-        sortOrder: sort.order,
+        sortBy: postSortBy,
+        sortOrder: postSortOrder,
       });
       if (postBrandFilter) params.append('brandId', postBrandFilter);
       if (postCategoryFilter !== 'ALL') params.append('category', postCategoryFilter);
@@ -586,7 +607,7 @@ const CompetitionAnalysisDetailPage: React.FC = () => {
     } catch {
       // ignore
     }
-  }, [id, postPage, postSortIdx, postCategoryFilter, postBrandFilter]);
+  }, [id, postPage, postSortBy, postSortOrder, postCategoryFilter, postBrandFilter]);
 
   useEffect(() => {
     if (id) {
@@ -594,6 +615,8 @@ const CompetitionAnalysisDetailPage: React.FC = () => {
       fetchChartData();
     }
   }, [id, fetchReport, fetchChartData]);
+
+  useReportPolling(report?.status, fetchReport);
 
   useEffect(() => {
     fetchPosts();
@@ -708,6 +731,43 @@ const CompetitionAnalysisDetailPage: React.FC = () => {
     engagement: 'engagement',
   };
 
+  const sortedBrands = useMemo(() => {
+    if (!report) return [];
+    const rows = [...report.brands];
+    const { key, dir } = brandOverviewSort;
+    const m = dir === 'asc' ? 1 : -1;
+    rows.sort((a, b) => {
+      if (key === 'brandName') return m * a.brandName.localeCompare(b.brandName);
+      const av = Number((a as Record<string, unknown>)[key] ?? 0);
+      const bv = Number((b as Record<string, unknown>)[key] ?? 0);
+      return m * (av - bv);
+    });
+    return rows;
+  }, [report, brandOverviewSort]);
+
+  const sortedBrandCategoryRows = useMemo(() => {
+    const metric = categoryMetricMap[categoryTabKey] || 'count';
+    const rows = [...brandCategoryData];
+    const m = categoryBreakdownSort.dir === 'asc' ? 1 : -1;
+    if (categoryBreakdownSort.kind === 'category') {
+      rows.sort(
+        (a, b) =>
+          m *
+          (CATEGORY_TIER_ORDER.indexOf(a.category) - CATEGORY_TIER_ORDER.indexOf(b.category)),
+      );
+    } else {
+      const bid = categoryBreakdownSort.brandId;
+      rows.sort((a, b) => {
+        const aCell = a.brands.find(x => x.brandId === bid) as Record<string, number> | undefined;
+        const bCell = b.brands.find(x => x.brandId === bid) as Record<string, number> | undefined;
+        const av = (aCell?.[metric] as number) ?? 0;
+        const bv = (bCell?.[metric] as number) ?? 0;
+        return m * (av - bv);
+      });
+    }
+    return rows;
+  }, [brandCategoryData, categoryBreakdownSort, categoryTabKey]);
+
   // Chart data for category breakdown stacked bar
   const categoryBarData = useMemo(() => {
     if (!report) return [];
@@ -769,6 +829,24 @@ const CompetitionAnalysisDetailPage: React.FC = () => {
   const influencersTimelineData = useMemo(() => {
     return (chartData?.influencersOverTime || []).map(d => ({ date: d.date, ...d.brands, total: d.total }));
   }, [chartData]);
+
+  const toggleBrandOverviewSort = (key: BrandOverviewSortKey) => {
+    setBrandOverviewSort(prev =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: key === 'brandName' ? 'asc' : 'desc' },
+    );
+  };
+
+  const togglePostSort = (field: CompPostSortField) => {
+    if (postSortBy === field) {
+      setPostSortOrder(o => (o === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setPostSortBy(field);
+      setPostSortOrder('desc');
+    }
+    setPostPage(1);
+  };
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
@@ -884,7 +962,13 @@ const CompetitionAnalysisDetailPage: React.FC = () => {
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Brand</th>
+                <SortableTh
+                  active={brandOverviewSort.key === 'brandName'}
+                  direction={brandOverviewSort.key === 'brandName' ? brandOverviewSort.dir : 'asc'}
+                  onClick={() => toggleBrandOverviewSort('brandName')}
+                >
+                  Brand
+                </SortableTh>
                 {report.brands.some(b => b.hashtags?.length) && (
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hashtags</th>
                 )}
@@ -894,15 +978,50 @@ const CompetitionAnalysisDetailPage: React.FC = () => {
                 {report.brands.some(b => b.keywords?.length) && (
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Keywords</th>
                 )}
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Influencers</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Posts</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Likes</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Views</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Eng Rate</th>
+                <SortableTh
+                  align="right"
+                  active={brandOverviewSort.key === 'influencerCount'}
+                  direction={brandOverviewSort.key === 'influencerCount' ? brandOverviewSort.dir : 'desc'}
+                  onClick={() => toggleBrandOverviewSort('influencerCount')}
+                >
+                  Influencers
+                </SortableTh>
+                <SortableTh
+                  align="right"
+                  active={brandOverviewSort.key === 'postsCount'}
+                  direction={brandOverviewSort.key === 'postsCount' ? brandOverviewSort.dir : 'desc'}
+                  onClick={() => toggleBrandOverviewSort('postsCount')}
+                >
+                  Posts
+                </SortableTh>
+                <SortableTh
+                  align="right"
+                  active={brandOverviewSort.key === 'totalLikes'}
+                  direction={brandOverviewSort.key === 'totalLikes' ? brandOverviewSort.dir : 'desc'}
+                  onClick={() => toggleBrandOverviewSort('totalLikes')}
+                >
+                  Likes
+                </SortableTh>
+                <SortableTh
+                  align="right"
+                  active={brandOverviewSort.key === 'totalViews'}
+                  direction={brandOverviewSort.key === 'totalViews' ? brandOverviewSort.dir : 'desc'}
+                  onClick={() => toggleBrandOverviewSort('totalViews')}
+                >
+                  Views
+                </SortableTh>
+                <SortableTh
+                  align="right"
+                  active={brandOverviewSort.key === 'avgEngagementRate'}
+                  direction={brandOverviewSort.key === 'avgEngagementRate' ? brandOverviewSort.dir : 'desc'}
+                  onClick={() => toggleBrandOverviewSort('avgEngagementRate')}
+                >
+                  Eng Rate
+                </SortableTh>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {report.brands.map(brand => (
+              {sortedBrands.map(brand => (
                 <tr key={brand.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -1098,19 +1217,47 @@ const CompetitionAnalysisDetailPage: React.FC = () => {
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                <SortableTh
+                  active={categoryBreakdownSort.kind === 'category'}
+                  direction={categoryBreakdownSort.kind === 'category' ? categoryBreakdownSort.dir : 'asc'}
+                  onClick={() =>
+                    setCategoryBreakdownSort(prev =>
+                      prev.kind === 'category'
+                        ? { kind: 'category', dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+                        : { kind: 'category', dir: 'asc' },
+                    )
+                  }
+                >
+                  Category
+                </SortableTh>
                 {report.brands.map(b => (
-                  <th key={b.id} className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: b.displayColor }} />
-                      {b.brandName}
-                    </div>
-                  </th>
+                  <SortableTh
+                    key={b.id}
+                    align="right"
+                    active={categoryBreakdownSort.kind === 'brand' && categoryBreakdownSort.brandId === b.id}
+                    direction={
+                      categoryBreakdownSort.kind === 'brand' && categoryBreakdownSort.brandId === b.id
+                        ? categoryBreakdownSort.dir
+                        : 'desc'
+                    }
+                    onClick={() =>
+                      setCategoryBreakdownSort(prev =>
+                        prev.kind === 'brand' && prev.brandId === b.id
+                          ? { kind: 'brand', brandId: b.id, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+                          : { kind: 'brand', brandId: b.id, dir: 'desc' },
+                      )
+                    }
+                  >
+                    <span className="inline-flex items-center justify-end gap-1.5 max-w-[140px]">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: b.displayColor }} />
+                      <span className="truncate">{b.brandName}</span>
+                    </span>
+                  </SortableTh>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {brandCategoryData.map(row => (
+              {sortedBrandCategoryRows.map(row => (
                 <tr key={row.category} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <span
@@ -1235,13 +1382,31 @@ const CompetitionAnalysisDetailPage: React.FC = () => {
             </select>
 
             <select
-              value={postSortIdx}
-              onChange={e => { setPostSortIdx(Number(e.target.value)); setPostPage(1); }}
+              value={`${postSortBy}:${postSortOrder}`}
+              onChange={e => {
+                const [by, ord] = e.target.value.split(':') as [CompPostSortField, 'asc' | 'desc'];
+                setPostSortBy(by);
+                setPostSortOrder(ord);
+                setPostPage(1);
+              }}
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
             >
-              {SORT_OPTIONS.map((opt, idx) => (
-                <option key={idx} value={idx}>{opt.label}</option>
-              ))}
+              <option value="recent:desc">Newest first</option>
+              <option value="recent:asc">Oldest first</option>
+              <option value="likes:desc">Likes: high to low</option>
+              <option value="likes:asc">Likes: low to high</option>
+              <option value="comments:desc">Comments: high to low</option>
+              <option value="comments:asc">Comments: low to high</option>
+              <option value="shares:desc">Shares: high to low</option>
+              <option value="shares:asc">Shares: low to high</option>
+              <option value="views:desc">Views: high to low</option>
+              <option value="views:asc">Views: low to high</option>
+              <option value="engagement:desc">Engagement: high to low</option>
+              <option value="engagement:asc">Engagement: low to high</option>
+              <option value="credibility:desc">Credibility: high to low</option>
+              <option value="credibility:asc">Credibility: low to high</option>
+              <option value="followers:desc">Followers: high to low</option>
+              <option value="followers:asc">Followers: low to high</option>
             </select>
 
             <span className="text-sm text-gray-500 ml-auto">
@@ -1257,12 +1422,54 @@ const CompetitionAnalysisDetailPage: React.FC = () => {
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-10">Platform</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Influencer</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Followers</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Likes</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Comments</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Shares</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Views</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Credibility</th>
+                <SortableTh
+                  align="right"
+                  active={postSortBy === 'followers'}
+                  direction={postSortBy === 'followers' ? postSortOrder : 'desc'}
+                  onClick={() => togglePostSort('followers')}
+                >
+                  Followers
+                </SortableTh>
+                <SortableTh
+                  align="right"
+                  active={postSortBy === 'likes'}
+                  direction={postSortBy === 'likes' ? postSortOrder : 'desc'}
+                  onClick={() => togglePostSort('likes')}
+                >
+                  Likes
+                </SortableTh>
+                <SortableTh
+                  align="right"
+                  active={postSortBy === 'comments'}
+                  direction={postSortBy === 'comments' ? postSortOrder : 'desc'}
+                  onClick={() => togglePostSort('comments')}
+                >
+                  Comments
+                </SortableTh>
+                <SortableTh
+                  align="right"
+                  active={postSortBy === 'shares'}
+                  direction={postSortBy === 'shares' ? postSortOrder : 'desc'}
+                  onClick={() => togglePostSort('shares')}
+                >
+                  Shares
+                </SortableTh>
+                <SortableTh
+                  align="right"
+                  active={postSortBy === 'views'}
+                  direction={postSortBy === 'views' ? postSortOrder : 'desc'}
+                  onClick={() => togglePostSort('views')}
+                >
+                  Views
+                </SortableTh>
+                <SortableTh
+                  align="right"
+                  active={postSortBy === 'credibility'}
+                  direction={postSortBy === 'credibility' ? postSortOrder : 'desc'}
+                  onClick={() => togglePostSort('credibility')}
+                >
+                  Credibility
+                </SortableTh>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Post Type</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Brand</th>
               </tr>

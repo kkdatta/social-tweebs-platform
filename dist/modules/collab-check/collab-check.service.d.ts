@@ -3,6 +3,7 @@ import { CollabCheckReport, CollabCheckInfluencer, CollabCheckPost, CollabCheckS
 import { User } from '../users/entities/user.entity';
 import { CreditsService } from '../credits/credits.service';
 import { CreateCollabCheckReportDto, UpdateCollabCheckReportDto, ShareCollabCheckReportDto, CollabCheckReportFilterDto, CollabCheckReportListResponseDto, CollabCheckReportDetailDto, DashboardStatsDto, PostsChartDataDto } from './dto';
+import { ModashService } from '../discovery/services/modash.service';
 export declare class CollabCheckService {
     private readonly reportRepo;
     private readonly influencerRepo;
@@ -10,13 +11,18 @@ export declare class CollabCheckService {
     private readonly shareRepo;
     private readonly userRepo;
     private readonly creditsService;
-    constructor(reportRepo: Repository<CollabCheckReport>, influencerRepo: Repository<CollabCheckInfluencer>, postRepo: Repository<CollabCheckPost>, shareRepo: Repository<CollabCheckShare>, userRepo: Repository<User>, creditsService: CreditsService);
+    private readonly modashService;
+    private readonly logger;
+    constructor(reportRepo: Repository<CollabCheckReport>, influencerRepo: Repository<CollabCheckInfluencer>, postRepo: Repository<CollabCheckPost>, shareRepo: Repository<CollabCheckShare>, userRepo: Repository<User>, creditsService: CreditsService, modashService: ModashService);
     createReport(userId: string, dto: CreateCollabCheckReportDto): Promise<{
         success: boolean;
         report: CollabCheckReport;
         creditsUsed: number;
     }>;
     private processReport;
+    private processRetryReport;
+    private processReportWithModash;
+    private processReportSimulated;
     private getDateRange;
     private getDaysFromPeriod;
     getReports(userId: string, filters: CollabCheckReportFilterDto): Promise<CollabCheckReportListResponseDto>;

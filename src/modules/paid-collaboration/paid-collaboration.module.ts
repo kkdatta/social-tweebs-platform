@@ -11,6 +11,7 @@ import {
 } from './entities';
 import { User } from '../users/entities/user.entity';
 import { CreditsModule } from '../credits/credits.module';
+import { DiscoveryModule } from '../discovery/discovery.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { CreditsModule } from '../credits/credits.module';
       User,
     ]),
     CreditsModule,
+    DiscoveryModule,
   ],
   controllers: [PaidCollaborationController],
   providers: [PaidCollaborationService],

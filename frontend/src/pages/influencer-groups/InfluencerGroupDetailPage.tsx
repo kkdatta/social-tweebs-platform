@@ -134,6 +134,17 @@ const formatNumber = (num: number) => {
 const generateSlug = (name: string) =>
   name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 80);
 
+/** Profile UUID vs opaque platform user id */
+const INFLUENCER_PROFILE_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parseInfluencerIdInput(raw: string): { influencerProfileId?: string; platformUserId?: string } {
+  const t = raw.trim();
+  if (!t) return {};
+  if (INFLUENCER_PROFILE_UUID_RE.test(t)) return { influencerProfileId: t };
+  return { platformUserId: t };
+}
+
 // ============ MODAL WRAPPER ============
 
 const Modal: React.FC<{
@@ -230,6 +241,7 @@ export const InfluencerGroupDetailPage: React.FC = () => {
   const [addTab, setAddTab] = useState<'manual' | 'upload' | 'import'>('manual');
   const [addPlatform, setAddPlatform] = useState('');
   const [addName, setAddName] = useState('');
+  const [addInfluencerId, setAddInfluencerId] = useState('');
   const [addUsername, setAddUsername] = useState('');
   const [addFollowers, setAddFollowers] = useState('');
   const [addLoading, setAddLoading] = useState(false);
@@ -488,17 +500,20 @@ export const InfluencerGroupDetailPage: React.FC = () => {
   // ============ ADD INFLUENCER ============
 
   const handleAddManual = async () => {
-    if (!addName.trim() || !addPlatform) return;
+    if (!addName.trim() && !addInfluencerId.trim()) return;
     setAddLoading(true);
     try {
+      const idFields = parseInfluencerIdInput(addInfluencerId);
       await influencerGroupsApi.addInfluencer(id!, {
-        influencerName: addName.trim(),
+        ...idFields,
+        influencerName: addName.trim() || undefined,
         influencerUsername: addUsername.trim() || undefined,
-        platform: addPlatform,
-        followerCount: addFollowers ? parseInt(addFollowers) : 0,
+        platform: addPlatform || undefined,
+        followerCount: addFollowers ? parseInt(addFollowers, 10) : undefined,
       });
       showToast('Influencer added');
       setAddName('');
+      setAddInfluencerId('');
       setAddUsername('');
       setAddFollowers('');
       fetchMembers();
@@ -541,15 +556,32 @@ export const InfluencerGroupDetailPage: React.FC = () => {
     if (csvData.length === 0) return;
     setAddLoading(true);
     try {
-      const influencers = csvData.map((row) => ({
-        influencerName: row.name || row.influencer_name || row.influencername || '',
-        influencerUsername: row.username || row.influencer_username || row.handle || '',
-        platform: (row.platform || 'INSTAGRAM').toUpperCase(),
-        followerCount: parseInt(row.followers || row.follower_count || '0') || 0,
-      })).filter((i) => i.influencerName);
+      const influencers = csvData
+        .map((row) => {
+          const rawId = (row.id || row.influencer_id || row.profile_id || row.influencer_profile_id || '').trim();
+          const idFields = parseInfluencerIdInput(rawId);
+          const name = (row.name || row.influencer_name || row.influencername || '').trim();
+          if (!name && !idFields.influencerProfileId && !idFields.platformUserId) return null;
+          const plat = (row.platform || '').trim().toUpperCase();
+          return {
+            ...idFields,
+            influencerName: name || undefined,
+            influencerUsername: (row.username || row.influencer_username || row.handle || '').trim() || undefined,
+            platform: plat || undefined,
+            followerCount: parseInt(row.followers || row.follower_count || '0', 10) || 0,
+          };
+        })
+        .filter(Boolean) as Array<{
+        influencerProfileId?: string;
+        platformUserId?: string;
+        influencerName?: string;
+        influencerUsername?: string;
+        platform?: string;
+        followerCount: number;
+      }>;
 
       const result = await influencerGroupsApi.bulkAddInfluencers(id!, { influencers });
-      showToast(`Added ${result.addedCount || 0}, skipped ${result.skippedCount || 0}`);
+      showToast(`Added ${result.added ?? 0}, skipped ${result.skipped ?? 0}`);
       setCsvData([]);
       if (fileInputRef.current) fileInputRef.current.value = '';
       fetchMembers();
@@ -581,7 +613,8 @@ export const InfluencerGroupDetailPage: React.FC = () => {
   };
 
   const downloadCsvTemplate = () => {
-    const csv = 'name,username,platform,followers\nJohn Doe,johndoe,INSTAGRAM,50000\n';
+    const csv =
+      'id,name,username,platform,followers\n,John Doe,johndoe,,50000\n00000000-0000-4000-8000-000000000001,,,,\n';
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1771,7 +1804,11 @@ export const InfluencerGroupDetailPage: React.FC = () => {
       </Modal>
 
       {/* Add Influencer Modal */}
-      <Modal open={showAddModal} onClose={() => { setShowAddModal(false); setCsvData([]); }} title="Add Influencer" wide>
+      <Modal open={showAddModal} onClose={() => {
+        setShowAddModal(false);
+        setCsvData([]);
+        setAddInfluencerId('');
+      }} title="Add Influencer" wide>
         <div>
           {/* Tabs */}
           <div className="flex border-b border-gray-200 mb-4">
@@ -1794,19 +1831,28 @@ export const InfluencerGroupDetailPage: React.FC = () => {
           {/* Manual Add */}
           {addTab === 'manual' && (
             <div className="space-y-4">
+              <p className="text-xs text-gray-500">
+                Enter an <strong>influencer name</strong> and/or an <strong>influencer ID</strong> (profile UUID or platform user id). All other fields are optional.
+              </p>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Platform *</label>
-                <select value={addPlatform} onChange={(e) => setAddPlatform(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                  <option value="">Select Platform</option>
-                  {group.platforms.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Influencer Name *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Influencer name</label>
                 <input type="text" value={addName} onChange={(e) => setAddName(e.target.value)}
                   placeholder="e.g., John Doe"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Influencer ID</label>
+                <input type="text" value={addInfluencerId} onChange={(e) => setAddInfluencerId(e.target.value)}
+                  placeholder="Profile UUID or platform user id"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Platform</label>
+                <select value={addPlatform} onChange={(e) => setAddPlatform(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                  <option value="">Default ({group.platforms[0] || '—'})</option>
+                  {group.platforms.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
@@ -1820,7 +1866,8 @@ export const InfluencerGroupDetailPage: React.FC = () => {
                   placeholder="e.g., 50000"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
               </div>
-              <button onClick={handleAddManual} disabled={addLoading || !addName.trim() || !addPlatform}
+              <button onClick={handleAddManual}
+                disabled={addLoading || (!addName.trim() && !addInfluencerId.trim())}
                 className="w-full px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50">
                 {addLoading ? 'Adding...' : 'Add Influencer'}
               </button>
@@ -1833,7 +1880,9 @@ export const InfluencerGroupDetailPage: React.FC = () => {
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                 <Upload className="mx-auto h-10 w-10 text-gray-400 mb-3" />
                 <p className="text-sm text-gray-600 mb-2">Upload a CSV file with influencer data</p>
-                <p className="text-xs text-gray-400 mb-4">Columns: name, username, platform, followers</p>
+                <p className="text-xs text-gray-400 mb-4">
+                  Columns: id (profile UUID or platform user id), name, username, platform, followers — name or id required per row
+                </p>
                 <input ref={fileInputRef} type="file" accept=".csv,.txt" onChange={handleFileUpload}
                   className="hidden" id="csv-upload" />
                 <div className="flex justify-center gap-3">

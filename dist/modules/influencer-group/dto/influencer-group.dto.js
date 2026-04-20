@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DashboardStatsDto = exports.ApplicationListResponseDto = exports.MemberListResponseDto = exports.GroupListResponseDto = exports.ApplicationSummaryDto = exports.InvitationSummaryDto = exports.ShareSummaryDto = exports.GroupMemberDto = exports.GroupDetailDto = exports.GroupSummaryDto = exports.BulkRejectApplicationsDto = exports.BulkApproveApplicationsDto = exports.ApplicationFilterDto = exports.SubmitApplicationDto = exports.UpdateInvitationDto = exports.CreateInvitationDto = exports.ShareGroupDto = exports.MemberFilterDto = exports.RemoveInfluencersDto = exports.CopyInfluencersDto = exports.ImportFromGroupDto = exports.BulkAddInfluencersDto = exports.AddInfluencerDto = exports.GroupFilterDto = exports.UpdateGroupDto = exports.CreateGroupDto = void 0;
+exports.DashboardStatsDto = exports.ApplicationListResponseDto = exports.MemberListResponseDto = exports.GroupListResponseDto = exports.ApplicationSummaryDto = exports.InvitationSummaryDto = exports.ShareSummaryDto = exports.GroupMemberDto = exports.GroupDetailDto = exports.GroupSummaryDto = exports.BulkRejectApplicationsDto = exports.BulkApproveApplicationsDto = exports.ApplicationFilterDto = exports.SubmitApplicationDto = exports.UpdateInvitationDto = exports.CreateInvitationDto = exports.ShareGroupDto = exports.MemberFilterDto = exports.RemoveInfluencersDto = exports.CopyInfluencersDto = exports.ImportFromGroupDto = exports.BulkAddInfluencersDto = exports.AddInfluencerDto = exports.HasInfluencerNameOrIdConstraint = exports.GroupFilterDto = exports.UpdateGroupDto = exports.CreateGroupDto = void 0;
 const swagger_1 = require("@nestjs/swagger");
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
@@ -130,11 +130,27 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], GroupFilterDto.prototype, "sortOrder", void 0);
+let HasInfluencerNameOrIdConstraint = class HasInfluencerNameOrIdConstraint {
+    validate(_, args) {
+        const o = args.object;
+        const name = o.influencerName?.trim();
+        return !!(name && name.length > 0) || !!o.influencerProfileId || !!(o.platformUserId?.trim());
+    }
+    defaultMessage() {
+        return 'Provide influencerName, influencerProfileId, or platformUserId';
+    }
+};
+exports.HasInfluencerNameOrIdConstraint = HasInfluencerNameOrIdConstraint;
+exports.HasInfluencerNameOrIdConstraint = HasInfluencerNameOrIdConstraint = __decorate([
+    (0, class_validator_1.ValidatorConstraint)({ name: 'hasInfluencerNameOrId', async: false })
+], HasInfluencerNameOrIdConstraint);
 class AddInfluencerDto {
 }
 exports.AddInfluencerDto = AddInfluencerDto;
 __decorate([
-    (0, swagger_1.ApiProperty)({ description: 'Influencer name', example: 'John Doe' }),
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Influencer display name (optional if profile or platform user id is set)' }),
+    (0, class_validator_1.Validate)(HasInfluencerNameOrIdConstraint),
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.MinLength)(1),
     (0, class_validator_1.MaxLength)(255),
@@ -148,18 +164,25 @@ __decorate([
     __metadata("design:type", String)
 ], AddInfluencerDto.prototype, "influencerUsername", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ description: 'Platform', example: 'INSTAGRAM', enum: influencer_group_entity_1.GroupPlatform }),
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Platform; when omitted, the group’s first platform is used',
+        enum: influencer_group_entity_1.GroupPlatform,
+    }),
+    (0, class_validator_1.Validate)(HasInfluencerNameOrIdConstraint),
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsEnum)(influencer_group_entity_1.GroupPlatform),
     __metadata("design:type", String)
 ], AddInfluencerDto.prototype, "platform", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({ description: 'Profile ID from cached profiles' }),
+    (0, class_validator_1.Validate)(HasInfluencerNameOrIdConstraint),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsUUID)(),
     __metadata("design:type", String)
 ], AddInfluencerDto.prototype, "influencerProfileId", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({ description: 'Platform user ID' }),
+    (0, class_validator_1.Validate)(HasInfluencerNameOrIdConstraint),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)

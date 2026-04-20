@@ -24,7 +24,9 @@ export declare class DiscoveryService {
     private readonly logger;
     constructor(profileRepository: Repository<InfluencerProfile>, searchRepository: Repository<DiscoverySearch>, searchResultRepository: Repository<SearchResult>, insightsAccessRepository: Repository<InsightsAccess>, audienceDataRepository: Repository<AudienceData>, unlockedInfluencerRepository: Repository<UnlockedInfluencer>, exportRecordRepository: Repository<ExportRecord>, userRepository: Repository<User>, modashService: ModashService, creditsService: CreditsService, dataSource: DataSource, insightsService: InsightsService);
     searchInfluencers(userId: string, dto: SearchInfluencersDto): Promise<SearchResponseDto>;
+    private generateSearchCacheKey;
     private searchInfluencersViaModash;
+    private serveCachedSearch;
     private searchInfluencersFromLocalDB;
     unblurInfluencers(userId: string, dto: UnblurInfluencersDto): Promise<UnblurResponseDto>;
     viewInsights(userId: string, profileId: string): Promise<ViewInsightsResponseDto>;
@@ -36,15 +38,38 @@ export declare class DiscoveryService {
     getExportCostEstimate(userId: string, profileIds: string[], excludePreviouslyExported: boolean): Promise<ExportCostEstimateDto>;
     checkInsightsAccess(userId: string, profileId: string): Promise<InsightsCheckResponseDto>;
     getLocations(query?: string): Promise<any>;
+    private dictCache;
+    private readonly DICT_CACHE_TTL_MS;
+    private getCachedDict;
+    private setCachedDict;
     getInterests(platform: PlatformType): Promise<any>;
     getLanguages(): Promise<any>;
     getBrands(query?: string): Promise<any>;
+    getModashAccountInfo(): Promise<{
+        enabled: boolean;
+        message: string;
+        billing?: undefined;
+        rateLimits?: undefined;
+    } | {
+        enabled: boolean;
+        billing: {
+            credits: number;
+            rawRequests: number;
+        };
+        rateLimits: {
+            discoveryRatelimit: number;
+            rawRatelimit: number;
+        };
+        message?: undefined;
+    }>;
     private getPreviouslyExportedProfileIds;
     private storeSearchResults;
     private mapModashToProfile;
+    private extractStatValue;
     private updateProfileFromReport;
     private updateAudienceData;
     private getUnlockedProfileIds;
     private mapToInsightsDto;
+    private getClientUserIds;
     private truncateBio;
 }

@@ -1,3 +1,4 @@
+import { ValidatorConstraintInterface, ValidationArguments } from 'class-validator';
 import { GroupPlatform, SharePermission, InvitationType, ApplicationStatus, CurrencyType } from '../entities/influencer-group.entity';
 export declare class CreateGroupDto {
     name: string;
@@ -19,10 +20,14 @@ export declare class GroupFilterDto {
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
 }
+export declare class HasInfluencerNameOrIdConstraint implements ValidatorConstraintInterface {
+    validate(_: unknown, args: ValidationArguments): boolean;
+    defaultMessage(): string;
+}
 export declare class AddInfluencerDto {
-    influencerName: string;
+    influencerName?: string;
     influencerUsername?: string;
-    platform: GroupPlatform;
+    platform?: GroupPlatform;
     influencerProfileId?: string;
     platformUserId?: string;
     profilePictureUrl?: string;

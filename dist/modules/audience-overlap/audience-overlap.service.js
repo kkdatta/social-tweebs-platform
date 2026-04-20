@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var AudienceOverlapService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AudienceOverlapService = void 0;
 const common_1 = require("@nestjs/common");
@@ -20,33 +21,56 @@ const uuid_1 = require("uuid");
 const XLSX = require("xlsx");
 const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
+const influencer_profile_entity_1 = require("../discovery/entities/influencer-profile.entity");
 const credits_service_1 = require("../credits/credits.service");
+const modash_service_1 = require("../discovery/services/modash.service");
 const enums_1 = require("../../common/enums");
-const CREDIT_PER_REPORT = 1;
+const CREDIT_PER_INFLUENCER = 1;
+const FREE_LIFETIME_QUERIES = 10;
 const DEFAULT_REPORT_QUOTA = 50;
-let AudienceOverlapService = class AudienceOverlapService {
-    constructor(reportRepo, influencerRepo, shareRepo, userRepo, creditsService) {
+let AudienceOverlapService = AudienceOverlapService_1 = class AudienceOverlapService {
+    constructor(reportRepo, influencerRepo, shareRepo, userRepo, profileRepo, creditsService, modashService) {
         this.reportRepo = reportRepo;
         this.influencerRepo = influencerRepo;
         this.shareRepo = shareRepo;
         this.userRepo = userRepo;
+        this.profileRepo = profileRepo;
         this.creditsService = creditsService;
+        this.modashService = modashService;
+        this.logger = new common_1.Logger(AudienceOverlapService_1.name);
+    }
+    async getClientAdminId(userId) {
+        const user = await this.userRepo.findOne({ where: { id: userId } });
+        if (!user)
+            return userId;
+        return user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' ? userId : (user.parentId || userId);
+    }
+    async getClientOverlapQueryCount(clientAdminId) {
+        const children = await this.userRepo.find({
+            where: { parentId: clientAdminId },
+            select: ['id'],
+        });
+        const allUserIds = [clientAdminId, ...children.map((c) => c.id)];
+        return this.reportRepo.count({
+            where: { ownerId: (0, typeorm_2.In)(allUserIds) },
+        });
     }
     async createReport(userId, dto) {
         if (dto.influencerIds.length < 2) {
             throw new common_1.BadRequestException('At least 2 influencers are required for audience overlap analysis');
         }
+        const clientAdminId = await this.getClientAdminId(userId);
+        const queryCount = await this.getClientOverlapQueryCount(clientAdminId);
+        const influencerCount = dto.influencerIds.length;
+        let creditsToCharge = influencerCount * CREDIT_PER_INFLUENCER;
+        if (queryCount < FREE_LIFETIME_QUERIES) {
+            creditsToCharge = 0;
+            this.logger.log(`Audience overlap: client has ${queryCount}/${FREE_LIFETIME_QUERIES} free queries used — this query is FREE`);
+        }
         const inProcessReport = await this.reportRepo.findOne({
             where: { ownerId: userId, status: entities_1.OverlapReportStatus.IN_PROCESS },
         });
         const initialStatus = inProcessReport ? entities_1.OverlapReportStatus.PENDING : entities_1.OverlapReportStatus.IN_PROCESS;
-        await this.creditsService.deductCredits(userId, {
-            actionType: enums_1.ActionType.REPORT_GENERATION,
-            quantity: CREDIT_PER_REPORT,
-            module: enums_1.ModuleType.AUDIENCE_OVERLAP,
-            resourceId: 'new-overlap-report',
-            resourceType: 'overlap_report_creation',
-        });
         const report = new entities_1.AudienceOverlapReport();
         report.title = dto.title || 'Untitled';
         report.platform = dto.platform;
@@ -57,26 +81,46 @@ let AudienceOverlapService = class AudienceOverlapService {
         const savedReport = await this.reportRepo.save(report);
         const influencers = await this.addInfluencersToReport(savedReport.id, dto.influencerIds, dto.platform);
         if (initialStatus === entities_1.OverlapReportStatus.IN_PROCESS) {
-            setTimeout(() => this.processReport(savedReport.id), 2000);
+            setTimeout(() => this.processReportAndCharge(savedReport.id, userId, creditsToCharge), 2000);
         }
         savedReport.influencers = influencers;
         return {
             success: true,
             report: savedReport,
-            creditsUsed: CREDIT_PER_REPORT,
+            creditsUsed: creditsToCharge,
         };
     }
+    async processReportAndCharge(reportId, userId, creditsToCharge) {
+        try {
+            await this.processReport(reportId);
+            if (creditsToCharge > 0) {
+                await this.creditsService.deductCredits(userId, {
+                    actionType: enums_1.ActionType.REPORT_GENERATION,
+                    quantity: creditsToCharge,
+                    module: enums_1.ModuleType.AUDIENCE_OVERLAP,
+                    resourceId: reportId,
+                    resourceType: 'overlap_report_creation',
+                });
+            }
+        }
+        catch (error) {
+            this.logger.error(`Overlap report ${reportId} failed — NO credits charged: ${error.message}`);
+        }
+    }
     async addInfluencersToReport(reportId, influencerIds, platform) {
+        const profiles = await this.profileRepo.find({ where: { id: (0, typeorm_2.In)(influencerIds) } });
+        const profileMap = new Map(profiles.map((p) => [p.id, p]));
         const influencers = [];
         for (let i = 0; i < influencerIds.length; i++) {
+            const profile = profileMap.get(influencerIds[i]);
             const influencer = new entities_1.AudienceOverlapInfluencer();
             influencer.reportId = reportId;
             influencer.influencerProfileId = influencerIds[i];
             influencer.platform = platform;
             influencer.displayOrder = i + 1;
-            influencer.influencerName = `Influencer ${i + 1}`;
-            influencer.influencerUsername = `influencer_${i + 1}`;
-            influencer.followerCount = Math.floor(Math.random() * 100000) + 10000;
+            influencer.influencerName = profile?.fullName || profile?.username || `Influencer ${i + 1}`;
+            influencer.influencerUsername = profile?.username || profile?.platformUserId || `unknown_${i + 1}`;
+            influencer.followerCount = profile?.followerCount || 0;
             influencers.push(await this.influencerRepo.save(influencer));
         }
         return influencers;
@@ -89,25 +133,11 @@ let AudienceOverlapService = class AudienceOverlapService {
         if (!report)
             return;
         try {
-            const totalFollowers = report.influencers.reduce((sum, inf) => sum + inf.followerCount, 0);
-            const overlapPercentage = Math.random() * 30 + 10;
-            const overlappingFollowers = Math.floor(totalFollowers * (overlapPercentage / 100));
-            const uniqueFollowers = totalFollowers - overlappingFollowers;
-            report.totalFollowers = totalFollowers;
-            report.uniqueFollowers = uniqueFollowers;
-            report.overlappingFollowers = overlappingFollowers;
-            report.overlapPercentage = Number(overlapPercentage.toFixed(2));
-            report.uniquePercentage = Number((100 - overlapPercentage).toFixed(2));
-            report.status = entities_1.OverlapReportStatus.COMPLETED;
-            report.completedAt = new Date();
-            await this.reportRepo.save(report);
-            for (const influencer of report.influencers) {
-                const uniquePct = Math.random() * 30 + 60;
-                influencer.uniquePercentage = Number(uniquePct.toFixed(2));
-                influencer.overlappingPercentage = Number((100 - uniquePct).toFixed(2));
-                influencer.uniqueFollowers = Math.floor(influencer.followerCount * (uniquePct / 100));
-                influencer.overlappingFollowers = influencer.followerCount - influencer.uniqueFollowers;
-                await this.influencerRepo.save(influencer);
+            if (this.modashService.isModashEnabled()) {
+                await this.processReportWithModash(report);
+            }
+            else {
+                await this.processReportSimulated(report);
             }
             await this.processPendingReports(report.ownerId);
         }
@@ -115,6 +145,68 @@ let AudienceOverlapService = class AudienceOverlapService {
             report.status = entities_1.OverlapReportStatus.FAILED;
             report.errorMessage = error.message || 'Processing failed';
             await this.reportRepo.save(report);
+        }
+    }
+    async processReportWithModash(report) {
+        this.logger.log(`Processing audience overlap via Modash API for report ${report.id}`);
+        const handles = report.influencers.map((inf) => inf.influencerUsername || inf.influencerName);
+        const platformMap = {
+            instagram: enums_1.PlatformType.INSTAGRAM,
+            youtube: enums_1.PlatformType.YOUTUBE,
+            tiktok: enums_1.PlatformType.TIKTOK,
+        };
+        const platform = platformMap[report.platform?.toLowerCase()] || enums_1.PlatformType.INSTAGRAM;
+        const modashResult = await this.modashService.getAudienceOverlap(platform, handles, report.ownerId);
+        if (modashResult.error) {
+            throw new Error('Modash audience overlap API returned an error');
+        }
+        const { reportInfo, data } = modashResult;
+        report.totalFollowers = reportInfo.totalFollowers;
+        report.uniqueFollowers = reportInfo.totalUniqueFollowers;
+        report.overlappingFollowers = reportInfo.totalFollowers - reportInfo.totalUniqueFollowers;
+        report.overlapPercentage = reportInfo.totalFollowers > 0
+            ? Number((((reportInfo.totalFollowers - reportInfo.totalUniqueFollowers) / reportInfo.totalFollowers) * 100).toFixed(2))
+            : 0;
+        report.uniquePercentage = reportInfo.totalFollowers > 0
+            ? Number(((reportInfo.totalUniqueFollowers / reportInfo.totalFollowers) * 100).toFixed(2))
+            : 0;
+        report.status = entities_1.OverlapReportStatus.COMPLETED;
+        report.completedAt = new Date();
+        await this.reportRepo.save(report);
+        for (const influencer of report.influencers) {
+            const match = data.find((d) => d.username?.toLowerCase() === influencer.influencerUsername?.toLowerCase() ||
+                d.userId === influencer.influencerProfileId);
+            if (match) {
+                influencer.followerCount = match.followers;
+                influencer.uniquePercentage = Number(match.uniquePercentage.toFixed(2));
+                influencer.overlappingPercentage = Number(match.overlappingPercentage.toFixed(2));
+                influencer.uniqueFollowers = Math.floor(match.followers * (match.uniquePercentage / 100));
+                influencer.overlappingFollowers = match.followers - influencer.uniqueFollowers;
+            }
+            await this.influencerRepo.save(influencer);
+        }
+        this.logger.log(`Audience overlap report ${report.id} completed with Modash data`);
+    }
+    async processReportSimulated(report) {
+        const totalFollowers = report.influencers.reduce((sum, inf) => sum + inf.followerCount, 0);
+        const overlapPercentage = Math.random() * 30 + 10;
+        const overlappingFollowers = Math.floor(totalFollowers * (overlapPercentage / 100));
+        const uniqueFollowers = totalFollowers - overlappingFollowers;
+        report.totalFollowers = totalFollowers;
+        report.uniqueFollowers = uniqueFollowers;
+        report.overlappingFollowers = overlappingFollowers;
+        report.overlapPercentage = Number(overlapPercentage.toFixed(2));
+        report.uniquePercentage = Number((100 - overlapPercentage).toFixed(2));
+        report.status = entities_1.OverlapReportStatus.COMPLETED;
+        report.completedAt = new Date();
+        await this.reportRepo.save(report);
+        for (const influencer of report.influencers) {
+            const uniquePct = Math.random() * 30 + 60;
+            influencer.uniquePercentage = Number(uniquePct.toFixed(2));
+            influencer.overlappingPercentage = Number((100 - uniquePct).toFixed(2));
+            influencer.uniqueFollowers = Math.floor(influencer.followerCount * (uniquePct / 100));
+            influencer.overlappingFollowers = influencer.followerCount - influencer.uniqueFollowers;
+            await this.influencerRepo.save(influencer);
         }
     }
     async processPendingReports(userId) {
@@ -125,7 +217,13 @@ let AudienceOverlapService = class AudienceOverlapService {
         if (pendingReport) {
             pendingReport.status = entities_1.OverlapReportStatus.IN_PROCESS;
             await this.reportRepo.save(pendingReport);
-            setTimeout(() => this.processReport(pendingReport.id), 2000);
+            const clientAdminId = await this.getClientAdminId(userId);
+            const queryCount = await this.getClientOverlapQueryCount(clientAdminId);
+            const influencerCount = await this.influencerRepo.count({ where: { reportId: pendingReport.id } });
+            let creditsToCharge = influencerCount * CREDIT_PER_INFLUENCER;
+            if (queryCount < FREE_LIFETIME_QUERIES)
+                creditsToCharge = 0;
+            setTimeout(() => this.processReportAndCharge(pendingReport.id, userId, creditsToCharge), 2000);
         }
     }
     async getReports(userId, filters) {
@@ -216,19 +314,14 @@ let AudienceOverlapService = class AudienceOverlapService {
         if (report.status !== entities_1.OverlapReportStatus.FAILED) {
             throw new common_1.BadRequestException('Only failed reports can be retried');
         }
-        await this.creditsService.deductCredits(userId, {
-            actionType: enums_1.ActionType.REPORT_GENERATION,
-            quantity: CREDIT_PER_REPORT,
-            module: enums_1.ModuleType.AUDIENCE_OVERLAP,
-            resourceId: reportId,
-            resourceType: 'overlap_report_retry',
-        });
+        const influencerCount = report.influencers?.length || 2;
+        const retryCredits = influencerCount * CREDIT_PER_INFLUENCER;
         report.status = entities_1.OverlapReportStatus.IN_PROCESS;
         report.errorMessage = undefined;
         report.retryCount += 1;
         const savedReport = await this.reportRepo.save(report);
-        setTimeout(() => this.processReport(reportId), 2000);
-        return { success: true, report: savedReport, creditsUsed: CREDIT_PER_REPORT };
+        setTimeout(() => this.processReportAndCharge(reportId, userId, retryCredits), 2000);
+        return { success: true, report: savedReport, creditsUsed: retryCredits };
     }
     async deleteReport(userId, reportId) {
         const report = await this.reportRepo.findOne({ where: { id: reportId } });
@@ -420,16 +513,19 @@ let AudienceOverlapService = class AudienceOverlapService {
     }
 };
 exports.AudienceOverlapService = AudienceOverlapService;
-exports.AudienceOverlapService = AudienceOverlapService = __decorate([
+exports.AudienceOverlapService = AudienceOverlapService = AudienceOverlapService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(entities_1.AudienceOverlapReport)),
     __param(1, (0, typeorm_1.InjectRepository)(entities_1.AudienceOverlapInfluencer)),
     __param(2, (0, typeorm_1.InjectRepository)(entities_1.AudienceOverlapShare)),
     __param(3, (0, typeorm_1.InjectRepository)(user_entity_1.User)),
+    __param(4, (0, typeorm_1.InjectRepository)(influencer_profile_entity_1.InfluencerProfile)),
     __metadata("design:paramtypes", [typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
-        credits_service_1.CreditsService])
+        typeorm_2.Repository,
+        credits_service_1.CreditsService,
+        modash_service_1.ModashService])
 ], AudienceOverlapService);
 //# sourceMappingURL=audience-overlap.service.js.map

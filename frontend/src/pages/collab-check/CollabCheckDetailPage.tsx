@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useReportPolling } from '../../hooks/useReportPolling';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Edit3, RefreshCw, Trash2, Copy, MoreVertical,
@@ -89,15 +90,11 @@ export const CollabCheckDetailPage = () => {
   const [shareWithTeam, setShareWithTeam] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
 
-  useEffect(() => {
-    loadReport();
-  }, [id]);
-
-  const loadReport = async () => {
+  const loadReport = useCallback(async () => {
     if (!id) return;
-    
+
     try {
-      setLoading(true);
+      setLoading(prev => prev === true ? true : false);
       const [reportData, chartDataResult] = await Promise.all([
         collabCheckApi.getById(id),
         collabCheckApi.getChartData(id).catch(() => []),
@@ -110,7 +107,13 @@ export const CollabCheckDetailPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    loadReport();
+  }, [id, loadReport]);
+
+  useReportPolling(report?.status, loadReport);
 
   const handleSaveTitle = async () => {
     if (!id || !editTitle.trim()) return;

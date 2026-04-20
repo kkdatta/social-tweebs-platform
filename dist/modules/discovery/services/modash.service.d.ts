@@ -127,6 +127,136 @@ export interface ModashReportResponse {
         thumbnail?: string;
     }>;
 }
+export interface ModashCollaborationPost {
+    post_id: string;
+    post_thumbnail?: string;
+    post_timestamp?: number;
+    title?: string;
+    description?: string;
+    label: string;
+    collaboration_type: 'Paid' | 'Gifted' | 'Ambassador' | 'Affiliate' | 'Unspecified';
+    stats?: {
+        likes?: number;
+        comments?: number;
+        plays?: number;
+        views?: number;
+        shares?: number;
+    };
+    sponsors?: Array<{
+        name?: string;
+        username?: string;
+        domain?: string;
+        logo_url?: string;
+        user_id?: string;
+        category: string;
+    }>;
+    user_id?: string;
+    username?: string;
+    user_picture?: string;
+    platform?: string;
+}
+export interface ModashCollaborationPostsResponse {
+    error: boolean;
+    cursor?: string;
+    influencer?: {
+        id: string;
+        platform: string;
+        is_more_available: boolean;
+        username?: string;
+        user_picture?: string;
+        posts: ModashCollaborationPost[];
+    };
+    brand?: {
+        id: string;
+        platform: string;
+        is_more_available: boolean;
+        brand_name?: string;
+        brand_domain?: string;
+        brand_logo?: string;
+        brand_category: string;
+        posts: ModashCollaborationPost[];
+    };
+}
+export interface ModashCollaborationSummaryResponse {
+    error: boolean;
+    cursor?: string;
+    influencer?: {
+        id: string;
+        platform: string;
+        is_more_available: boolean;
+        summary: any;
+        per_brand_summary: Array<{
+            brand: {
+                name?: string;
+                username?: string;
+                domain?: string;
+                logo_url?: string;
+                user_id?: string;
+                category: string;
+            };
+            summary: any;
+        }>;
+    };
+    brand?: {
+        id: string;
+        platform: string;
+        is_more_available: boolean;
+        summary: any;
+        per_influencer_summary: Array<{
+            influencer: {
+                username?: string;
+                user_id?: string;
+                user_picture?: string;
+            };
+            summary: any;
+        }>;
+    };
+}
+export interface ModashAudienceOverlapResponse {
+    error: boolean;
+    reportInfo: {
+        totalFollowers: number;
+        totalUniqueFollowers: number;
+    };
+    data: Array<{
+        userId: string;
+        username?: string;
+        followers: number;
+        uniquePercentage: number;
+        overlappingPercentage: number;
+    }>;
+}
+export interface ModashEmailSearchResponse {
+    error: boolean;
+    matchedEmails: Array<{
+        email: string;
+        users: Array<{
+            platform: string;
+            userId?: string;
+            url: string;
+            username: string;
+            fullname?: string;
+            picture: string;
+            followers: number;
+            engagements: number;
+            engagementRate: number;
+            isVerified: boolean;
+        }>;
+    }>;
+    notMatchedEmails: string[];
+    totalMatches: number;
+}
+export interface ModashAccountInfoResponse {
+    error: boolean;
+    billing: {
+        credits: number;
+        rawRequests: number;
+    };
+    rateLimits: {
+        discoveryRatelimit: number;
+        rawRatelimit: number;
+    };
+}
 export declare class ModashService {
     private configService;
     private apiLogRepository;
@@ -138,10 +268,29 @@ export declare class ModashService {
     isModashEnabled(): boolean;
     searchInfluencers(dto: SearchInfluencersDto, userId?: string): Promise<ModashSearchResponse>;
     getInfluencerReport(platform: PlatformType, platformUserId: string, userId?: string): Promise<ModashReportResponse>;
-    getLocations(query?: string): Promise<any>;
+    getCollaborationPosts(id: string, platform: 'instagram' | 'tiktok' | 'youtube', options?: {
+        collaboratorId?: string;
+        postCreationTimestampMs?: {
+            gte?: number;
+            lte?: number;
+        };
+        cursor?: string;
+        limit?: number;
+        groupBrandCollaborations?: boolean;
+    }, userId?: string): Promise<ModashCollaborationPostsResponse>;
+    getCollaborationSummary(id: string, platform: 'instagram' | 'tiktok' | 'youtube', options?: {
+        collaboratorId?: string;
+        cursor?: string;
+        limit?: number;
+        groupBrandCollaborations?: boolean;
+    }, userId?: string): Promise<ModashCollaborationSummaryResponse>;
+    getAudienceOverlap(platform: PlatformType, influencers: string[], userId?: string): Promise<ModashAudienceOverlapResponse>;
+    searchByEmail(emails: string[], userId?: string): Promise<ModashEmailSearchResponse>;
+    getAccountInfo(): Promise<ModashAccountInfoResponse>;
+    getLocations(query?: string, platform?: PlatformType): Promise<any>;
     getInterests(platform: PlatformType): Promise<any>;
-    getLanguages(): Promise<any>;
-    getBrands(query?: string): Promise<any>;
+    getLanguages(platform?: PlatformType): Promise<any>;
+    getBrands(query?: string, platform?: PlatformType): Promise<any>;
     private makeRequest;
     private getPlatformPath;
     private buildSearchRequestBody;

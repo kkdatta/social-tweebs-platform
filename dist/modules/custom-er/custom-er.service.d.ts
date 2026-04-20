@@ -1,18 +1,28 @@
 import { Repository } from 'typeorm';
 import { CustomErReport, CustomErPost, CustomErShare } from './entities';
 import { User } from '../users/entities/user.entity';
+import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
 import { CreateCustomErReportDto, UpdateCustomErReportDto, ShareCustomErReportDto, CustomErReportFilterDto, CustomErReportListResponseDto, CustomErReportDetailDto, DashboardStatsDto, PostSummaryDto } from './dto';
+import { ModashService } from '../discovery/services/modash.service';
+import { ModashRawService } from '../discovery/services/modash-raw.service';
 export declare class CustomErService {
     private readonly reportRepo;
     private readonly postRepo;
     private readonly shareRepo;
     private readonly userRepo;
-    constructor(reportRepo: Repository<CustomErReport>, postRepo: Repository<CustomErPost>, shareRepo: Repository<CustomErShare>, userRepo: Repository<User>);
+    private readonly profileRepo;
+    private readonly modashService;
+    private readonly modashRawService;
+    private readonly logger;
+    constructor(reportRepo: Repository<CustomErReport>, postRepo: Repository<CustomErPost>, shareRepo: Repository<CustomErShare>, userRepo: Repository<User>, profileRepo: Repository<InfluencerProfile>, modashService: ModashService, modashRawService: ModashRawService);
     createReport(userId: string, dto: CreateCustomErReportDto): Promise<{
         success: boolean;
         report: CustomErReport;
     }>;
     private processReport;
+    private processReportWithRawApi;
+    private processReportSimulated;
+    private updateReportMetrics;
     getReports(userId: string, filters: CustomErReportFilterDto): Promise<CustomErReportListResponseDto>;
     getReportById(userId: string, reportId: string): Promise<CustomErReportDetailDto>;
     getReportByShareToken(token: string): Promise<CustomErReportDetailDto>;

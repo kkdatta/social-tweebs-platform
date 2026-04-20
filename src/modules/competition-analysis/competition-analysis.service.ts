@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -34,6 +34,7 @@ import {
   PostsFilterDto,
   InfluencersFilterDto,
 } from './dto';
+import { ModashService } from '../discovery/services/modash.service';
 
 const CREDIT_PER_REPORT = 1;
 
@@ -48,6 +49,8 @@ const BRAND_COLORS = [
 
 @Injectable()
 export class CompetitionAnalysisService {
+  private readonly logger = new Logger(CompetitionAnalysisService.name);
+
   constructor(
     @InjectRepository(CompetitionAnalysisReport)
     private readonly reportRepo: Repository<CompetitionAnalysisReport>,
@@ -62,6 +65,7 @@ export class CompetitionAnalysisService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly creditsService: CreditsService,
+    private readonly modashService: ModashService,
   ) {}
 
   /**
@@ -84,14 +88,13 @@ export class CompetitionAnalysisService {
       }
     }
 
-    // Check and deduct credits
-    await this.creditsService.deductCredits(userId, {
-      actionType: ActionType.REPORT_GENERATION,
-      quantity: CREDIT_PER_REPORT,
-      module: ModuleType.COMPETITION_ANALYSIS,
-      resourceId: 'new-competition-report',
-      resourceType: 'competition_report_creation',
-    });
+    // Validate balance upfront but defer deduction until after Modash success
+    const balance = await this.creditsService.getBalance(userId);
+    if ((balance.unifiedBalance || 0) < CREDIT_PER_REPORT) {
+      throw new BadRequestException(
+        `Insufficient credits. Required: ${CREDIT_PER_REPORT}, Available: ${balance.unifiedBalance}`,
+      );
+    }
 
     // Create report
     const report = new CompetitionAnalysisReport();
@@ -130,15 +133,12 @@ export class CompetitionAnalysisService {
       await this.brandRepo.save(brand);
     }
 
-    // Trigger async processing
+    // Trigger async processing — credit deducted only on success
     setTimeout(() => this.processReport(savedReport.id), 2000);
 
     return { success: true, report: savedReport, creditsUsed: CREDIT_PER_REPORT };
   }
 
-  /**
-   * Process report (simulate analysis)
-   */
   private async processReport(reportId: string): Promise<void> {
     const report = await this.reportRepo.findOne({
       where: { id: reportId },
@@ -147,10 +147,8 @@ export class CompetitionAnalysisService {
     if (!report) return;
 
     try {
-      // Update status to IN_PROGRESS
       report.status = CompetitionReportStatus.IN_PROGRESS;
       await this.reportRepo.save(report);
-      await new Promise(resolve => setTimeout(resolve, 1000));
 
       let totalInfluencers = 0;
       let totalPosts = 0;
@@ -160,10 +158,14 @@ export class CompetitionAnalysisService {
       let totalShares = 0;
       let totalFollowers = 0;
 
-      // Process each brand
       for (const brand of report.brands) {
-        const brandResult = await this.processBrand(reportId, brand, report);
-        
+        let brandResult;
+        if (this.modashService.isModashEnabled()) {
+          brandResult = await this.processBrandWithModash(reportId, brand, report);
+        } else {
+          brandResult = await this.processBrand(reportId, brand, report);
+        }
+
         totalInfluencers += brandResult.influencerCount;
         totalPosts += brandResult.postsCount;
         totalLikes += brandResult.totalLikes;
@@ -173,7 +175,6 @@ export class CompetitionAnalysisService {
         totalFollowers += brandResult.totalFollowers;
       }
 
-      // Update report metrics
       report.totalInfluencers = totalInfluencers;
       report.totalPosts = totalPosts;
       report.totalLikes = totalLikes;
@@ -188,11 +189,125 @@ export class CompetitionAnalysisService {
       report.completedAt = new Date();
       await this.reportRepo.save(report);
 
+      // Deduct credit ONLY after successful processing (universal refresh guard)
+      await this.creditsService.deductCredits(report.ownerId, {
+        actionType: ActionType.REPORT_GENERATION,
+        quantity: CREDIT_PER_REPORT,
+        module: ModuleType.COMPETITION_ANALYSIS,
+        resourceId: reportId,
+        resourceType: 'competition_report_creation',
+      });
     } catch (error) {
       report.status = CompetitionReportStatus.FAILED;
       report.errorMessage = error.message || 'Processing failed';
       await this.reportRepo.save(report);
+      this.logger.error(`Competition report ${reportId} failed — NO credits charged`);
     }
+  }
+
+  private async processBrandWithModash(
+    reportId: string,
+    brand: CompetitionBrand,
+    report: CompetitionAnalysisReport,
+  ): Promise<{ influencerCount: number; postsCount: number; totalLikes: number; totalViews: number; totalComments: number; totalShares: number; totalFollowers: number }> {
+    this.logger.log(`Processing brand ${brand.brandName} via Modash for report ${reportId}`);
+
+    const brandHandle = brand.username || brand.brandName;
+    const platform = (report.platforms?.[0]?.toLowerCase() || 'instagram') as 'instagram' | 'tiktok' | 'youtube';
+
+    const collabPosts = await this.modashService.getCollaborationPosts(brandHandle, platform, { limit: 30 }, report.ownerId);
+
+    // PRD #10: fetch collaboration summary and wire aggregate stats into brand entity
+    try {
+      const summaryResp = await this.modashService.getCollaborationSummary(brandHandle, platform, undefined, report.ownerId);
+      const summary = summaryResp?.brand?.summary || summaryResp?.influencer?.summary;
+      if (summary) {
+        brand.totalFollowers = summary.total_followers || brand.totalFollowers || 0;
+        brand.avgEngagementRate = summary.avg_engagement_rate ?? brand.avgEngagementRate;
+      }
+    } catch (summaryErr) {
+      this.logger.warn(`Collaboration summary for ${brandHandle} failed (non-critical): ${summaryErr.message}`);
+    }
+
+    const posts = collabPosts.brand?.posts || collabPosts.influencer?.posts || [];
+    const seenInfluencers = new Map<string, { likes: number; views: number; comments: number; shares: number; posts: number; followers: number }>();
+
+    let brandTotalLikes = 0, brandTotalViews = 0, brandTotalComments = 0, brandTotalShares = 0;
+
+    for (const modashPost of posts) {
+      const compPost = new CompetitionPost();
+      compPost.reportId = reportId;
+      compPost.brandId = brand.id;
+      compPost.platform = brand.platform || report.platforms?.[0] || 'INSTAGRAM';
+      compPost.postId = modashPost.post_id;
+      compPost.postType = PostType.PHOTO;
+      compPost.thumbnailUrl = modashPost.post_thumbnail || '';
+      compPost.description = modashPost.description || modashPost.title || '';
+      compPost.likesCount = modashPost.stats?.likes || 0;
+      compPost.commentsCount = modashPost.stats?.comments || 0;
+      compPost.viewsCount = modashPost.stats?.views || modashPost.stats?.plays || 0;
+      compPost.sharesCount = modashPost.stats?.shares || 0;
+      const compTs = modashPost.post_timestamp
+        ? (modashPost.post_timestamp > 1e12 ? modashPost.post_timestamp : modashPost.post_timestamp * 1000)
+        : Date.now();
+      compPost.postDate = new Date(compTs);
+      compPost.isSponsored = modashPost.label?.includes('Sponsorship') || false;
+      await this.postRepo.save(compPost);
+
+      brandTotalLikes += compPost.likesCount;
+      brandTotalViews += compPost.viewsCount;
+      brandTotalComments += compPost.commentsCount;
+      brandTotalShares += compPost.sharesCount;
+
+      const infKey = modashPost.username || modashPost.user_id || `unknown_${modashPost.post_id}`;
+      if (!seenInfluencers.has(infKey)) {
+        seenInfluencers.set(infKey, { likes: 0, views: 0, comments: 0, shares: 0, posts: 0, followers: 0 });
+      }
+      const inf = seenInfluencers.get(infKey)!;
+      inf.likes += compPost.likesCount;
+      inf.views += compPost.viewsCount;
+      inf.comments += compPost.commentsCount;
+      inf.shares += compPost.sharesCount;
+      inf.posts++;
+    }
+
+    let brandTotalFollowers = 0;
+    for (const [username, data] of seenInfluencers) {
+      const compInf = new CompetitionInfluencer();
+      compInf.reportId = reportId;
+      compInf.brandId = brand.id;
+      compInf.platform = brand.platform || report.platforms?.[0] || 'INSTAGRAM';
+      compInf.influencerName = username;
+      compInf.influencerUsername = username;
+      compInf.followerCount = data.followers;
+      compInf.postsCount = data.posts;
+      compInf.likesCount = data.likes;
+      compInf.viewsCount = data.views;
+      compInf.commentsCount = data.comments;
+      compInf.sharesCount = data.shares;
+      compInf.category = InfluencerCategory.NANO;
+      await this.influencerRepo.save(compInf);
+      brandTotalFollowers += data.followers;
+    }
+
+    brand.influencerCount = seenInfluencers.size;
+    brand.postsCount = posts.length;
+    brand.totalLikes = brandTotalLikes;
+    brand.totalViews = brandTotalViews;
+    brand.totalComments = brandTotalComments;
+    brand.totalShares = brandTotalShares;
+    brand.totalFollowers = brandTotalFollowers;
+    await this.brandRepo.save(brand);
+
+    return {
+      influencerCount: seenInfluencers.size,
+      postsCount: posts.length,
+      totalLikes: brandTotalLikes,
+      totalViews: brandTotalViews,
+      totalComments: brandTotalComments,
+      totalShares: brandTotalShares,
+      totalFollowers: brandTotalFollowers,
+    };
   }
 
   /**
@@ -603,14 +718,13 @@ export class CompetitionAnalysisService {
       throw new BadRequestException('Only failed reports can be retried');
     }
 
-    // Deduct credits for retry
-    await this.creditsService.deductCredits(userId, {
-      actionType: ActionType.REPORT_REFRESH,
-      quantity: CREDIT_PER_REPORT,
-      module: ModuleType.COMPETITION_ANALYSIS,
-      resourceId: reportId,
-      resourceType: 'competition_report_retry',
-    });
+    // Validate balance upfront but defer deduction until after success (universal refresh guard)
+    const balance = await this.creditsService.getBalance(userId);
+    if ((balance.unifiedBalance || 0) < CREDIT_PER_REPORT) {
+      throw new BadRequestException(
+        `Insufficient credits. Required: ${CREDIT_PER_REPORT}, Available: ${balance.unifiedBalance}`,
+      );
+    }
 
     // Delete existing data
     await this.postRepo.delete({ reportId });
@@ -631,7 +745,6 @@ export class CompetitionAnalysisService {
     report.status = CompetitionReportStatus.PENDING;
     report.errorMessage = undefined;
     report.retryCount += 1;
-    report.creditsUsed += CREDIT_PER_REPORT;
     report.totalInfluencers = 0;
     report.totalPosts = 0;
     report.totalLikes = 0;
@@ -640,7 +753,7 @@ export class CompetitionAnalysisService {
     report.totalShares = 0;
     await this.reportRepo.save(report);
 
-    // Trigger processing
+    // Trigger processing -- credit deducted only on success inside processReport
     setTimeout(() => this.processReport(reportId), 2000);
 
     return { success: true, report, creditsUsed: CREDIT_PER_REPORT };

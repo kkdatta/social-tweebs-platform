@@ -13,6 +13,8 @@ const custom_er_controller_1 = require("./custom-er.controller");
 const custom_er_service_1 = require("./custom-er.service");
 const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
+const influencer_profile_entity_1 = require("../discovery/entities/influencer-profile.entity");
+const discovery_module_1 = require("../discovery/discovery.module");
 let CustomErModule = class CustomErModule {
 };
 exports.CustomErModule = CustomErModule;
@@ -24,7 +26,9 @@ exports.CustomErModule = CustomErModule = __decorate([
                 entities_1.CustomErPost,
                 entities_1.CustomErShare,
                 user_entity_1.User,
+                influencer_profile_entity_1.InfluencerProfile,
             ]),
+            discovery_module_1.DiscoveryModule,
         ],
         controllers: [custom_er_controller_1.CustomErController],
         providers: [custom_er_service_1.CustomErService],

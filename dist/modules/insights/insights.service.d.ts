@@ -27,6 +27,7 @@ export declare class InsightsService {
     private isDataFresh;
     private daysBetween;
     private refreshFromModash;
+    private extractStat;
     private createInsightFromModash;
     private createInsightFromLocalProfile;
     private generateMockAudienceData;

@@ -215,4 +215,15 @@ export class DiscoveryController {
   async getBrands(@Query('query') query?: string) {
     return this.discoveryService.getBrands(query);
   }
+
+  // ============ MODASH ACCOUNT INFO ============
+
+  @Get('modash/account')
+  @ApiOperation({
+    summary: 'Get Modash account info',
+    description: 'Returns remaining credits, raw API requests, and rate limits. No cost.',
+  })
+  async getModashAccountInfo() {
+    return this.discoveryService.getModashAccountInfo();
+  }
 }

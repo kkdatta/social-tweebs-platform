@@ -14,6 +14,7 @@ const competition_analysis_service_1 = require("./competition-analysis.service")
 const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
 const credits_module_1 = require("../credits/credits.module");
+const discovery_module_1 = require("../discovery/discovery.module");
 let CompetitionAnalysisModule = class CompetitionAnalysisModule {
 };
 exports.CompetitionAnalysisModule = CompetitionAnalysisModule;
@@ -29,6 +30,7 @@ exports.CompetitionAnalysisModule = CompetitionAnalysisModule = __decorate([
                 user_entity_1.User,
             ]),
             credits_module_1.CreditsModule,
+            discovery_module_1.DiscoveryModule,
         ],
         controllers: [competition_analysis_controller_1.CompetitionAnalysisController],
         providers: [competition_analysis_service_1.CompetitionAnalysisService],

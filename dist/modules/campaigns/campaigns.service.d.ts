@@ -19,6 +19,8 @@ export declare class CampaignsService {
     private configService;
     private readonly logger;
     constructor(campaignRepo: Repository<Campaign>, influencerRepo: Repository<CampaignInfluencer>, deliverableRepo: Repository<CampaignDeliverable>, metricRepo: Repository<CampaignMetric>, postRepo: Repository<CampaignPost>, shareRepo: Repository<CampaignShare>, userRepo: Repository<User>, creditsService: CreditsService, dataSource: DataSource, mailService: MailService, configService: ConfigService);
+    private getClientAdminId;
+    private getClientCampaignCount;
     createCampaign(userId: string, dto: CreateCampaignDto): Promise<Campaign>;
     getCampaigns(userId: string, filters: CampaignFilterDto): Promise<CampaignListResponseDto>;
     getCampaignById(userId: string, campaignId: string): Promise<CampaignDetailDto>;

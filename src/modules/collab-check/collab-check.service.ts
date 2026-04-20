@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -26,6 +26,7 @@ import {
   DashboardStatsDto,
   PostsChartDataDto,
 } from './dto';
+import { ModashService } from '../discovery/services/modash.service';
 
 const CREDIT_PER_INFLUENCER = 1;
 /** Flat credit cost for retry (does not scale with influencer count) */
@@ -33,6 +34,8 @@ const RETRY_CREDIT_FLAT = 1;
 
 @Injectable()
 export class CollabCheckService {
+  private readonly logger = new Logger(CollabCheckService.name);
+
   constructor(
     @InjectRepository(CollabCheckReport)
     private readonly reportRepo: Repository<CollabCheckReport>,
@@ -45,26 +48,25 @@ export class CollabCheckService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly creditsService: CreditsService,
+    private readonly modashService: ModashService,
   ) {}
 
   /**
-   * Create a new collab check report
-   * Costs 1 credit per influencer
+   * Create a new collab check report.
+   * Costs 1 credit per influencer — charged AFTER successful Modash processing.
    */
   async createReport(userId: string, dto: CreateCollabCheckReportDto): Promise<{ success: boolean; report: CollabCheckReport; creditsUsed: number }> {
     const influencerCount = dto.influencers.length;
     const totalCredits = influencerCount * CREDIT_PER_INFLUENCER;
 
-    // Check and deduct credits
-    await this.creditsService.deductCredits(userId, {
-      actionType: ActionType.REPORT_GENERATION,
-      quantity: totalCredits,
-      module: ModuleType.INFLUENCER_COLLAB_CHECK,
-      resourceId: 'new-collab-report',
-      resourceType: 'collab_report_creation',
-    });
+    // Validate balance upfront but do NOT deduct yet (universal refresh guard)
+    const balance = await this.creditsService.getBalance(userId);
+    if ((balance.unifiedBalance || 0) < totalCredits) {
+      throw new BadRequestException(
+        `Insufficient credits. Required: ${totalCredits}, Available: ${balance.unifiedBalance}`,
+      );
+    }
 
-    // Create report
     const report = new CollabCheckReport();
     report.title = dto.title || 'Untitled Collab Report';
     report.platform = dto.platform;
@@ -78,7 +80,6 @@ export class CollabCheckService {
 
     const savedReport = await this.reportRepo.save(report);
 
-    // Create influencer records
     for (let i = 0; i < dto.influencers.length; i++) {
       const inf = new CollabCheckInfluencer();
       inf.reportId = savedReport.id;
@@ -86,20 +87,16 @@ export class CollabCheckService {
       inf.influencerUsername = dto.influencers[i].replace('@', '');
       inf.platform = dto.platform;
       inf.displayOrder = i;
-      // Dummy follower count - would be fetched from API in real implementation
       inf.followerCount = Math.floor(Math.random() * 500000) + 10000;
       await this.influencerRepo.save(inf);
     }
 
-    // Trigger async processing
+    // Process async — credits deducted only on success
     setTimeout(() => this.processReport(savedReport.id), 2000);
 
     return { success: true, report: savedReport, creditsUsed: totalCredits };
   }
 
-  /**
-   * Process report (simulate analysis)
-   */
   private async processReport(reportId: string): Promise<void> {
     const report = await this.reportRepo.findOne({ 
       where: { id: reportId },
@@ -108,102 +105,220 @@ export class CollabCheckService {
     if (!report) return;
 
     try {
-      // Update status to PROCESSING
       report.status = CollabReportStatus.PROCESSING;
       await this.reportRepo.save(report);
-      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      let totalPosts = 0;
-      let totalLikes = 0;
-      let totalViews = 0;
-      let totalComments = 0;
-      let totalShares = 0;
-      let totalFollowers = 0;
-
-      // Get date range based on time period
-      const { startDate } = this.getDateRange(report.timePeriod);
-
-      // Generate posts for each influencer
-      for (const influencer of report.influencers) {
-        const postsCount = Math.floor(Math.random() * 15) + 5;
-        let infLikes = 0, infViews = 0, infComments = 0, infShares = 0;
-
-        for (let i = 0; i < postsCount; i++) {
-          const post = new CollabCheckPost();
-          post.reportId = reportId;
-          post.influencerId = influencer.id;
-          post.postId = `post_${Date.now()}_${i}`;
-          post.postType = ['IMAGE', 'VIDEO', 'REEL', 'CAROUSEL'][Math.floor(Math.random() * 4)];
-          post.thumbnailUrl = `https://picsum.photos/400/400?random=${Date.now() + i}`;
-          
-          // Generate description with matched keywords
-          const matchedQueries = report.queries.filter(() => Math.random() > 0.3);
-          const description = `Check out this amazing collab! ${matchedQueries.join(' ')} #sponsored #collaboration`;
-          post.description = description;
-          post.matchedKeywords = matchedQueries;
-          
-          post.likesCount = Math.floor(Math.random() * 10000) + 500;
-          post.commentsCount = Math.floor(Math.random() * 500) + 20;
-          post.viewsCount = Math.floor(Math.random() * 50000) + 2000;
-          post.sharesCount = Math.floor(Math.random() * 200) + 10;
-          const fc = Number(influencer.followerCount) || 0;
-          post.engagementRate = fc > 0 ? ((post.likesCount + post.commentsCount) / fc) * 100 : 0;
-          
-          // Random date within the time period
-          const randomDays = Math.floor(Math.random() * this.getDaysFromPeriod(report.timePeriod));
-          const postDate = new Date(startDate);
-          postDate.setDate(postDate.getDate() + randomDays);
-          post.postDate = postDate;
-          
-          post.postUrl = `https://instagram.com/p/${post.postId}`;
-
-          await this.postRepo.save(post);
-
-          infLikes += Number(post.likesCount) || 0;
-          infViews += Number(post.viewsCount) || 0;
-          infComments += Number(post.commentsCount) || 0;
-          infShares += Number(post.sharesCount) || 0;
-        }
-
-        // Update influencer metrics
-        influencer.postsCount = postsCount;
-        influencer.likesCount = infLikes;
-        influencer.viewsCount = infViews;
-        influencer.commentsCount = infComments;
-        influencer.sharesCount = infShares;
-        const infFc = Number(influencer.followerCount) || 0;
-        const infDenom = postsCount * infFc;
-        influencer.avgEngagementRate = infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
-        await this.influencerRepo.save(influencer);
-
-        totalPosts += postsCount;
-        totalLikes += infLikes;
-        totalViews += infViews;
-        totalComments += infComments;
-        totalShares += infShares;
-        totalFollowers += Number(influencer.followerCount) || 0;
+      if (this.modashService.isModashEnabled()) {
+        await this.processReportWithModash(report);
+      } else {
+        await this.processReportSimulated(report);
       }
 
-      // Update report metrics
-      report.totalPosts = totalPosts;
-      report.totalLikes = totalLikes;
-      report.totalViews = totalViews;
-      report.totalComments = totalComments;
-      report.totalShares = totalShares;
-      report.totalFollowers = totalFollowers;
-      const infLen = report.influencers.length;
-      const avgFollowersPerInf = infLen > 0 ? totalFollowers / infLen : 0;
-      const reportEngDenom = totalPosts * avgFollowersPerInf;
-      report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
-      report.status = CollabReportStatus.COMPLETED;
-      report.completedAt = new Date();
-      await this.reportRepo.save(report);
-
+      // Deduct credits ONLY after successful processing (universal refresh guard)
+      const totalCredits = (report.influencers?.length || 1) * CREDIT_PER_INFLUENCER;
+      await this.creditsService.deductCredits(report.ownerId, {
+        actionType: ActionType.REPORT_GENERATION,
+        quantity: totalCredits,
+        module: ModuleType.INFLUENCER_COLLAB_CHECK,
+        resourceId: reportId,
+        resourceType: 'collab_report_creation',
+      });
+      this.logger.log(`Collab check ${reportId}: charged ${totalCredits} credits after success`);
     } catch (error) {
       report.status = CollabReportStatus.FAILED;
       report.errorMessage = error.message || 'Processing failed';
       await this.reportRepo.save(report);
+      this.logger.error(`Collab check ${reportId} failed — NO credits charged`);
     }
+  }
+
+  private async processRetryReport(reportId: string, userId: string, creditsToCharge: number): Promise<void> {
+    try {
+      await this.processReport(reportId);
+
+      const report = await this.reportRepo.findOne({ where: { id: reportId } });
+      if (report?.status === CollabReportStatus.COMPLETED) {
+        await this.creditsService.deductCredits(userId, {
+          actionType: ActionType.REPORT_REFRESH,
+          quantity: creditsToCharge,
+          module: ModuleType.INFLUENCER_COLLAB_CHECK,
+          resourceId: reportId,
+          resourceType: 'collab_report_retry',
+        });
+        report.creditsUsed += creditsToCharge;
+        await this.reportRepo.save(report);
+        this.logger.log(`Collab retry ${reportId}: charged ${creditsToCharge} credits after success`);
+      } else {
+        this.logger.log(`Collab retry ${reportId}: NOT charging — report did not complete successfully`);
+      }
+    } catch (error) {
+      this.logger.error(`Collab retry ${reportId} failed — NO credits charged: ${error.message}`);
+    }
+  }
+
+  private async processReportWithModash(report: CollabCheckReport): Promise<void> {
+    this.logger.log(`Processing collab check via Modash for report ${report.id}`);
+
+    let totalPosts = 0;
+    let totalLikes = 0;
+    let totalViews = 0;
+    let totalComments = 0;
+    let totalShares = 0;
+    let totalFollowers = 0;
+
+    for (const influencer of report.influencers) {
+      const handle = influencer.influencerUsername || influencer.influencerName;
+      const platform = (report.platform?.toLowerCase() || 'instagram') as 'instagram' | 'tiktok' | 'youtube';
+
+      const collabResult = await this.modashService.getCollaborationPosts(
+        handle,
+        platform,
+        { limit: 30 },
+        report.ownerId,
+      );
+
+      const posts = collabResult.influencer?.posts || collabResult.brand?.posts || [];
+      let infLikes = 0, infViews = 0, infComments = 0, infShares = 0;
+
+      for (const modashPost of posts) {
+        const post = new CollabCheckPost();
+        post.reportId = report.id;
+        post.influencerId = influencer.id;
+        post.postId = modashPost.post_id;
+        post.postType = 'IMAGE';
+        post.thumbnailUrl = modashPost.post_thumbnail || '';
+        post.description = modashPost.description || modashPost.title || '';
+        post.matchedKeywords = report.queries.filter(
+          (q) => (modashPost.description || '').toLowerCase().includes(q.toLowerCase()),
+        );
+        post.likesCount = modashPost.stats?.likes || 0;
+        post.commentsCount = modashPost.stats?.comments || 0;
+        post.viewsCount = modashPost.stats?.views || modashPost.stats?.plays || 0;
+        post.sharesCount = modashPost.stats?.shares || 0;
+        const fc = Number(influencer.followerCount) || 0;
+        post.engagementRate = fc > 0 ? ((post.likesCount + post.commentsCount) / fc) * 100 : 0;
+        const postTs = modashPost.post_timestamp
+          ? (modashPost.post_timestamp > 1e12 ? modashPost.post_timestamp : modashPost.post_timestamp * 1000)
+          : Date.now();
+        post.postDate = new Date(postTs);
+        post.postUrl = '';
+        await this.postRepo.save(post);
+
+        infLikes += post.likesCount;
+        infViews += post.viewsCount;
+        infComments += post.commentsCount;
+        infShares += post.sharesCount;
+      }
+
+      influencer.postsCount = posts.length;
+      influencer.likesCount = infLikes;
+      influencer.viewsCount = infViews;
+      influencer.commentsCount = infComments;
+      influencer.sharesCount = infShares;
+      const infFc = Number(influencer.followerCount) || 0;
+      const infDenom = posts.length * infFc;
+      influencer.avgEngagementRate = infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
+      await this.influencerRepo.save(influencer);
+
+      totalPosts += posts.length;
+      totalLikes += infLikes;
+      totalViews += infViews;
+      totalComments += infComments;
+      totalShares += infShares;
+      totalFollowers += Number(influencer.followerCount) || 0;
+    }
+
+    report.totalPosts = totalPosts;
+    report.totalLikes = totalLikes;
+    report.totalViews = totalViews;
+    report.totalComments = totalComments;
+    report.totalShares = totalShares;
+    report.totalFollowers = totalFollowers;
+    const infLen = report.influencers.length;
+    const avgFollowersPerInf = infLen > 0 ? totalFollowers / infLen : 0;
+    const reportEngDenom = totalPosts * avgFollowersPerInf;
+    report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
+    report.status = CollabReportStatus.COMPLETED;
+    report.completedAt = new Date();
+    await this.reportRepo.save(report);
+  }
+
+  private async processReportSimulated(report: CollabCheckReport): Promise<void> {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    let totalPosts = 0;
+    let totalLikes = 0;
+    let totalViews = 0;
+    let totalComments = 0;
+    let totalShares = 0;
+    let totalFollowers = 0;
+
+    const { startDate } = this.getDateRange(report.timePeriod);
+
+    for (const influencer of report.influencers) {
+      const postsCount = Math.floor(Math.random() * 15) + 5;
+      let infLikes = 0, infViews = 0, infComments = 0, infShares = 0;
+
+      for (let i = 0; i < postsCount; i++) {
+        const post = new CollabCheckPost();
+        post.reportId = report.id;
+        post.influencerId = influencer.id;
+        post.postId = `post_${Date.now()}_${i}`;
+        post.postType = ['IMAGE', 'VIDEO', 'REEL', 'CAROUSEL'][Math.floor(Math.random() * 4)];
+        post.thumbnailUrl = `https://picsum.photos/400/400?random=${Date.now() + i}`;
+        const matchedQueries = report.queries.filter(() => Math.random() > 0.3);
+        post.description = `Check out this amazing collab! ${matchedQueries.join(' ')} #sponsored #collaboration`;
+        post.matchedKeywords = matchedQueries;
+        post.likesCount = Math.floor(Math.random() * 10000) + 500;
+        post.commentsCount = Math.floor(Math.random() * 500) + 20;
+        post.viewsCount = Math.floor(Math.random() * 50000) + 2000;
+        post.sharesCount = Math.floor(Math.random() * 200) + 10;
+        const fc = Number(influencer.followerCount) || 0;
+        post.engagementRate = fc > 0 ? ((post.likesCount + post.commentsCount) / fc) * 100 : 0;
+        const randomDays = Math.floor(Math.random() * this.getDaysFromPeriod(report.timePeriod));
+        const postDate = new Date(startDate);
+        postDate.setDate(postDate.getDate() + randomDays);
+        post.postDate = postDate;
+        post.postUrl = `https://instagram.com/p/${post.postId}`;
+        await this.postRepo.save(post);
+
+        infLikes += Number(post.likesCount) || 0;
+        infViews += Number(post.viewsCount) || 0;
+        infComments += Number(post.commentsCount) || 0;
+        infShares += Number(post.sharesCount) || 0;
+      }
+
+      influencer.postsCount = postsCount;
+      influencer.likesCount = infLikes;
+      influencer.viewsCount = infViews;
+      influencer.commentsCount = infComments;
+      influencer.sharesCount = infShares;
+      const infFc = Number(influencer.followerCount) || 0;
+      const infDenom = postsCount * infFc;
+      influencer.avgEngagementRate = infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
+      await this.influencerRepo.save(influencer);
+
+      totalPosts += postsCount;
+      totalLikes += infLikes;
+      totalViews += infViews;
+      totalComments += infComments;
+      totalShares += infShares;
+      totalFollowers += Number(influencer.followerCount) || 0;
+    }
+
+    report.totalPosts = totalPosts;
+    report.totalLikes = totalLikes;
+    report.totalViews = totalViews;
+    report.totalComments = totalComments;
+    report.totalShares = totalShares;
+    report.totalFollowers = totalFollowers;
+    const infLen = report.influencers.length;
+    const avgFollowersPerInf = infLen > 0 ? totalFollowers / infLen : 0;
+    const reportEngDenom = totalPosts * avgFollowersPerInf;
+    report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
+    report.status = CollabReportStatus.COMPLETED;
+    report.completedAt = new Date();
+    await this.reportRepo.save(report);
   }
 
   private getDateRange(timePeriod: TimePeriod): { startDate: Date; endDate: Date } {
@@ -393,14 +508,13 @@ export class CollabCheckService {
 
     const totalCredits = RETRY_CREDIT_FLAT;
 
-    // Deduct credits for retry (flat 1 credit)
-    await this.creditsService.deductCredits(userId, {
-      actionType: ActionType.REPORT_REFRESH,
-      quantity: totalCredits,
-      module: ModuleType.INFLUENCER_COLLAB_CHECK,
-      resourceId: reportId,
-      resourceType: 'collab_report_retry',
-    });
+    // Validate balance upfront but defer deduction until after success (universal refresh guard)
+    const balance = await this.creditsService.getBalance(userId);
+    if ((balance.unifiedBalance || 0) < totalCredits) {
+      throw new BadRequestException(
+        `Insufficient credits. Required: ${totalCredits}, Available: ${balance.unifiedBalance}`,
+      );
+    }
 
     // Delete existing posts
     await this.postRepo.delete({ reportId });
@@ -409,11 +523,10 @@ export class CollabCheckService {
     report.status = CollabReportStatus.PENDING;
     report.errorMessage = undefined;
     report.retryCount += 1;
-    report.creditsUsed += totalCredits;
     await this.reportRepo.save(report);
 
-    // Trigger processing
-    setTimeout(() => this.processReport(reportId), 2000);
+    // Trigger processing -- credits deducted only on success inside processReport
+    setTimeout(() => this.processRetryReport(reportId, userId, totalCredits), 2000);
 
     return { success: true, report, creditsUsed: totalCredits };
   }

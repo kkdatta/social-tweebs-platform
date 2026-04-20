@@ -14,6 +14,7 @@ const mention_tracking_service_1 = require("./mention-tracking.service");
 const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
 const credits_module_1 = require("../credits/credits.module");
+const discovery_module_1 = require("../discovery/discovery.module");
 let MentionTrackingModule = class MentionTrackingModule {
 };
 exports.MentionTrackingModule = MentionTrackingModule;
@@ -28,6 +29,7 @@ exports.MentionTrackingModule = MentionTrackingModule = __decorate([
                 user_entity_1.User,
             ]),
             credits_module_1.CreditsModule,
+            discovery_module_1.DiscoveryModule,
         ],
         controllers: [mention_tracking_controller_1.MentionTrackingController],
         providers: [mention_tracking_service_1.MentionTrackingService],

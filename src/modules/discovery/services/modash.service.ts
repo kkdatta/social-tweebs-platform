@@ -93,6 +93,146 @@ export interface ModashReportResponse {
   }>;
 }
 
+// ============ COLLABORATION API TYPES ============
+export interface ModashCollaborationPost {
+  post_id: string;
+  post_thumbnail?: string;
+  post_timestamp?: number;
+  title?: string;
+  description?: string;
+  label: string;
+  collaboration_type: 'Paid' | 'Gifted' | 'Ambassador' | 'Affiliate' | 'Unspecified';
+  stats?: {
+    likes?: number;
+    comments?: number;
+    plays?: number;
+    views?: number;
+    shares?: number;
+  };
+  sponsors?: Array<{
+    name?: string;
+    username?: string;
+    domain?: string;
+    logo_url?: string;
+    user_id?: string;
+    category: string;
+  }>;
+  user_id?: string;
+  username?: string;
+  user_picture?: string;
+  platform?: string;
+}
+
+export interface ModashCollaborationPostsResponse {
+  error: boolean;
+  cursor?: string;
+  influencer?: {
+    id: string;
+    platform: string;
+    is_more_available: boolean;
+    username?: string;
+    user_picture?: string;
+    posts: ModashCollaborationPost[];
+  };
+  brand?: {
+    id: string;
+    platform: string;
+    is_more_available: boolean;
+    brand_name?: string;
+    brand_domain?: string;
+    brand_logo?: string;
+    brand_category: string;
+    posts: ModashCollaborationPost[];
+  };
+}
+
+export interface ModashCollaborationSummaryResponse {
+  error: boolean;
+  cursor?: string;
+  influencer?: {
+    id: string;
+    platform: string;
+    is_more_available: boolean;
+    summary: any;
+    per_brand_summary: Array<{
+      brand: {
+        name?: string;
+        username?: string;
+        domain?: string;
+        logo_url?: string;
+        user_id?: string;
+        category: string;
+      };
+      summary: any;
+    }>;
+  };
+  brand?: {
+    id: string;
+    platform: string;
+    is_more_available: boolean;
+    summary: any;
+    per_influencer_summary: Array<{
+      influencer: {
+        username?: string;
+        user_id?: string;
+        user_picture?: string;
+      };
+      summary: any;
+    }>;
+  };
+}
+
+// ============ AUDIENCE OVERLAP TYPES ============
+export interface ModashAudienceOverlapResponse {
+  error: boolean;
+  reportInfo: {
+    totalFollowers: number;
+    totalUniqueFollowers: number;
+  };
+  data: Array<{
+    userId: string;
+    username?: string;
+    followers: number;
+    uniquePercentage: number;
+    overlappingPercentage: number;
+  }>;
+}
+
+// ============ EMAIL SEARCH TYPES ============
+export interface ModashEmailSearchResponse {
+  error: boolean;
+  matchedEmails: Array<{
+    email: string;
+    users: Array<{
+      platform: string;
+      userId?: string;
+      url: string;
+      username: string;
+      fullname?: string;
+      picture: string;
+      followers: number;
+      engagements: number;
+      engagementRate: number;
+      isVerified: boolean;
+    }>;
+  }>;
+  notMatchedEmails: string[];
+  totalMatches: number;
+}
+
+// ============ ACCOUNT INFO TYPES ============
+export interface ModashAccountInfoResponse {
+  error: boolean;
+  billing: {
+    credits: number;
+    rawRequests: number;
+  };
+  rateLimits: {
+    discoveryRatelimit: number;
+    rawRatelimit: number;
+  };
+}
+
 @Injectable()
 export class ModashService {
   private readonly logger = new Logger(ModashService.name);
@@ -109,7 +249,10 @@ export class ModashService {
     this.baseUrl = this.configService.get<string>('modash.apiUrl', 'https://api.modash.io/v1');
     this.apiKey = this.configService.get<string>('modash.apiKey', '');
 
-    this.logger.log(`Modash API Integration: ${this.isEnabled ? 'ENABLED' : 'DISABLED (using local DB)'}`);
+    const appMode = this.configService.get<string>('app.mode', 'development');
+    this.logger.log(
+      `Modash API [APP_MODE=${appMode}]: ${this.isEnabled ? 'ENABLED (production DB + live API)' : 'DISABLED (dev DB + simulated data)'}`,
+    );
   }
 
   /**
@@ -174,13 +317,11 @@ export class ModashService {
     let errorMessage: string | undefined = undefined;
 
     try {
-      const response = await this.makeRequest<ModashReportResponse>(
-        'GET',
-        endpoint,
-      );
+      // Modash report API wraps everything in { error, profile: { ...actual data } }
+      const response = await this.makeRequest<any>('GET', endpoint);
 
       responseStatus = 200;
-      return response;
+      return (response.profile || response) as ModashReportResponse;
     } catch (error) {
       responseStatus = error.status || 500;
       errorMessage = error.message;
@@ -201,25 +342,208 @@ export class ModashService {
     }
   }
 
+  // ============ COLLABORATIONS API ============
+  async getCollaborationPosts(
+    id: string,
+    platform: 'instagram' | 'tiktok' | 'youtube',
+    options?: {
+      collaboratorId?: string;
+      postCreationTimestampMs?: { gte?: number; lte?: number };
+      cursor?: string;
+      limit?: number;
+      groupBrandCollaborations?: boolean;
+    },
+    userId?: string,
+  ): Promise<ModashCollaborationPostsResponse> {
+    const endpoint = '/collaborations/posts';
+    const requestBody = { id, platform, ...options };
+
+    const startTime = Date.now();
+    let responseStatus = 0;
+    let errorMessage: string | undefined;
+
+    try {
+      const response = await this.makeRequest<ModashCollaborationPostsResponse>(
+        'POST',
+        endpoint,
+        requestBody,
+      );
+      responseStatus = 200;
+      return response;
+    } catch (error) {
+      responseStatus = error.status || 500;
+      errorMessage = error.message;
+      throw error;
+    } finally {
+      await this.logApiCall({
+        userId,
+        endpoint,
+        httpMethod: 'POST',
+        requestPayload: requestBody,
+        responseStatusCode: responseStatus,
+        responseTimeMs: Date.now() - startTime,
+        modashCreditsConsumed: responseStatus === 200 ? 0.2 : 0,
+        errorMessage,
+      });
+    }
+  }
+
+  async getCollaborationSummary(
+    id: string,
+    platform: 'instagram' | 'tiktok' | 'youtube',
+    options?: {
+      collaboratorId?: string;
+      cursor?: string;
+      limit?: number;
+      groupBrandCollaborations?: boolean;
+    },
+    userId?: string,
+  ): Promise<ModashCollaborationSummaryResponse> {
+    const endpoint = '/collaborations/summary';
+    const requestBody = { id, platform, ...options };
+
+    const startTime = Date.now();
+    let responseStatus = 0;
+    let errorMessage: string | undefined;
+
+    try {
+      const response =
+        await this.makeRequest<ModashCollaborationSummaryResponse>(
+          'POST',
+          endpoint,
+          requestBody,
+        );
+      responseStatus = 200;
+      return response;
+    } catch (error) {
+      responseStatus = error.status || 500;
+      errorMessage = error.message;
+      throw error;
+    } finally {
+      await this.logApiCall({
+        userId,
+        endpoint,
+        httpMethod: 'POST',
+        requestPayload: requestBody,
+        responseStatusCode: responseStatus,
+        responseTimeMs: Date.now() - startTime,
+        modashCreditsConsumed: responseStatus === 200 ? 0.2 : 0,
+        errorMessage,
+      });
+    }
+  }
+
+  // ============ AUDIENCE OVERLAP ============
+  async getAudienceOverlap(
+    platform: PlatformType,
+    influencers: string[],
+    userId?: string,
+  ): Promise<ModashAudienceOverlapResponse> {
+    const platformPath = this.getPlatformPath(platform);
+    const endpoint = `/${platformPath}/reports/audience/overlap`;
+    const requestBody = { influencers };
+
+    const startTime = Date.now();
+    let responseStatus = 0;
+    let errorMessage: string | undefined;
+
+    try {
+      const response =
+        await this.makeRequest<ModashAudienceOverlapResponse>(
+          'POST',
+          endpoint,
+          requestBody,
+        );
+      responseStatus = 200;
+      return response;
+    } catch (error) {
+      responseStatus = error.status || 500;
+      errorMessage = error.message;
+      throw error;
+    } finally {
+      await this.logApiCall({
+        userId,
+        endpoint,
+        httpMethod: 'POST',
+        platform,
+        requestPayload: requestBody,
+        responseStatusCode: responseStatus,
+        responseTimeMs: Date.now() - startTime,
+        modashCreditsConsumed: responseStatus === 200 ? 1 : 0,
+        errorMessage,
+      });
+    }
+  }
+
+  // ============ EMAIL SEARCH ============
+  async searchByEmail(
+    emails: string[],
+    userId?: string,
+  ): Promise<ModashEmailSearchResponse> {
+    const endpoint = '/email-search';
+    const requestBody = { emails };
+
+    const startTime = Date.now();
+    let responseStatus = 0;
+    let errorMessage: string | undefined;
+
+    try {
+      const response = await this.makeRequest<ModashEmailSearchResponse>(
+        'POST',
+        endpoint,
+        requestBody,
+      );
+      responseStatus = 200;
+      return response;
+    } catch (error) {
+      responseStatus = error.status || 500;
+      errorMessage = error.message;
+      throw error;
+    } finally {
+      await this.logApiCall({
+        userId,
+        endpoint,
+        httpMethod: 'POST',
+        requestPayload: { emailCount: emails.length },
+        responseStatusCode: responseStatus,
+        responseTimeMs: Date.now() - startTime,
+        modashCreditsConsumed:
+          responseStatus === 200 ? emails.length * 0.02 : 0,
+        errorMessage,
+      });
+    }
+  }
+
+  // ============ ACCOUNT INFO ============
+  async getAccountInfo(): Promise<ModashAccountInfoResponse> {
+    const endpoint = '/user/info';
+    return this.makeRequest<ModashAccountInfoResponse>('GET', endpoint);
+  }
+
   // ============ GET DICTIONARIES (Passthrough) ============
-  async getLocations(query?: string): Promise<any> {
-    const endpoint = `/dictionaries/locations${query ? `?query=${encodeURIComponent(query)}` : ''}`;
+  async getLocations(query?: string, platform?: PlatformType): Promise<any> {
+    const platformPath = platform ? this.getPlatformPath(platform) : 'instagram';
+    const qs = query ? `?query=${encodeURIComponent(query)}` : '';
+    const endpoint = `/${platformPath}/locations${qs}`;
     return this.makeRequest('GET', endpoint);
   }
 
   async getInterests(platform: PlatformType): Promise<any> {
     const platformPath = this.getPlatformPath(platform);
-    const endpoint = `/${platformPath}/dictionaries/interests`;
+    const endpoint = `/${platformPath}/interests`;
     return this.makeRequest('GET', endpoint);
   }
 
-  async getLanguages(): Promise<any> {
-    const endpoint = `/dictionaries/languages`;
+  async getLanguages(platform?: PlatformType): Promise<any> {
+    const platformPath = platform ? this.getPlatformPath(platform) : 'instagram';
+    const endpoint = `/${platformPath}/languages`;
     return this.makeRequest('GET', endpoint);
   }
 
-  async getBrands(query?: string): Promise<any> {
-    const endpoint = `/dictionaries/brands${query ? `?query=${encodeURIComponent(query)}` : ''}`;
+  async getBrands(query?: string, platform?: PlatformType): Promise<any> {
+    const platformPath = platform ? this.getPlatformPath(platform) : 'instagram';
+    const qs = query ? `?query=${encodeURIComponent(query)}` : '';
+    const endpoint = `/${platformPath}/brands${qs}`;
     return this.makeRequest('GET', endpoint);
   }
 
