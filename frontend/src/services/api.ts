@@ -84,6 +84,22 @@ export const authApi = {
     const { data } = await api.get('/api/v1/profile');
     return data;
   },
+
+  getSignupRequests: async (status?: string): Promise<any[]> => {
+    const params = status ? { status } : {};
+    const { data } = await api.get('/api/v1/auth/signup-requests', { params });
+    return data;
+  },
+
+  approveSignup: async (id: string): Promise<{ success: boolean; message: string }> => {
+    const { data } = await api.post(`/api/v1/auth/approve-signup/${id}`);
+    return data;
+  },
+
+  rejectSignup: async (id: string, reason?: string): Promise<{ success: boolean; message: string }> => {
+    const { data } = await api.post(`/api/v1/auth/reject-signup/${id}`, { reason });
+    return data;
+  },
 };
 
 // Profile APIs

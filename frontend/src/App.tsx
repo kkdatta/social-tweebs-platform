@@ -48,6 +48,7 @@ import {
   TeamCreditLogsPage,
   TeamCreditDetailPage,
 } from './pages/team';
+import SignupApprovalsPage from './pages/team/SignupApprovalsPage';
 
 const PlaceholderPage = ({ title }: { title: string }) => (
   <div className="card p-12 text-center">
@@ -123,6 +124,7 @@ function App() {
               <Route path="/competition-analysis/:id" element={<CompetitionAnalysisDetailPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/analytics/:userId" element={<AnalyticsDetailPage />} />
+              <Route path="/signup-approvals" element={<SignupApprovalsPage />} />
               <Route path="/team" element={<TeamMemberListPage />} />
               <Route path="/team/new" element={<TeamMemberFormPage />} />
               <Route path="/team/:id/edit" element={<TeamMemberFormPage />} />

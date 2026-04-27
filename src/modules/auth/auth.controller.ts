@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   Post,
   Body,
   UseGuards,
@@ -7,6 +8,7 @@ import {
   Param,
   HttpCode,
   HttpStatus,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -95,6 +97,18 @@ export class AuthController {
     return this.authService.refreshToken(refreshTokenDto);
   }
 
+  @Get('signup-requests')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'List signup requests (Super Admin only)' })
+  @ApiResponse({ status: 200, description: 'List of signup requests' })
+  async getSignupRequests(
+    @Query('status') status?: string,
+  ): Promise<any[]> {
+    return this.authService.getSignupRequests(status);
+  }
+
   @Post('approve-signup/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.SUPER_ADMIN)
@@ -107,6 +121,20 @@ export class AuthController {
     @Param('id') id: string,
   ): Promise<{ success: boolean; message: string }> {
     return this.authService.approveSignup(id);
+  }
+
+  @Post('reject-signup/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Reject a signup request (Super Admin only)' })
+  @ApiResponse({ status: 200, description: 'Signup rejected' })
+  async rejectSignup(
+    @Param('id') id: string,
+    @Body('reason') reason?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    return this.authService.rejectSignup(id, reason);
   }
 
   @Post('logout')

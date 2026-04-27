@@ -162,6 +162,13 @@ export class AudienceDemographicsDto {
   }>;
 
   @ApiPropertyOptional()
+  topStates?: Array<{
+    state: string;
+    percentage: number;
+    followers: number;
+  }>;
+
+  @ApiPropertyOptional()
   topCities?: Array<{
     city: string;
     percentage: number;

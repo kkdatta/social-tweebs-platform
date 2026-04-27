@@ -151,7 +151,7 @@ let PaidCollaborationService = PaidCollaborationService_1 = class PaidCollaborat
                 post.viewsCount = modashPost.stats?.views || modashPost.stats?.plays || 0;
                 post.sharesCount = modashPost.stats?.shares || 0;
                 post.postDate = new Date(postTimestamp);
-                post.postUrl = '';
+                post.postUrl = this.constructPostUrl(modashPost.post_id, username, report.platform || 'INSTAGRAM');
                 await this.postRepo.save(post);
                 entry.likes += post.likesCount;
                 entry.views += post.viewsCount;
@@ -383,7 +383,7 @@ let PaidCollaborationService = PaidCollaborationService_1 = class PaidCollaborat
     async getReportById(userId, reportId) {
         const report = await this.reportRepo.findOne({
             where: { id: reportId },
-            relations: ['influencers', 'posts', 'categorizations'],
+            relations: ['influencers', 'posts', 'posts.influencer', 'categorizations'],
         });
         if (!report) {
             throw new common_1.NotFoundException('Report not found');
@@ -396,7 +396,7 @@ let PaidCollaborationService = PaidCollaborationService_1 = class PaidCollaborat
     async getReportByShareToken(token) {
         const report = await this.reportRepo.findOne({
             where: { shareUrlToken: token, isPublic: true },
-            relations: ['influencers', 'posts', 'categorizations'],
+            relations: ['influencers', 'posts', 'posts.influencer', 'categorizations'],
         });
         if (!report) {
             throw new common_1.NotFoundException('Report not found or not publicly shared');
@@ -746,6 +746,18 @@ let PaidCollaborationService = PaidCollaborationService_1 = class PaidCollaborat
             sharesCount: Number(cat.sharesCount) || 0,
             engagementRate: cat.engagementRate ? Number(cat.engagementRate) : undefined,
         };
+    }
+    constructPostUrl(postId, username, platform) {
+        if (!postId)
+            return '';
+        const p = platform.toUpperCase();
+        if (p === 'INSTAGRAM')
+            return `https://www.instagram.com/p/${postId}/`;
+        if (p === 'TIKTOK')
+            return `https://www.tiktok.com/@${username}/video/${postId}`;
+        if (p === 'YOUTUBE')
+            return `https://www.youtube.com/watch?v=${postId}`;
+        return '';
     }
 };
 exports.PaidCollaborationService = PaidCollaborationService;

@@ -254,6 +254,47 @@ export class AuthService {
     };
   }
 
+  async getSignupRequests(status?: string): Promise<any[]> {
+    const where: any = {};
+    if (status && Object.values(SignupRequestStatus).includes(status as SignupRequestStatus)) {
+      where.status = status;
+    }
+    const requests = await this.signupRequestRepository.find({
+      where,
+      order: { createdAt: 'DESC' },
+    });
+    return requests.map(r => ({
+      id: r.id,
+      email: r.email,
+      name: r.name,
+      phone: r.phone,
+      businessName: r.businessName,
+      campaignFrequency: r.campaignFrequency,
+      message: r.message,
+      status: r.status,
+      createdAt: r.createdAt,
+      processedAt: r.processedAt,
+      rejectionReason: r.rejectionReason,
+    }));
+  }
+
+  async rejectSignup(signupRequestId: string, reason?: string): Promise<{ success: boolean; message: string }> {
+    const signupRequest = await this.signupRequestRepository.findOne({
+      where: { id: signupRequestId },
+    });
+    if (!signupRequest) {
+      throw new BadRequestException('Signup request not found');
+    }
+    if (signupRequest.status !== SignupRequestStatus.PENDING) {
+      throw new BadRequestException('Signup request is not in pending state');
+    }
+    signupRequest.status = SignupRequestStatus.REJECTED;
+    signupRequest.rejectionReason = reason || 'Rejected by admin';
+    signupRequest.processedAt = new Date();
+    await this.signupRequestRepository.save(signupRequest);
+    return { success: true, message: 'Signup request rejected.' };
+  }
+
   async resetPassword(dto: ResetPasswordDto): Promise<{ success: boolean; message: string }> {
     const newPassword = dto.newPassword || dto.password;
     if (!newPassword) {

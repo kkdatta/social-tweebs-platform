@@ -22,7 +22,8 @@ import {
   UsersRound,
   AtSign,
   X,
-  Swords
+  Swords,
+  UserCheck
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -69,6 +70,7 @@ const navItems: NavItem[] = [
   { name: 'Influencer Groups', path: '/influencer-groups', icon: UsersRound, feature: 'INFLUENCERS_GROUP' },
   { name: 'Generated Reports', path: '/generated-reports', icon: FileBarChart },
   { name: 'Analytics', path: '/analytics', icon: BarChart3 },
+  { name: 'Signup Approvals', path: '/signup-approvals', icon: UserCheck, roles: ['SUPER_ADMIN'] },
   { name: 'Team Management', path: '/team', icon: UserCog, roles: ['SUPER_ADMIN', 'ADMIN'] },
   { name: 'Credits', path: '/credits', icon: CreditCard },
 ];

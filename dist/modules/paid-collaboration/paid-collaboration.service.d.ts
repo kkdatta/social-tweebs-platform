@@ -63,4 +63,5 @@ export declare class PaidCollaborationService {
     private toInfluencerDto;
     private toPostDto;
     private toCategorizationDto;
+    private constructPostUrl;
 }

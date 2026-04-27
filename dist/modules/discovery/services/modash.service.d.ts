@@ -108,24 +108,166 @@ export interface ModashSearchResponse {
 }
 export interface ModashReportResponse {
     userId: string;
-    profile: ModashInfluencer['profile'];
-    stats: ModashInfluencer['stats'];
+    profile: ModashInfluencer['profile'] & {
+        followers?: number;
+        engagements?: number;
+        engagementRate?: number;
+        averageViews?: number;
+        avgLikes?: number;
+        avgComments?: number;
+    };
+    stats?: ModashInfluencer['stats'];
     features?: ModashInfluencer['features'];
-    audience?: ModashInfluencer['audience'];
+    audience?: {
+        credibility?: number;
+        notable?: number;
+        genders?: Array<{
+            code: string;
+            weight: number;
+        }>;
+        ages?: Array<{
+            code: string;
+            weight: number;
+        }>;
+        gendersPerAge?: Array<{
+            code: string;
+            male: number;
+            female: number;
+        }>;
+        geoCountries?: Array<{
+            code: string;
+            name: string;
+            weight: number;
+        }>;
+        geoCities?: Array<{
+            code?: string;
+            name: string;
+            weight: number;
+        }>;
+        geoStates?: Array<{
+            code?: string;
+            name: string;
+            weight: number;
+        }>;
+        geoSubdivisions?: Array<{
+            code?: string;
+            name: string;
+            items?: any[];
+        }>;
+        languages?: Array<{
+            code: string;
+            name: string;
+            weight: number;
+        }>;
+        interests?: Array<{
+            id: string | number;
+            name: string;
+            weight?: number;
+        }>;
+        brandAffinity?: Array<{
+            id: string | number;
+            name: string;
+            weight?: number;
+        }>;
+        notableUsers?: Array<{
+            userId?: string;
+            username: string;
+            fullname?: string;
+            picture?: string;
+            followers: number;
+            engagements: number;
+        }>;
+        audienceLookalikes?: Array<any>;
+        audienceTypes?: Array<{
+            code: string;
+            weight: number;
+        }>;
+        audienceReachability?: Array<{
+            code: string;
+            weight: number;
+        }>;
+        ethnicities?: Array<{
+            code: string;
+            name: string;
+            weight: number;
+        }>;
+    };
     statHistory?: Array<{
         month: string;
         followers: number;
+        following?: number;
         avgLikes?: number;
+        avgViews?: number;
+        avgComments?: number;
+        avgShares?: number;
+    }>;
+    statsByContentType?: {
+        all?: {
+            engagements?: number;
+            engagementRate?: number;
+            avgLikes?: number;
+            avgComments?: number;
+            avgViews?: number;
+            avgReelsPlays?: number;
+            avgShares?: number;
+            statHistory?: Array<{
+                month: string;
+                avgLikes?: number;
+                avgComments?: number;
+                avgViews?: number;
+                avgEngagements?: number;
+            }>;
+        };
+        reels?: {
+            engagements?: number;
+            engagementRate?: number;
+            avgLikes?: number;
+            avgComments?: number;
+            avgReelsPlays?: number;
+            avgShares?: number;
+            statHistory?: Array<any>;
+        };
+    };
+    hashtags?: Array<{
+        tag: string;
+        weight: number;
+    }>;
+    mentions?: Array<{
+        tag: string;
+        weight: number;
     }>;
     recentPosts?: Array<{
         id: string;
         url: string;
-        created: string;
+        created: string | number;
         likes: number;
         comments: number;
+        views?: number;
         type: string;
         thumbnail?: string;
+        text?: string;
+        image?: string;
     }>;
+    popularPosts?: Array<any>;
+    bio?: string;
+    isVerified?: boolean;
+    isPrivate?: boolean;
+    city?: string;
+    state?: string;
+    country?: string;
+    gender?: string;
+    ageGroup?: string;
+    postsCount?: number;
+    contacts?: Array<{
+        type: string;
+        value: string;
+    }>;
+    lookalikes?: {
+        influencer?: any[];
+        audience?: any[];
+    };
+    paidPostPerformance?: number;
+    engagementDistribution?: any[];
 }
 export interface ModashCollaborationPost {
     post_id: string;

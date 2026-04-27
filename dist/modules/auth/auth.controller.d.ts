@@ -16,7 +16,12 @@ export declare class AuthController {
         message: string;
     }>;
     refreshToken(refreshTokenDto: RefreshTokenDto): Promise<TokenResponseDto>;
+    getSignupRequests(status?: string): Promise<any[]>;
     approveSignup(id: string): Promise<{
+        success: boolean;
+        message: string;
+    }>;
+    rejectSignup(id: string, reason?: string): Promise<{
         success: boolean;
         message: string;
     }>;

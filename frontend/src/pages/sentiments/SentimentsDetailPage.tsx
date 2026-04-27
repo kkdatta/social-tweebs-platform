@@ -511,6 +511,15 @@ export const SentimentsDetailPage = () => {
         </div>
       )}
 
+      {/* Completed but no data (e.g., no comments found) */}
+      {report.status === 'COMPLETED' && report.errorMessage && (!report.posts || report.posts.length === 0) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+          <AlertCircle className="w-10 h-10 text-amber-500 mx-auto mb-3" />
+          <h3 className="text-lg font-semibold text-gray-900 mb-1">No Sentiment Data</h3>
+          <p className="text-gray-600 text-sm max-w-md mx-auto">{report.errorMessage}</p>
+        </div>
+      )}
+
       {/* Main Content - Only show if COMPLETED */}
       {report.status === 'COMPLETED' && (
         <>

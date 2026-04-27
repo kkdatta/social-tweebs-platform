@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   Search, 
@@ -213,7 +213,7 @@ const RelevanceInput: React.FC<{
   );
 };
 
-// Async Searchable Select
+// Async Searchable Select with click-outside handling and persistent selection labels
 const AsyncSelect: React.FC<{
   value: number[];
   onChange: (ids: number[]) => void;
@@ -222,8 +222,10 @@ const AsyncSelect: React.FC<{
 }> = ({ value, onChange, fetchOptions, placeholder = 'Search...' }) => {
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<{ id: number; name: string }[]>([]);
+  const [selectedCache, setSelectedCache] = useState<Map<number, string>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const debouncedQuery = useDebounce(query, 300);
 
   useEffect(() => {
@@ -232,6 +234,13 @@ const AsyncSelect: React.FC<{
       try {
         const results = await fetchOptions(debouncedQuery);
         setOptions(results.slice(0, 50));
+        setSelectedCache(prev => {
+          const next = new Map(prev);
+          for (const r of results) {
+            if (value.includes(r.id)) next.set(r.id, r.name);
+          }
+          return next;
+        });
       } catch (e) {
         console.error(e);
       } finally {
@@ -239,23 +248,37 @@ const AsyncSelect: React.FC<{
       }
     };
     if (isOpen) load();
-  }, [debouncedQuery, isOpen, fetchOptions]);
+  }, [debouncedQuery, isOpen, fetchOptions, value]);
 
-  const selectedOptions = options.filter((o) => value.includes(o.id));
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const selectedLabels = value.map(id => selectedCache.get(id) || options.find(o => o.id === id)?.name).filter(Boolean);
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <div
         onClick={() => setIsOpen(!isOpen)}
         className="input py-1.5 text-sm cursor-pointer min-h-[34px] flex flex-wrap gap-1 items-center"
       >
-        {selectedOptions.length > 0 ? (
-          selectedOptions.map((opt) => (
-            <span key={opt.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-primary-100 text-primary-700 rounded text-xs">
-              {opt.name}
-              <button onClick={(e) => { e.stopPropagation(); onChange(value.filter((v) => v !== opt.id)); }}><X className="w-3 h-3" /></button>
-            </span>
-          ))
+        {selectedLabels.length > 0 ? (
+          value.map((id) => {
+            const name = selectedCache.get(id) || options.find(o => o.id === id)?.name || `#${id}`;
+            return (
+              <span key={id} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-primary-100 text-primary-700 rounded text-xs">
+                {name}
+                <button onClick={(e) => { e.stopPropagation(); onChange(value.filter((v) => v !== id)); setSelectedCache(prev => { const n = new Map(prev); n.delete(id); return n; }); }}><X className="w-3 h-3" /></button>
+              </span>
+            );
+          })
         ) : (
           <span className="text-gray-400 text-sm">{placeholder}</span>
         )}
@@ -283,8 +306,10 @@ const AsyncSelect: React.FC<{
                 onClick={() => {
                   if (value.includes(opt.id)) {
                     onChange(value.filter((v) => v !== opt.id));
+                    setSelectedCache(prev => { const n = new Map(prev); n.delete(opt.id); return n; });
                   } else {
                     onChange([...value, opt.id]);
+                    setSelectedCache(prev => new Map(prev).set(opt.id, opt.name));
                   }
                 }}
                 className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center justify-between ${
@@ -292,7 +317,7 @@ const AsyncSelect: React.FC<{
                 }`}
               >
                 {opt.name}
-                {value.includes(opt.id) && <span>✓</span>}
+                {value.includes(opt.id) && <CheckCircle2 className="w-4 h-4 text-primary-600" />}
               </button>
             ))
           )}
@@ -320,6 +345,8 @@ const DiscoveryPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [isExactMatch, setIsExactMatch] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
+  const [openFilter, setOpenFilter] = useState<string | null>(null);
+  const toggleFilter = (name: string) => setOpenFilter(prev => prev === name ? null : name);
 
   // Export Modal State
   const [showExportModal, setShowExportModal] = useState(false);
@@ -346,6 +373,45 @@ const DiscoveryPage: React.FC = () => {
     sort: { field: 'followers', direction: 'desc' },
     page: 0,
   });
+
+  const getFilterSummary = useCallback((category: string): string | null => {
+    const inf = filters.influencer || {};
+    const aud = filters.audience || {};
+    switch (category) {
+      case 'demographics': {
+        const parts: string[] = [];
+        if (inf.location?.length) parts.push(`${inf.location.length} location${inf.location.length > 1 ? 's' : ''}`);
+        if (inf.language) parts.push(inf.language.toUpperCase());
+        if (inf.gender) parts.push(inf.gender === 'MALE' ? 'Male' : 'Female');
+        if (inf.age?.min || inf.age?.max) parts.push(`Age ${inf.age.min || '?'}-${inf.age.max || '?'}`);
+        return parts.length > 0 ? parts.join(', ') : null;
+      }
+      case 'audience': {
+        const parts: string[] = [];
+        if (aud.location?.length) parts.push(`${aud.location.length} loc`);
+        if (aud.gender) parts.push(aud.gender === 'MALE' ? 'Male' : 'Female');
+        if (aud.age?.length) parts.push(`${aud.age.length} age group${aud.age.length > 1 ? 's' : ''}`);
+        if (aud.credibility) parts.push(`${Math.round(aud.credibility * 100)}% real`);
+        return parts.length > 0 ? parts.join(', ') : null;
+      }
+      case 'metrics': {
+        const parts: string[] = [];
+        if (inf.followers) parts.push('Followers');
+        if (inf.engagementRate) parts.push('ER');
+        if (inf.engagements) parts.push('Engagements');
+        if (inf.reelsPlays) parts.push('Reels');
+        return parts.length > 0 ? parts.join(', ') : null;
+      }
+      case 'brands': {
+        const parts: string[] = [];
+        if (inf.brands?.length) parts.push(`${inf.brands.length} brand${inf.brands.length > 1 ? 's' : ''}`);
+        if (inf.interests?.length) parts.push(`${inf.interests.length} interest${inf.interests.length > 1 ? 's' : ''}`);
+        return parts.length > 0 ? parts.join(', ') : null;
+      }
+      default:
+        return null;
+    }
+  }, [filters]);
 
   // Helper functions
   const updateInfluencerFilter = (key: string, value: any) => {
@@ -380,7 +446,8 @@ const DiscoveryPage: React.FC = () => {
 
   const handleSearch = async (page = 0) => {
     if (!selectedPlatform) return;
-    
+
+    setOpenFilter(null);
     setIsLoading(true);
     setError(null);
     setShowFilters(false);
@@ -703,17 +770,18 @@ const DiscoveryPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Collapsed horizontal: category pills, expand on hover */}
+      {/* Collapsed horizontal: category pills, click to expand */}
       <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
-        <div className="relative group">
-          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('metrics')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'metrics' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('metrics') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <Users className="w-3.5 h-3.5" />
             <span>Metrics</span>
-            {(filters.influencer?.followers || filters.influencer?.engagementRate || filters.influencer?.engagements || filters.influencer?.reelsPlays) && (
-              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            {getFilterSummary('metrics') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('metrics')})</span>
             )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'metrics' ? 'rotate-180' : ''}`} />
           </button>
-          <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+          {openFilter === 'metrics' && <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Followers</label>
@@ -743,18 +811,19 @@ const DiscoveryPage: React.FC = () => {
                 </div>
               )}
             </div>
-          </div>
+          </div>}
         </div>
 
-        <div className="relative group">
-          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('activity')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'activity' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <Calendar className="w-3.5 h-3.5" />
             <span>Activity</span>
             {(filters.influencer?.lastposted || filters.influencer?.keywords || (filters.influencer?.textTags && filters.influencer.textTags.length > 0)) && (
               <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
             )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'activity' ? 'rotate-180' : ''}`} />
           </button>
-          <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+          {openFilter === 'activity' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Posted Within (Days)</label>
@@ -770,18 +839,19 @@ const DiscoveryPage: React.FC = () => {
                 <TagInput tags={filters.influencer?.textTags || []} onChange={(tags) => updateInfluencerFilter('textTags', tags)} />
               </div>
             </div>
-          </div>
+          </div>}
         </div>
 
-        <div className="relative group">
-          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('lookalike')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'lookalike' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <Target className="w-3.5 h-3.5" />
             <span>Lookalike</span>
             {((filters.influencer?.relevance && filters.influencer.relevance.length > 0) || (filters.influencer?.audienceRelevance && filters.influencer.audienceRelevance.length > 0)) && (
               <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
             )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'lookalike' ? 'rotate-180' : ''}`} />
           </button>
-          <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+          {openFilter === 'lookalike' && <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Similar Topics To</label>
@@ -794,18 +864,19 @@ const DiscoveryPage: React.FC = () => {
                 <p className="text-xs text-gray-400 mt-1">Audience lookalike search</p>
               </div>
             </div>
-          </div>
+          </div>}
         </div>
 
-        <div className="relative group">
-          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('growth')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'growth' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <TrendingUp className="w-3.5 h-3.5" />
             <span>Growth</span>
             {(filters.influencer?.followersGrowthRate || filters.influencer?.hasSponsoredPosts) && (
               <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
             )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'growth' ? 'rotate-180' : ''}`} />
           </button>
-          <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+          {openFilter === 'growth' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Followers Growth Rate</label>
@@ -831,18 +902,19 @@ const DiscoveryPage: React.FC = () => {
                 <ShoppingBag className="w-3 h-3 text-green-500" />
               </label>
             </div>
-          </div>
+          </div>}
         </div>
 
-        <div className="relative group">
-          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('account')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'account' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <BadgeCheck className="w-3.5 h-3.5" />
             <span>Account</span>
             {(filters.influencer?.accountTypes?.length || filters.influencer?.isVerified || filters.influencer?.hasYouTube) && (
               <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
             )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'account' ? 'rotate-180' : ''}`} />
           </button>
-          <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+          {openFilter === 'account' && <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Account Type</label>
@@ -870,18 +942,19 @@ const DiscoveryPage: React.FC = () => {
                 <Youtube className="w-4 h-4 text-red-500" />
               </label>
             </div>
-          </div>
+          </div>}
         </div>
 
-        <div className="relative group">
-          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('contact')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'contact' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <Mail className="w-3.5 h-3.5" />
             <span>Contact</span>
             {(filters.influencer?.hasContactDetails && filters.influencer.hasContactDetails.length > 0) && (
               <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
             )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'contact' ? 'rotate-180' : ''}`} />
           </button>
-          <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+          {openFilter === 'contact' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="grid grid-cols-2 gap-2">
               {CONTACT_TYPES.slice(0, 10).map((c) => {
                 const isSelected = filters.influencer?.hasContactDetails?.some((x) => x.contactType === c.value);
@@ -897,18 +970,19 @@ const DiscoveryPage: React.FC = () => {
                 );
               })}
             </div>
-          </div>
+          </div>}
         </div>
 
-        <div className="relative group">
-          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('demographics')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'demographics' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('demographics') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <Globe className="w-3.5 h-3.5" />
             <span>Demographics</span>
-            {(filters.influencer?.location?.length || filters.influencer?.language || filters.influencer?.gender || filters.influencer?.age) && (
-              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            {getFilterSummary('demographics') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('demographics')})</span>
             )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'demographics' ? 'rotate-180' : ''}`} />
           </button>
-          <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+          {openFilter === 'demographics' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Location</label>
@@ -965,18 +1039,19 @@ const DiscoveryPage: React.FC = () => {
                 </div>
               </div>
             </div>
-          </div>
+          </div>}
         </div>
 
-        <div className="relative group">
-          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('audience')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'audience' ? 'bg-purple-100 text-purple-700 ring-1 ring-purple-300' : getFilterSummary('audience') ? 'bg-purple-50 text-purple-700 ring-1 ring-purple-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <Users className="w-3.5 h-3.5 text-purple-500" />
             <span>Audience</span>
-            {(filters.audience?.location?.length || filters.audience?.gender || filters.audience?.age?.length || filters.audience?.credibility) && (
-              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            {getFilterSummary('audience') && (
+              <span className="text-xs text-purple-600 max-w-[120px] truncate">({getFilterSummary('audience')})</span>
             )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'audience' ? 'rotate-180' : ''}`} />
           </button>
-          <div className="absolute top-full right-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+          {openFilter === 'audience' && <div className="absolute top-full right-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="bg-purple-50 p-2 rounded text-xs text-purple-700 mb-2">
               <Info className="w-3 h-3 inline mr-1" />
               Weights (0-1) set minimum thresholds. 0.3 = 30% of audience.
@@ -1027,18 +1102,19 @@ const DiscoveryPage: React.FC = () => {
                 </div>
               </div>
             </div>
-          </div>
+          </div>}
         </div>
 
-        <div className="relative group">
-          <button type="button" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors">
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('brands')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'brands' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('brands') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <ShoppingBag className="w-3.5 h-3.5" />
             <span>Brands</span>
-            {(filters.influencer?.brands?.length || filters.influencer?.interests?.length) && (
-              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            {getFilterSummary('brands') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('brands')})</span>
             )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'brands' ? 'rotate-180' : ''}`} />
           </button>
-          <div className="absolute top-full right-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 hidden group-hover:block z-20">
+          {openFilter === 'brands' && <div className="absolute top-full right-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Brands Partnered With</label>
@@ -1062,9 +1138,12 @@ const DiscoveryPage: React.FC = () => {
                 />
               </div>
             </div>
-          </div>
+          </div>}
         </div>
       </div>
+
+      {/* Click-away: close filter when clicking outside */}
+      {openFilter && <div className="fixed inset-0 z-10" onMouseDown={() => setOpenFilter(null)} />}
     </div>
   );
 
@@ -1560,11 +1639,11 @@ const DiscoveryPage: React.FC = () => {
                       <p className="text-xs text-gray-500">Followers</p>
                     </div>
                     <div className="text-center">
-                      <p className="font-bold text-gray-900 text-sm sm:text-base">{inf.engagementRate?.toFixed(1) || '0'}%</p>
+                      <p className="font-bold text-gray-900 text-sm sm:text-base">{inf.engagementRate ? `${inf.engagementRate.toFixed(1)}%` : 'N/A'}</p>
                       <p className="text-xs text-gray-500">ER</p>
                     </div>
                     <div className="text-center">
-                      <p className="font-bold text-gray-900 text-sm sm:text-base">{formatNumber(inf.avgLikes || 0)}</p>
+                      <p className="font-bold text-gray-900 text-sm sm:text-base">{inf.avgLikes ? formatNumber(inf.avgLikes) : 'N/A'}</p>
                       <p className="text-xs text-gray-500">Likes</p>
                     </div>
                   </div>
@@ -1594,8 +1673,8 @@ const DiscoveryPage: React.FC = () => {
                   </div>
                   <div className="hidden sm:flex items-center gap-4 text-sm">
                     <div className="text-center"><p className="font-semibold">{formatNumber(inf.followerCount)}</p><p className="text-xs text-gray-500">Followers</p></div>
-                    <div className="text-center"><p className="font-semibold">{inf.engagementRate?.toFixed(1) || '0'}%</p><p className="text-xs text-gray-500">ER</p></div>
-                    <div className="text-center"><p className="font-semibold">{formatNumber(inf.avgLikes || 0)}</p><p className="text-xs text-gray-500">Likes</p></div>
+                    <div className="text-center"><p className="font-semibold">{inf.engagementRate ? `${inf.engagementRate.toFixed(1)}%` : 'N/A'}</p><p className="text-xs text-gray-500">ER</p></div>
+                    <div className="text-center"><p className="font-semibold">{inf.avgLikes ? formatNumber(inf.avgLikes) : 'N/A'}</p><p className="text-xs text-gray-500">Likes</p></div>
                   </div>
                   {inf.isBlurred ? (
                     <button onClick={() => handleUnblur([inf.id])} className="btn btn-secondary text-xs sm:text-sm py-1 shrink-0"><Unlock className="w-3 h-3 mr-1" />Unblur</button>

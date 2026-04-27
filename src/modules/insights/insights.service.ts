@@ -115,7 +115,14 @@ export class InsightsService {
   }
 
   /**
-   * Search and unlock a new insight or return cached
+   * Search and unlock a new insight or return cached.
+   *
+   * Modash API credit rules (socialtweebs_modash_apicredit.md §3):
+   * - CLIENT-LEVEL unlock: if ANY user in the same client account already unlocked
+   *   this influencer, serve from DB at 0 credits — no Modash call.
+   * - Stale data (>= 7 days): still serve DB data as-is with STALE status.
+   *   Do NOT auto-refresh. User must explicitly click Refresh (costs 1 credit).
+   * - Once unlocked: listed permanently, never charged 1 credit again for revisit.
    */
   async searchAndUnlock(
     userId: string,
@@ -123,73 +130,46 @@ export class InsightsService {
   ): Promise<SearchInsightResponseDto> {
     const { platform, username } = dto;
 
-    // 1. Check if user already has this insight
+    // 1. CLIENT-LEVEL check: look across all users in the same client account
+    const visibleUserIds = await this.getInsightVisibleUserIds(userId);
     const existing = await this.insightsRepo.findOne({
-      where: {
-        userId,
+      where: visibleUserIds.map((uid) => ({
+        userId: uid,
         platform,
         username: ILike(username),
-      },
+      })),
     });
 
     if (existing) {
-      // Check if data is fresh
-      const isFresh = await this.isDataFresh(existing.lastRefreshedAt);
+      // Already unlocked by this client account — return as-is (fresh or stale).
+      // Per PRD §3 stale data behavior: serve DB data, do NOT auto-refresh.
+      // The dataFreshnessStatus field in the response tells the frontend whether
+      // to show a "Last updated X days ago" notice.
+      this.logAccess(existing.id, userId, InsightAccessType.VIEW, 0);
 
-      if (isFresh) {
-        // Return cached data, no credit charge
-        this.logAccess(existing.id, userId, InsightAccessType.VIEW, 0);
-        
-        return {
-          success: true,
-          isNew: false,
-          creditsUsed: 0,
-          insight: this.mapToFullResponse(existing),
-        };
-      }
-
-      // Data is stale, auto-refresh (free for already unlocked)
-      // Only refresh from Modash if enabled, otherwise return existing data
-      if (this.modashService.isModashEnabled()) {
-        this.logger.log(`Auto-refreshing stale insight for ${username} on ${platform}`);
-        const refreshed = await this.refreshFromModash(existing);
-        this.logAccess(existing.id, userId, InsightAccessType.VIEW, 0);
-        return {
-          success: true,
-          isNew: false,
-          creditsUsed: 0,
-          insight: this.mapToFullResponse(refreshed),
-        };
-      } else {
-        // Modash disabled - return existing data as-is
-        this.logger.log(`Modash disabled - returning existing insight for ${username}`);
-        this.logAccess(existing.id, userId, InsightAccessType.VIEW, 0);
-        return {
-          success: true,
-          isNew: false,
-          creditsUsed: 0,
-          insight: this.mapToFullResponse(existing),
-        };
-      }
+      return {
+        success: true,
+        isNew: false,
+        creditsUsed: 0,
+        insight: this.mapToFullResponse(existing),
+      };
     }
 
-    // 2. New insight - check credits
+    // 2. New insight — check credits (1 credit for first-time unlock)
     const creditBalance = await this.creditsService.getBalance(userId);
     if (creditBalance.unifiedBalance < 1) {
       throw new BadRequestException('Insufficient credits to unlock this insight');
     }
 
-    // 3. Check if Modash is enabled
+    // 3. Fetch data and create insight
     if (this.modashService.isModashEnabled()) {
-      // Fetch from Modash API
       this.logger.log(`Fetching new insight from Modash for ${username} on ${platform}`);
-      const modashData = await this.modashService.getInfluencerReport(platform, username);
+      const modashData = await this.modashService.getInfluencerReport(platform, username, userId);
 
       if (!modashData || !modashData.profile) {
         throw new NotFoundException(`Influencer "${username}" not found on ${platform}`);
       }
 
-      // Deduct credit
       const deductResult = await this.creditsService.deductCredits(userId, {
         actionType: ActionType.INFLUENCER_INSIGHT,
         module: ModuleType.INSIGHTS,
@@ -198,7 +178,6 @@ export class InsightsService {
         resourceType: 'INSIGHT_UNLOCK',
       });
 
-      // Store insight from Modash data
       const insight = await this.createInsightFromModash(userId, platform, modashData);
       this.logAccess(insight.id, userId, InsightAccessType.UNLOCK, 1);
 
@@ -210,21 +189,16 @@ export class InsightsService {
         insight: this.mapToFullResponse(insight),
       };
     } else {
-      // Modash disabled - fetch from local database (cached_influencer_profiles)
       this.logger.log(`Modash disabled - fetching from local DB for ${username} on ${platform}`);
-      
+
       const localProfile = await this.profilesRepo.findOne({
-        where: {
-          platform,
-          username: ILike(username),
-        },
+        where: { platform, username: ILike(username) },
       });
 
       if (!localProfile) {
         throw new NotFoundException(`Influencer "${username}" not found in local database`);
       }
 
-      // Deduct credit
       const deductResult = await this.creditsService.deductCredits(userId, {
         actionType: ActionType.INFLUENCER_INSIGHT,
         module: ModuleType.INSIGHTS,
@@ -233,7 +207,6 @@ export class InsightsService {
         resourceType: 'INSIGHT_UNLOCK',
       });
 
-      // Create insight from local profile
       const insight = await this.createInsightFromLocalProfile(userId, localProfile);
       this.logAccess(insight.id, userId, InsightAccessType.UNLOCK, 1);
 
@@ -331,7 +304,15 @@ export class InsightsService {
   }
 
   /**
-   * Force refresh insight (costs 1 credit)
+   * Force refresh insight (always costs 1 credit).
+   *
+   * Modash API credit rules (socialtweebs_modash_apicredit.md §4 + §16):
+   * - Check DB first: if data is already fresh (< 7 days), return same data
+   *   WITHOUT calling Modash (saves 1 Modash credit).
+   * - If data is stale (>= 7 days), call Modash to fetch latest.
+   * - In EITHER case, charge the user 1 credit (REPORT_REFRESH = 1).
+   * - Universal refresh guard: if Modash fails, do NOT deduct credit,
+   *   do NOT update fetched_at, show error.
    */
   async forceRefresh(
     userId: string,
@@ -346,7 +327,6 @@ export class InsightsService {
       throw new NotFoundException('Insight not found');
     }
 
-    // If Modash is disabled, just return existing data (no charge)
     if (!this.modashService.isModashEnabled()) {
       this.logger.log('Modash disabled - refresh not available, returning existing data');
       return {
@@ -362,17 +342,33 @@ export class InsightsService {
       throw new BadRequestException('Insufficient credits to refresh insight');
     }
 
-    const modashData = await this.modashService.getInfluencerReport(
-      insight.platform,
-      insight.platformUserId || insight.username,
-    );
+    const isFresh = insight.modashFetchedAt &&
+      (Date.now() - new Date(insight.modashFetchedAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
 
-    if (!modashData || !modashData.profile) {
-      throw new BadRequestException(
-        'Unable to fetch fresh data from Modash. No credits were charged. Please try again later.',
+    let refreshedInsight = insight;
+
+    if (!isFresh) {
+      // Data is stale — call Modash API. Only deduct credit on success.
+      const modashData = await this.modashService.getInfluencerReport(
+        insight.platform,
+        insight.platformUserId || insight.username,
+        userId,
+      );
+
+      if (!modashData || !modashData.profile) {
+        throw new BadRequestException(
+          'Unable to fetch fresh data from Modash. No credits were charged. Please try again later.',
+        );
+      }
+
+      refreshedInsight = await this.updateInsightFromModash(insight, modashData);
+    } else {
+      this.logger.log(
+        `Insight ${insightId} already fresh (fetched ${insight.modashFetchedAt}) — skipping Modash call, saving 1 Modash credit`,
       );
     }
 
+    // Per PRD §4: "In either case, 1 credit will be charged to the user"
     const deductResult = await this.creditsService.deductCredits(userId, {
       actionType: ActionType.REPORT_REFRESH,
       module: ModuleType.INSIGHTS,
@@ -381,14 +377,13 @@ export class InsightsService {
       resourceType: 'INSIGHT_REFRESH',
     });
 
-    const refreshed = await this.updateInsightFromModash(insight, modashData);
     this.logAccess(insight.id, userId, InsightAccessType.REFRESH, 1);
 
     return {
       success: true,
       creditsUsed: 1,
       remainingBalance: deductResult.remainingBalance,
-      insight: this.mapToFullResponse(refreshed),
+      insight: this.mapToFullResponse(refreshedInsight),
     };
   }
 
@@ -480,12 +475,29 @@ export class InsightsService {
   }
 
   /**
-   * After unwrapping response.profile, the Modash report has:
-   *   modashData.profile  → { fullname, username, picture, followers, engagementRate, avgLikes, avgComments }
-   *   modashData.bio, .isVerified, .accountType, .postsCount, .avgReelsPlays → top-level
-   *   modashData.stats    → { avgLikes: {value,compared}, followers: {value,compared}, ... }
-   *   modashData.audience → { credibility, genders, ages, geoCountries, ... }
-   *   modashData.avgLikes, .avgComments → direct numbers at top level
+   * Modash returns ER as a decimal ratio (0.006 = 0.6%) but the DB stores
+   * it as a percentage (0.6 = 0.6%). Convert if needed (values < 1 are ratios).
+   */
+  private normalizeER(er: number | null | undefined): number | null {
+    if (er == null) return null;
+    return er < 1 ? er * 100 : er;
+  }
+
+  /**
+   * Modash report API returns { error, profile: { userId, profile, audience, statHistory, recentPosts, popularPosts, ... } }.
+   * After unwrapping via `(response.profile || response)` in ModashService.getInfluencerReport,
+   * modashData is the inner object with these fields:
+   *   .profile          → { fullname, username, picture, followers, engagements, engagementRate }
+   *   .audience         → { credibility, notable, genders, ages, gendersPerAge, geoCountries, geoCities, geoStates,
+   *                         languages, interests, brandAffinity, notableUsers, audienceLookalikes, audienceTypes,
+   *                         audienceReachability, ethnicities }
+   *   .statHistory      → [{ month, followers, following, avgLikes, avgViews, avgComments }]
+   *   .statsByContentType → { all: { avgLikes, avgComments, engagementRate, statHistory, avgReelsPlays }, reels: { ... } }
+   *   .hashtags         → [{ tag, weight }]
+   *   .mentions         → [{ tag, weight }]
+   *   .recentPosts      → [{ id, url, created, likes, comments, views, type, thumbnail }]
+   *   .popularPosts     → same shape as recentPosts
+   *   .contacts, .city, .state, .country, .gender, .ageGroup, .isPrivate, .isVerified
    */
   private async createInsightFromModash(
     userId: string,
@@ -493,59 +505,91 @@ export class InsightsService {
     modashData: any,
   ): Promise<InfluencerInsight> {
     const innerProfile = modashData.profile || {};
-    const stats = modashData.stats || {};
     const audience = modashData.audience || {};
+    const allStats = modashData.statsByContentType?.all || {};
+    const reelsStats = modashData.statsByContentType?.reels || {};
+
+    const allPosts = [...(modashData.recentPosts || []), ...(modashData.popularPosts || [])];
+    const reelPosts = allPosts.filter((p: any) => this.isReelOrVideo(p));
+    const imagePosts = allPosts.filter((p: any) => !this.isReelOrVideo(p));
+
+    const popularPosts = modashData.popularPosts
+      || [...(modashData.recentPosts || [])].sort((a: any, b: any) => ((b.likes || 0) + (b.comments || 0)) - ((a.likes || 0) + (a.comments || 0))).slice(0, 12);
+    const popularReels = reelPosts.length > 0
+      ? [...reelPosts].sort((a: any, b: any) => (b.views || 0) - (a.views || 0)).slice(0, 12)
+      : [];
+    const sponsoredPosts = allPosts.filter((p: any) =>
+      p.text && /#(ad|sponsored|partner|collab)\b/i.test(p.text),
+    );
+
+    const hashtagsFromModash = modashData.hashtags;
+    const wordCloudFromHashtags = Array.isArray(hashtagsFromModash) && hashtagsFromModash.length > 0
+      ? hashtagsFromModash.slice(0, 25).map((h: any, i: number) => ({
+          text: (h.tag || '').replace(/^#/, ''),
+          value: Math.round((h.weight || 0) * 100) || Math.max(1, 100 - i * 4),
+        }))
+      : (modashData.mentions || []).slice(0, 25).map((m: any, i: number) => ({
+          text: (m.tag || '').replace(/^@/, ''),
+          value: Math.round((m.weight || 0) * 100) || Math.max(1, 100 - i * 4),
+        }));
+
+    const lookalikesData = this.buildLookalikes(modashData.lookalikes, audience);
 
     const insight = this.insightsRepo.create({
       userId,
       platform,
-      platformUserId: modashData.userId || innerProfile.username,
+      platformUserId: modashData.userId || innerProfile.userId || innerProfile.username,
       username: innerProfile.username || '',
       fullName: innerProfile.fullname || null,
       profilePictureUrl: innerProfile.picture || null,
-      bio: modashData.bio || null,
-      followerCount: innerProfile.followers || this.extractStat(stats.followers) || 0,
-      followingCount: this.extractStat(stats.following) || 0,
+      bio: modashData.bio || innerProfile.bio || null,
+      followerCount: innerProfile.followers || 0,
+      followingCount: this.extractStat(modashData.statHistory?.[modashData.statHistory.length - 1]?.following) || 0,
       postCount: modashData.postsCount || 0,
-      engagementRate: innerProfile.engagementRate || null,
-      avgLikes: modashData.avgLikes || innerProfile.avgLikes || this.extractStat(stats.avgLikes) || null,
-      avgComments: modashData.avgComments || innerProfile.avgComments || this.extractStat(stats.avgComments) || null,
-      avgViews: this.extractStat(stats.avgViews) || null,
-      avgReelViews: modashData.avgReelsPlays || null,
-      avgReelLikes: this.extractStat(stats.avgReelLikes) || null,
-      avgReelComments: this.extractStat(stats.avgReelComments) || null,
-      brandPostER: modashData.paidPostPerformance ?? stats.paidPostPerformance ?? null,
-      locationCountry: audience.geoCountries?.[0]?.name || null,
-      locationCity: audience.geoCities?.[0]?.name || null,
-      isVerified: modashData.isVerified || false,
-      audienceCredibility: audience.credibility || null,
-      notableFollowersPct: audience.notable || null,
+      engagementRate: this.normalizeER(innerProfile.engagementRate || allStats.engagementRate || null),
+      avgLikes: allStats.avgLikes || innerProfile.avgLikes || null,
+      avgComments: allStats.avgComments || innerProfile.avgComments || null,
+      avgViews: allStats.avgViews || innerProfile.averageViews || null,
+      avgReelViews: allStats.avgReelsPlays || reelsStats.avgReelsPlays || null,
+      avgReelLikes: reelsStats.avgLikes || null,
+      avgReelComments: reelsStats.avgComments || null,
+      brandPostER: modashData.paidPostPerformance ?? allStats.paidPostPerformance ?? null,
+      postsWithHiddenLikesPct: this.calcHiddenLikesPct(allPosts),
+      locationCountry: modashData.country || audience.geoCountries?.[0]?.name || null,
+      locationCity: modashData.city || audience.geoCities?.[0]?.name || null,
+      isVerified: modashData.isVerified ?? innerProfile.isVerified ?? false,
+      audienceCredibility: audience.credibility ?? null,
+      notableFollowersPct: audience.notable ?? null,
+      engagerCredibility: audience.engagers?.credibility ?? null,
+      notableEngagersPct: audience.engagers?.notable ?? null,
       audienceData: audience,
       engagementData: {
-        distribution: stats.engagementDistribution,
-        likesHistory: stats.likesHistory,
-        commentsHistory: stats.commentsHistory,
+        distribution: modashData.engagementDistribution || this.buildEngagementDistribution(allPosts, innerProfile.engagementRate || allStats.engagementRate, innerProfile.followers),
+        likesHistory: allStats.statHistory || modashData.statHistory,
+        commentsHistory: allStats.statHistory || modashData.statHistory,
       },
       growthData: {
-        history: modashData.statHistory || modashData.growth,
+        history: this.mergeStatHistories(modashData.statHistory, allStats.statHistory),
       },
-      lookalikesData: modashData.lookalikes,
-      brandAffinityData: modashData.brandAffinity || audience.brandAffinity,
-      interestsData: modashData.interests || audience.interests,
-      hashtagsData: modashData.hashtags,
+      lookalikesData,
+      brandAffinityData: audience.brandAffinity,
+      interestsData: audience.interests,
+      hashtagsData: hashtagsFromModash,
       recentPosts: modashData.recentPosts,
-      recentReels: modashData.recentReels,
-      popularReels: modashData.popularReels,
-      popularPosts: modashData.popularPosts,
-      sponsoredPosts: modashData.sponsoredPosts,
-      wordCloudData: modashData.wordCloud,
+      recentReels: reelPosts.length > 0 ? reelPosts : null,
+      popularReels,
+      popularPosts,
+      sponsoredPosts: sponsoredPosts.length > 0 ? sponsoredPosts : null,
+      wordCloudData: wordCloudFromHashtags.length > 0 ? wordCloudFromHashtags : null,
       creditsUsed: 1,
       unlockedAt: new Date(),
       lastRefreshedAt: new Date(),
       modashFetchedAt: new Date(),
     });
 
-    return this.insightsRepo.save(insight);
+    const saved = await this.insightsRepo.save(insight);
+    this.syncStatsToDiscoveryProfile(saved).catch(() => {});
+    return saved;
   }
 
   /**
@@ -956,52 +1000,116 @@ export class InsightsService {
     modashData: any,
   ): Promise<InfluencerInsight> {
     const innerProfile = modashData.profile || {};
-    const stats = modashData.stats || {};
     const audience = modashData.audience || {};
+    const allStats = modashData.statsByContentType?.all || {};
+    const reelsStats = modashData.statsByContentType?.reels || {};
+
+    const allPosts = [...(modashData.recentPosts || []), ...(modashData.popularPosts || [])];
+    const reelPosts = allPosts.filter((p: any) => this.isReelOrVideo(p));
+
+    const popularPosts = modashData.popularPosts
+      || [...(modashData.recentPosts || [])].sort((a: any, b: any) => ((b.likes || 0) + (b.comments || 0)) - ((a.likes || 0) + (a.comments || 0))).slice(0, 12);
+    const popularReels = reelPosts.length > 0
+      ? [...reelPosts].sort((a: any, b: any) => (b.views || 0) - (a.views || 0)).slice(0, 12)
+      : [];
+    const sponsoredPosts = allPosts.filter((p: any) =>
+      p.text && /#(ad|sponsored|partner|collab)\b/i.test(p.text),
+    );
+
+    const hashtagsFromModash = modashData.hashtags;
+    const wordCloudFromHashtags = Array.isArray(hashtagsFromModash) && hashtagsFromModash.length > 0
+      ? hashtagsFromModash.slice(0, 25).map((h: any, i: number) => ({
+          text: (h.tag || '').replace(/^#/, ''),
+          value: Math.round((h.weight || 0) * 100) || Math.max(1, 100 - i * 4),
+        }))
+      : null;
+
+    const lookalikesData = this.buildLookalikes(modashData.lookalikes, audience, insight.lookalikesData);
 
     insight.fullName = innerProfile.fullname || insight.fullName;
     insight.profilePictureUrl = innerProfile.picture || insight.profilePictureUrl;
-    insight.bio = modashData.bio || insight.bio;
-    insight.followerCount = innerProfile.followers || this.extractStat(stats.followers) || insight.followerCount;
-    insight.followingCount = this.extractStat(stats.following) || insight.followingCount;
+    insight.bio = modashData.bio || innerProfile.bio || insight.bio;
+    insight.followerCount = innerProfile.followers || insight.followerCount;
+    insight.followingCount = this.extractStat(modashData.statHistory?.[modashData.statHistory?.length - 1]?.following) || insight.followingCount;
     insight.postCount = modashData.postsCount || insight.postCount;
-    insight.engagementRate = innerProfile.engagementRate || insight.engagementRate;
-    insight.avgLikes = modashData.avgLikes || innerProfile.avgLikes || this.extractStat(stats.avgLikes) || insight.avgLikes;
-    insight.avgComments = modashData.avgComments || innerProfile.avgComments || this.extractStat(stats.avgComments) || insight.avgComments;
-    insight.avgViews = this.extractStat(stats.avgViews) || insight.avgViews;
-    insight.avgReelViews = modashData.avgReelsPlays || insight.avgReelViews;
-    insight.avgReelLikes = this.extractStat(stats.avgReelLikes) || insight.avgReelLikes;
-    insight.avgReelComments = this.extractStat(stats.avgReelComments) || insight.avgReelComments;
-    insight.brandPostER = modashData.paidPostPerformance ?? stats.paidPostPerformance ?? insight.brandPostER;
-    insight.isVerified = modashData.isVerified ?? insight.isVerified;
-    insight.locationCountry = audience.geoCountries?.[0]?.name || insight.locationCountry;
-    insight.locationCity = audience.geoCities?.[0]?.name || insight.locationCity;
-    insight.audienceCredibility = audience.credibility || insight.audienceCredibility;
+    insight.engagementRate = this.normalizeER(innerProfile.engagementRate || allStats.engagementRate) || insight.engagementRate;
+    insight.avgLikes = allStats.avgLikes || innerProfile.avgLikes || insight.avgLikes;
+    insight.avgComments = allStats.avgComments || innerProfile.avgComments || insight.avgComments;
+    insight.avgViews = allStats.avgViews || innerProfile.averageViews || insight.avgViews;
+    insight.avgReelViews = allStats.avgReelsPlays || reelsStats.avgReelsPlays || insight.avgReelViews;
+    insight.avgReelLikes = reelsStats.avgLikes || insight.avgReelLikes;
+    insight.avgReelComments = reelsStats.avgComments || insight.avgReelComments;
+    insight.brandPostER = modashData.paidPostPerformance ?? allStats.paidPostPerformance ?? insight.brandPostER;
+    insight.postsWithHiddenLikesPct = this.calcHiddenLikesPct(allPosts) ?? insight.postsWithHiddenLikesPct;
+    insight.isVerified = modashData.isVerified ?? innerProfile.isVerified ?? insight.isVerified;
+    insight.locationCountry = modashData.country || audience.geoCountries?.[0]?.name || insight.locationCountry;
+    insight.locationCity = modashData.city || audience.geoCities?.[0]?.name || insight.locationCity;
+    insight.audienceCredibility = audience.credibility ?? insight.audienceCredibility;
+    insight.notableFollowersPct = audience.notable ?? insight.notableFollowersPct;
+    insight.engagerCredibility = audience.engagers?.credibility ?? insight.engagerCredibility;
+    insight.notableEngagersPct = audience.engagers?.notable ?? insight.notableEngagersPct;
     insight.audienceData = audience;
     insight.engagementData = {
-      distribution: stats.engagementDistribution,
-      likesHistory: stats.likesHistory,
-      commentsHistory: stats.commentsHistory,
+      distribution: modashData.engagementDistribution || this.buildEngagementDistribution(allPosts, innerProfile.engagementRate || allStats.engagementRate, innerProfile.followers) || insight.engagementData?.distribution,
+      likesHistory: allStats.statHistory || modashData.statHistory || insight.engagementData?.likesHistory,
+      commentsHistory: allStats.statHistory || modashData.statHistory || insight.engagementData?.commentsHistory,
     };
-    insight.growthData = { history: modashData.statHistory || modashData.growth };
-    insight.lookalikesData = modashData.lookalikes || insight.lookalikesData;
-    insight.brandAffinityData = modashData.brandAffinity || insight.brandAffinityData;
-    insight.interestsData = modashData.interests || insight.interestsData;
-    insight.hashtagsData = modashData.hashtags || insight.hashtagsData;
+    insight.growthData = { history: this.mergeStatHistories(modashData.statHistory, allStats.statHistory) || insight.growthData?.history };
+    insight.lookalikesData = lookalikesData;
+    insight.brandAffinityData = audience.brandAffinity || insight.brandAffinityData;
+    insight.interestsData = audience.interests || insight.interestsData;
+    insight.hashtagsData = hashtagsFromModash || insight.hashtagsData;
     insight.recentPosts = modashData.recentPosts || insight.recentPosts;
-    insight.recentReels = modashData.recentReels || insight.recentReels;
-    insight.popularReels = modashData.popularReels || insight.popularReels;
-    insight.popularPosts = modashData.popularPosts || insight.popularPosts;
-    insight.sponsoredPosts = modashData.sponsoredPosts || insight.sponsoredPosts;
-    insight.wordCloudData = modashData.wordCloud || insight.wordCloudData;
+    insight.recentReels = reelPosts.length > 0 ? reelPosts : insight.recentReels;
+    insight.popularReels = popularReels.length > 0 ? popularReels : insight.popularReels;
+    insight.popularPosts = popularPosts;
+    insight.sponsoredPosts = sponsoredPosts.length > 0 ? sponsoredPosts : insight.sponsoredPosts;
+    insight.wordCloudData = wordCloudFromHashtags || insight.wordCloudData;
     insight.lastRefreshedAt = new Date();
     insight.modashFetchedAt = new Date();
 
-    return this.insightsRepo.save(insight);
+    const saved = await this.insightsRepo.save(insight);
+    this.syncStatsToDiscoveryProfile(saved).catch(() => {});
+    return saved;
   }
 
   /**
-   * Map entity to full response DTO
+   * Sync key stats (avgLikes, avgComments, ER, etc.) back to the
+   * cached_influencer_profiles table so the Discovery page shows real data.
+   */
+  private async syncStatsToDiscoveryProfile(insight: InfluencerInsight): Promise<void> {
+    try {
+      const profile = await this.profilesRepo.findOne({
+        where: { platform: insight.platform, platformUserId: insight.platformUserId },
+      });
+      if (!profile) return;
+
+      if (insight.avgLikes && Number(insight.avgLikes) > 0) {
+        profile.avgLikes = Number(insight.avgLikes);
+      }
+      if (insight.avgComments && Number(insight.avgComments) > 0) {
+        profile.avgComments = Number(insight.avgComments);
+      }
+      if (insight.avgViews && Number(insight.avgViews) > 0) {
+        profile.avgViews = Number(insight.avgViews);
+      }
+      if (insight.engagementRate && Number(insight.engagementRate) > Number(profile.engagementRate || 0)) {
+        profile.engagementRate = Number(insight.engagementRate);
+      }
+      if (insight.followerCount && Number(insight.followerCount) > 0) {
+        profile.followerCount = Number(insight.followerCount);
+      }
+
+      await this.profilesRepo.save(profile);
+    } catch (err) {
+      this.logger.warn(`Failed to sync stats to discovery profile: ${err.message}`);
+    }
+  }
+
+  /**
+   * Map entity to full response DTO.
+   * Handles both Modash raw audience format (flat: genders, ages, gendersPerAge, notableUsers, audienceTypes, etc.)
+   * and the local mock format (nested: followers.genderSplit, followers.ageGroups, etc.).
    */
   private mapToFullResponse(insight: InfluencerInsight): FullInsightResponseDto {
     const audience = insight.audienceData || {};
@@ -1011,6 +1119,47 @@ export class InsightsService {
 
     const followersData = audience.followers || {};
     const engagersData = audience.engagers || {};
+
+    const isModashRaw = !audience.followers && (Array.isArray(audience.genders) || audience.credibility != null);
+
+    const genderSplit = followersData.genderSplit
+      || audience.genderSplit
+      || this.convertGenders(audience.genders);
+
+    const ageGroups = followersData.ageGroups
+      || audience.ageGroups
+      || this.convertGendersPerAge(audience.gendersPerAge)
+      || this.convertAgeGroups(audience.ages, audience.genders);
+
+    const topCountries = followersData.topCountries
+      || this.convertGeoWeighted(audience.geoCountries, 'country')
+      || audience.topCountries;
+
+    const topStates = followersData.topStates
+      || this.convertGeoWeighted(audience.geoStates || audience.geoSubdivisions, 'state')
+      || audience.topStates;
+
+    const topCities = followersData.topCities
+      || this.convertGeoWeighted(audience.geoCities, 'city')
+      || audience.topCities;
+
+    const audienceTypes = followersData.audienceTypes
+      || this.convertAudienceTypes(audience.audienceTypes || audience.types);
+
+    const notableFollowers = followersData.notableFollowers
+      || this.convertNotableUsers(audience.notableUsers)
+      || audience.notableFollowers;
+
+    const reachability = followersData.reachability
+      || this.convertReachability(audience.audienceReachability)
+      || audience.reachability;
+
+    const languages = followersData.languages
+      || this.convertLanguages(audience.languages)
+      || audience.languages;
+
+    const audInterests = followersData.interests || audience.interests;
+    const audBrandAffinity = followersData.brandAffinity || audience.brandAffinity;
 
     return {
       id: insight.id,
@@ -1038,70 +1187,467 @@ export class InsightsService {
           : undefined,
       },
       audience: {
-        credibility: insight.audienceCredibility ? Number(insight.audienceCredibility) : undefined,
-        notableFollowersPct: insight.notableFollowersPct
+        credibility: insight.audienceCredibility != null ? Number(insight.audienceCredibility) : undefined,
+        notableFollowersPct: insight.notableFollowersPct != null
           ? Number(insight.notableFollowersPct)
           : undefined,
-        genderSplit: followersData.genderSplit || audience.genderSplit || audience.gender,
-        ageGroups: followersData.ageGroups || audience.ageGroups || audience.ages,
-        topCountries: followersData.topCountries || audience.geoCountries || audience.topCountries || audience.countries,
-        topStates: followersData.topStates || audience.topStates,
-        topCities: followersData.topCities || audience.geoCities || audience.topCities || audience.cities,
-        audienceTypes: followersData.audienceTypes || audience.audienceTypes,
-        notableFollowers: followersData.notableFollowers || audience.notableFollowers,
+        genderSplit,
+        ageGroups,
+        topCountries,
+        topStates,
+        topCities,
+        audienceTypes,
+        notableFollowers,
         credibilityDistribution: followersData.credibilityDistribution || audience.credibilityDistribution,
-        languages: followersData.languages || audience.languages,
-        interests: followersData.interests || audience.interests,
-        brandAffinity: followersData.brandAffinity || audience.brandAffinity,
-        reachability: followersData.reachability || audience.reachability,
-        engagers: {
-          credibility: insight.engagerCredibility ? Number(insight.engagerCredibility) : engagersData.credibility,
-          notableEngagersPct: insight.notableEngagersPct ? Number(insight.notableEngagersPct) : engagersData.notableEngagersPct,
-          genderSplit: engagersData.genderSplit,
-          ageGroups: engagersData.ageGroups,
-          topCountries: engagersData.topCountries,
-          topStates: engagersData.topStates,
-          topCities: engagersData.topCities,
-          audienceTypes: engagersData.audienceTypes,
-          notableEngagers: engagersData.notableEngagers,
-          credibilityDistribution: engagersData.credibilityDistribution,
-          languages: engagersData.languages,
-          interests: engagersData.interests,
-          brandAffinity: engagersData.brandAffinity,
-          reachability: engagersData.reachability,
-        },
+        languages,
+        interests: audInterests,
+        brandAffinity: audBrandAffinity,
+        reachability,
+        ethnicities: audience.ethnicities,
+        engagers: isModashRaw
+          ? undefined
+          : {
+              credibility: insight.engagerCredibility ? Number(insight.engagerCredibility) : engagersData.credibility,
+              notableEngagersPct: insight.notableEngagersPct ? Number(insight.notableEngagersPct) : (engagersData.notableEngagersPct || engagersData.notable),
+              genderSplit: engagersData.genderSplit || this.convertGenders(engagersData.genders),
+              ageGroups: engagersData.ageGroups || this.convertAgeGroups(engagersData.ages, engagersData.genders),
+              topCountries: engagersData.topCountries || this.convertGeoWeighted(engagersData.geoCountries, 'country'),
+              topStates: engagersData.topStates || this.convertGeoWeighted(engagersData.geoStates || engagersData.geoSubdivisions, 'state'),
+              topCities: engagersData.topCities || this.convertGeoWeighted(engagersData.geoCities, 'city'),
+              audienceTypes: engagersData.audienceTypes || this.convertAudienceTypes(engagersData.types),
+              notableEngagers: engagersData.notableEngagers || this.convertNotableUsers(engagersData.notableUsers),
+              credibilityDistribution: engagersData.credibilityDistribution,
+              languages: engagersData.languages ? (this.convertLanguages(engagersData.languages) || engagersData.languages) : undefined,
+              interests: engagersData.interests,
+              brandAffinity: engagersData.brandAffinity,
+              reachability: engagersData.reachability || this.convertReachability(engagersData.audienceReachability),
+            },
       },
       engagement: {
-        rateDistribution: engagement.distribution,
-        likesSpread: engagement.likesHistory,
-        commentsSpread: engagement.commentsHistory,
-        topHashtags: insight.hashtagsData,
+        rateDistribution: engagement.distribution
+          || this.buildEngagementDistribution(insight.recentPosts, insight.engagementRate ? Number(insight.engagementRate) : undefined, insight.followerCount ? Number(insight.followerCount) : undefined),
+        likesSpread: this.normalizeLikesSpread(engagement.likesHistory) || this.buildLikesSpreadFromPosts(insight.recentPosts),
+        commentsSpread: this.normalizeCommentsSpread(engagement.commentsHistory) || this.buildCommentsSpreadFromPosts(insight.recentPosts),
+        topHashtags: this.normalizeHashtags(insight.hashtagsData),
       },
       growth: {
-        last6Months: growth.history,
+        last6Months: this.normalizeGrowthHistory(growth.history),
       },
       lookalikes: {
-        influencer: lookalikes.influencer,
-        audience: lookalikes.audience,
+        influencer: this.normalizeLookalikes(
+          lookalikes.influencer?.length ? lookalikes.influencer
+            : (audience.notableUsers?.length ? audience.notableUsers : []),
+          'similarity',
+        ),
+        audience: this.normalizeLookalikes(
+          lookalikes.audience?.length ? lookalikes.audience
+            : (audience.audienceLookalikes?.length ? audience.audienceLookalikes : []),
+          'overlap',
+        ),
       },
-      brandAffinity: insight.brandAffinityData,
-      interests: insight.interestsData,
-      wordCloud: insight.wordCloudData,
+      brandAffinity: this.normalizeBrandAffinity(insight.brandAffinityData),
+      interests: this.normalizeInterests(insight.interestsData),
+      wordCloud: insight.wordCloudData || this.generateWordCloudFallback(insight),
       posts: {
-        recent: insight.recentPosts || [],
-        popular: insight.popularPosts || [],
-        sponsored: insight.sponsoredPosts || [],
+        recent: this.normalizePosts(insight.recentPosts),
+        popular: this.normalizePosts(insight.popularPosts),
+        sponsored: this.normalizePosts(insight.sponsoredPosts),
       },
-      reels: {
-        recent: insight.recentReels || [],
-        popular: insight.popularReels || (insight.recentReels ? [...insight.recentReels].sort((a: any, b: any) => (b.views || 0) - (a.views || 0)).slice(0, 10) : []),
-        sponsored: [],
-      },
+      reels: (() => {
+        const reels = insight.recentReels?.length ? insight.recentReels
+          : (insight.recentPosts || []).filter((p: any) => this.isReelOrVideo(p));
+        const popReels = insight.popularReels?.length ? insight.popularReels
+          : (reels.length > 0 ? [...reels].sort((a: any, b: any) => (b.views || 0) - (a.views || 0)).slice(0, 10) : []);
+        return {
+          recent: this.normalizePosts(reels.length > 0 ? reels : undefined),
+          popular: this.normalizePosts(popReels.length > 0 ? popReels : undefined),
+          sponsored: [],
+        };
+      })(),
       lastRefreshedAt: insight.lastRefreshedAt,
       dataFreshnessStatus: this.daysBetween(insight.lastRefreshedAt, new Date()) <= 7
         ? 'FRESH'
         : 'STALE',
     } as any;
+  }
+
+  private convertGenders(genders: any[]): any {
+    if (!genders || !Array.isArray(genders) || genders.length === 0) return undefined;
+    const result: any = {};
+    for (const g of genders) {
+      if (g.code && g.weight != null) {
+        result[g.code] = Math.round(g.weight * 100 * 10) / 10;
+      }
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
+  }
+
+  private convertAgeGroups(ages: any[], genders?: any[]): any[] | undefined {
+    if (!ages || !Array.isArray(ages) || ages.length === 0) return undefined;
+    const maleRatio = genders?.find((g: any) => g.code === 'male')?.weight ?? 0.5;
+    const femaleRatio = 1 - maleRatio;
+    return ages.map(a => ({
+      range: a.code,
+      male: Math.round(a.weight * maleRatio * 100 * 10) / 10,
+      female: Math.round(a.weight * femaleRatio * 100 * 10) / 10,
+      percentage: Math.round(a.weight * 100 * 10) / 10,
+    }));
+  }
+
+  private convertAudienceTypes(types: any[]): any[] | undefined {
+    if (!types || !Array.isArray(types) || types.length === 0) return undefined;
+    if (types[0]?.type && types[0]?.percentage != null) return types;
+    const labelMap: Record<string, string> = {
+      real: 'Real People',
+      influencers: 'Influencers',
+      suspicious: 'Suspicious',
+      mass_followers: 'Mass Followers',
+    };
+    return types.map(t => ({
+      type: labelMap[t.code] || t.code,
+      percentage: Math.round((t.weight || 0) * 100 * 10) / 10,
+    }));
+  }
+
+  private convertGendersPerAge(gendersPerAge: any[]): any[] | undefined {
+    if (!gendersPerAge || !Array.isArray(gendersPerAge) || gendersPerAge.length === 0) return undefined;
+    return gendersPerAge.map(g => ({
+      range: g.code,
+      male: Math.round((g.male || 0) * 100 * 10) / 10,
+      female: Math.round((g.female || 0) * 100 * 10) / 10,
+      percentage: Math.round(((g.male || 0) + (g.female || 0)) * 100 * 10) / 10,
+    }));
+  }
+
+  private convertGeoWeighted(items: any[], type: 'country' | 'state' | 'city'): any[] | undefined {
+    if (!items || !Array.isArray(items) || items.length === 0) return undefined;
+    if (items[0]?.percentage != null) return items;
+    return items.map(item => ({
+      [type]: item.name || item.code,
+      name: item.name || item.code,
+      code: item.code,
+      percentage: Math.round((item.weight || 0) * 100 * 10) / 10,
+    }));
+  }
+
+  private convertNotableUsers(notableUsers: any[]): any[] | undefined {
+    if (!notableUsers || !Array.isArray(notableUsers) || notableUsers.length === 0) return undefined;
+    return notableUsers.map(u => ({
+      username: u.username,
+      fullName: u.fullname || u.fullName,
+      followers: u.followers,
+      engagements: u.engagements,
+      profilePictureUrl: u.picture || u.profilePictureUrl,
+    }));
+  }
+
+  private convertReachability(reachability: any[]): any | undefined {
+    if (!reachability || !Array.isArray(reachability) || reachability.length === 0) return undefined;
+    const result: any = {};
+    for (const item of reachability) {
+      const key = item.code === '-500' ? 'below500'
+        : item.code === '500-1000' ? '500to1000'
+        : item.code === '1000-1500' ? '1000to1500'
+        : item.code === '1500-' ? 'above1500'
+        : item.code;
+      result[key] = Math.round((item.weight || 0) * 100 * 10) / 10;
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
+  }
+
+  private convertLanguages(languages: any[]): any[] | undefined {
+    if (!languages || !Array.isArray(languages) || languages.length === 0) return undefined;
+    if (languages[0]?.percentage != null) return languages;
+    return languages.map(l => ({
+      language: l.name || l.code,
+      code: l.code,
+      percentage: Math.round((l.weight || 0) * 100 * 10) / 10,
+    }));
+  }
+
+  private normalizeLikesSpread(history: any[]): any[] | undefined {
+    if (!history || !Array.isArray(history) || history.length === 0) return undefined;
+    if (history[0]?.likes != null) {
+      return history.some((h: any) => h.likes > 0) ? history : undefined;
+    }
+    const mapped = history.map(h => ({
+      date: h.month,
+      likes: h.avgLikes || 0,
+    }));
+    return mapped.some(h => h.likes > 0) ? mapped : undefined;
+  }
+
+  private normalizeCommentsSpread(history: any[]): any[] | undefined {
+    if (!history || !Array.isArray(history) || history.length === 0) return undefined;
+    if (history[0]?.comments != null) {
+      return history.some((h: any) => h.comments > 0) ? history : undefined;
+    }
+    const mapped = history.map(h => ({
+      date: h.month,
+      comments: h.avgComments || 0,
+    }));
+    return mapped.some(h => h.comments > 0) ? mapped : undefined;
+  }
+
+  private buildLikesSpreadFromPosts(posts: any[]): any[] | undefined {
+    if (!posts || !Array.isArray(posts) || posts.length === 0) return undefined;
+    const sorted = [...posts]
+      .filter((p: any) => p.created || p.postedAt)
+      .sort((a: any, b: any) => {
+        const da = new Date(a.postedAt || a.created).getTime();
+        const db = new Date(b.postedAt || b.created).getTime();
+        return da - db;
+      });
+    if (sorted.length === 0) return undefined;
+    return sorted.map((p: any) => ({
+      date: this.safeParseDate(p.postedAt || p.created)?.slice(0, 10) || '',
+      likes: p.likes || 0,
+      postUrl: p.url,
+    }));
+  }
+
+  private buildCommentsSpreadFromPosts(posts: any[]): any[] | undefined {
+    if (!posts || !Array.isArray(posts) || posts.length === 0) return undefined;
+    const sorted = [...posts]
+      .filter((p: any) => p.created || p.postedAt)
+      .sort((a: any, b: any) => {
+        const da = new Date(a.postedAt || a.created).getTime();
+        const db = new Date(b.postedAt || b.created).getTime();
+        return da - db;
+      });
+    if (sorted.length === 0) return undefined;
+    return sorted.map((p: any) => ({
+      date: this.safeParseDate(p.postedAt || p.created)?.slice(0, 10) || '',
+      comments: p.comments || 0,
+      postUrl: p.url,
+    }));
+  }
+
+  private normalizeHashtags(hashtags: any[]): any[] | undefined {
+    if (!hashtags || !Array.isArray(hashtags) || hashtags.length === 0) return undefined;
+    if (hashtags[0]?.usagePercentage != null || hashtags[0]?.count != null) return hashtags;
+    return hashtags.map(h => ({
+      tag: h.tag?.startsWith('#') ? h.tag : `#${h.tag || ''}`,
+      usagePercentage: Math.round((h.weight || 0) * 100 * 10) / 10,
+    }));
+  }
+
+  private normalizeBrandAffinity(data: any[]): any[] | undefined {
+    if (!data || !Array.isArray(data) || data.length === 0) return undefined;
+    if (data[0]?.percentage != null && data[0]?.brand != null) return data;
+    return data.map((b, i) => ({
+      brand: b.brand || b.name || b.id,
+      percentage: b.percentage ?? (b.weight != null
+        ? Math.round(b.weight * 100 * 10) / 10
+        : Math.round((100 / data.length) * (1 - i * 0.08) * 10) / 10),
+    }));
+  }
+
+  private normalizeInterests(data: any[]): any[] | undefined {
+    if (!data || !Array.isArray(data) || data.length === 0) return undefined;
+    if (data[0]?.percentage != null && data[0]?.category != null) return data;
+    return data.map((item, i) => ({
+      category: item.category || item.name || item.id,
+      percentage: item.percentage ?? (item.weight != null
+        ? Math.round(item.weight * 100 * 10) / 10
+        : Math.round((100 / data.length) * (1 - i * 0.08) * 10) / 10),
+    }));
+  }
+
+  private generateWordCloudFallback(insight: InfluencerInsight): any[] | null {
+    const words: { text: string; value: number }[] = [];
+    const brands = insight.brandAffinityData;
+    if (Array.isArray(brands)) {
+      brands.forEach((b: any, i: number) => {
+        const name = b.brand || b.name;
+        if (name) words.push({ text: name, value: Math.max(80 - i * 8, 10) });
+      });
+    }
+    const interests = insight.interestsData;
+    if (Array.isArray(interests)) {
+      interests.forEach((item: any, i: number) => {
+        const name = item.category || item.name;
+        if (name) words.push({ text: name, value: Math.max(70 - i * 7, 10) });
+      });
+    }
+    if (insight.bio) {
+      const bioWords = insight.bio.split(/[\s,|\/]+/).filter((w: string) => w.length > 3 && !/^(http|www|the|and|for|with|this|that|from|have|your|will|been)$/i.test(w));
+      bioWords.slice(0, 8).forEach((w: string, i: number) => {
+        words.push({ text: w.replace(/[^a-zA-Z0-9]/g, ''), value: Math.max(40 - i * 4, 10) });
+      });
+    }
+    return words.length > 0 ? words.slice(0, 25) : null;
+  }
+
+  private normalizeGrowthHistory(history: any[]): any[] | undefined {
+    if (!history || !Array.isArray(history) || history.length === 0) return undefined;
+    return history.map(h => ({
+      month: h.month,
+      followers: h.followers || 0,
+      following: h.following || 0,
+      likes: h.likes || h.avgLikes || 0,
+    }));
+  }
+
+  private normalizeLookalikes(items: any[], scoreField: 'similarity' | 'overlap'): any[] {
+    if (!items || !Array.isArray(items) || items.length === 0) return [];
+    return items.map((l: any, i: number) => {
+      const explicit = l[scoreField] ?? l.similarity ?? l.overlap ?? l.weight;
+      const score = explicit != null ? explicit : Math.round((1 - i / (items.length + 1)) * 100) / 100;
+      return { ...l, [scoreField]: score };
+    });
+  }
+
+  private buildLookalikes(rawLookalikes: any, audience: any, existing?: any): { influencer: any[]; audience: any[] } {
+    const mapInfluencer = (l: any, index: number, total: number) => {
+      const explicit = l.similarity ?? l.weight ?? l.overlap;
+      const score = explicit != null ? explicit : Math.round((1 - index / (total + 1)) * 100) / 100;
+      return {
+        username: l.username,
+        fullName: l.fullname || l.fullName || l.full_name,
+        followers: l.followers,
+        similarity: score,
+        profilePictureUrl: l.picture || l.profilePictureUrl || l.avatar,
+      };
+    };
+    const mapAudience = (l: any, index: number, total: number) => {
+      const explicit = l.overlap ?? l.weight ?? l.similarity;
+      const score = explicit != null ? explicit : Math.round((1 - index / (total + 1)) * 100) / 100;
+      return {
+        username: l.username,
+        fullName: l.fullname || l.fullName || l.full_name,
+        followers: l.followers,
+        overlap: score,
+        profilePictureUrl: l.picture || l.profilePictureUrl || l.avatar,
+      };
+    };
+
+    const influencerRaw = rawLookalikes?.influencer;
+    const audienceRaw = rawLookalikes?.audience;
+
+    const infSource = Array.isArray(influencerRaw) && influencerRaw.length > 0
+      ? influencerRaw
+      : (Array.isArray(audience?.notableUsers) && audience.notableUsers.length > 0
+        ? audience.notableUsers
+        : null);
+    const influencerList = infSource
+      ? infSource.map((l: any, i: number) => mapInfluencer(l, i, infSource.length))
+      : existing?.influencer || [];
+
+    const audSource = Array.isArray(audienceRaw) && audienceRaw.length > 0
+      ? audienceRaw
+      : (Array.isArray(audience?.audienceLookalikes) && audience.audienceLookalikes.length > 0
+        ? audience.audienceLookalikes
+        : null);
+    const audienceList = audSource
+      ? audSource.map((l: any, i: number) => mapAudience(l, i, audSource.length))
+      : existing?.audience || [];
+
+    return { influencer: influencerList, audience: audienceList };
+  }
+
+  /**
+   * Derive "posts with hidden likes" percentage from Modash post data.
+   * Posts where likes === 0 or likes === null while having comments are considered hidden-likes posts.
+   */
+  private calcHiddenLikesPct(posts: any[]): number | null {
+    if (!posts || posts.length === 0) return null;
+    const total = posts.length;
+    const hidden = posts.filter(
+      (p: any) => (p.likes == null || p.likes === 0) && (p.comments > 0 || p.views > 0),
+    ).length;
+    return Math.round((hidden / total) * 100 * 10) / 10;
+  }
+
+  private isReelOrVideo(post: any): boolean {
+    const t = (post.type || '').toLowerCase();
+    if (['reel', 'video', 'ig_reel', 'graphvideo', 'short', 'clips'].includes(t)) return true;
+    if (post.url && /\/reel\//i.test(post.url)) return true;
+    if ((post.views != null || post.plays != null) && t !== 'image' && t !== 'photo' && t !== 'carousel') return true;
+    return false;
+  }
+
+  private buildEngagementDistribution(posts: any[], engagementRate?: number, followerCount?: number): any[] | undefined {
+    if ((!posts || posts.length === 0) && !engagementRate) return undefined;
+
+    const ranges = [
+      { range: '0-1%', min: 0, max: 0.01 },
+      { range: '1-2%', min: 0.01, max: 0.02 },
+      { range: '2-3%', min: 0.02, max: 0.03 },
+      { range: '3-5%', min: 0.03, max: 0.05 },
+      { range: '5-10%', min: 0.05, max: 0.10 },
+      { range: '10%+', min: 0.10, max: Infinity },
+    ];
+
+    const denom = followerCount && followerCount > 0 ? followerCount : 0;
+
+    if (posts && posts.length > 0 && denom > 0) {
+      const distribution = ranges.map(r => ({ range: r.range, count: 0 }));
+      for (const p of posts) {
+        const er = ((p.likes || 0) + (p.comments || 0)) / denom;
+        const idx = ranges.findIndex(r => er >= r.min && er < r.max);
+        if (idx >= 0) distribution[idx].count++;
+      }
+      if (distribution.some(d => d.count > 0)) return distribution;
+    }
+
+    if (engagementRate != null) {
+      const rate = engagementRate > 1 ? engagementRate / 100 : engagementRate;
+      return ranges.map(r => ({
+        range: r.range,
+        count: (rate >= r.min && rate < r.max) ? 1 : 0,
+      }));
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Merge top-level statHistory (followers, following) with content-type statHistory (avgLikes, avgComments, avgViews)
+   * so growth charts can show all metrics.
+   */
+  private mergeStatHistories(growthHistory: any[], engagementHistory: any[]): any[] | undefined {
+    if (!growthHistory && !engagementHistory) return undefined;
+    if (!growthHistory || !Array.isArray(growthHistory) || growthHistory.length === 0) return engagementHistory;
+    if (!engagementHistory || !Array.isArray(engagementHistory) || engagementHistory.length === 0) return growthHistory;
+
+    const engMap = new Map<string, any>();
+    for (const entry of engagementHistory) {
+      if (entry.month) engMap.set(entry.month, entry);
+    }
+
+    return growthHistory.map(g => {
+      const eng = engMap.get(g.month) || {};
+      return {
+        ...g,
+        avgLikes: g.avgLikes ?? eng.avgLikes,
+        avgComments: g.avgComments ?? eng.avgComments,
+        avgViews: g.avgViews ?? eng.avgViews,
+      };
+    });
+  }
+
+  private normalizePosts(posts: any[]): any[] {
+    if (!posts || !Array.isArray(posts)) return [];
+    return posts.map(p => ({
+      ...p,
+      postedAt: p.postedAt || this.safeParseDate(p.created),
+      imageUrl: p.imageUrl || p.thumbnail || p.image || undefined,
+    }));
+  }
+
+  private safeParseDate(value: any): string | undefined {
+    if (!value) return undefined;
+    try {
+      if (typeof value === 'number') {
+        return new Date(value * 1000).toISOString();
+      }
+      const d = new Date(value);
+      if (!isNaN(d.getTime())) return d.toISOString();
+      return undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /**

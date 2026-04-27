@@ -35,6 +35,11 @@ export declare class AuthService {
         success: boolean;
         message: string;
     }>;
+    getSignupRequests(status?: string): Promise<any[]>;
+    rejectSignup(signupRequestId: string, reason?: string): Promise<{
+        success: boolean;
+        message: string;
+    }>;
     resetPassword(dto: ResetPasswordDto): Promise<{
         success: boolean;
         message: string;

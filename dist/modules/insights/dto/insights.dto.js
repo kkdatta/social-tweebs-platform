@@ -202,6 +202,10 @@ __decorate([
 __decorate([
     (0, swagger_1.ApiPropertyOptional)(),
     __metadata("design:type", Array)
+], AudienceDemographicsDto.prototype, "topStates", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    __metadata("design:type", Array)
 ], AudienceDemographicsDto.prototype, "topCities", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)(),

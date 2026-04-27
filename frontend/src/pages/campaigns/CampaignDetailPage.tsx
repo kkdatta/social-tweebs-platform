@@ -57,6 +57,7 @@ export const CampaignDetailPage: React.FC = () => {
   // Add forms
   const [newInfluencer, setNewInfluencer] = useState({ influencerName: '', influencerUsername: '', platform: 'INSTAGRAM' });
   const [newPostUrl, setNewPostUrl] = useState('');
+  const [newPostMetrics, setNewPostMetrics] = useState({ likesCount: '', viewsCount: '', commentsCount: '', sharesCount: '' });
 
   useEffect(() => {
     if (id) loadCampaign();
@@ -119,9 +120,15 @@ export const CampaignDetailPage: React.FC = () => {
   const handleAddPost = async () => {
     if (!newPostUrl.trim()) return;
     try {
-      await campaignsApi.addPost(id!, { postUrl: newPostUrl });
+      const dto: any = { postUrl: newPostUrl };
+      if (newPostMetrics.likesCount) dto.likesCount = parseInt(newPostMetrics.likesCount);
+      if (newPostMetrics.viewsCount) dto.viewsCount = parseInt(newPostMetrics.viewsCount);
+      if (newPostMetrics.commentsCount) dto.commentsCount = parseInt(newPostMetrics.commentsCount);
+      if (newPostMetrics.sharesCount) dto.sharesCount = parseInt(newPostMetrics.sharesCount);
+      await campaignsApi.addPost(id!, dto);
       setShowAddPost(false);
       setNewPostUrl('');
+      setNewPostMetrics({ likesCount: '', viewsCount: '', commentsCount: '', sharesCount: '' });
       loadCampaign();
     } catch (err: any) {
       alert(err.response?.data?.message || 'Failed to add post');
@@ -919,6 +926,29 @@ export const CampaignDetailPage: React.FC = () => {
                 <input type="url" value={newPostUrl} onChange={(e) => setNewPostUrl(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="https://www.instagram.com/p/..." />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Likes</label>
+                  <input type="number" min="0" value={newPostMetrics.likesCount} onChange={(e) => setNewPostMetrics(p => ({ ...p, likesCount: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Views</label>
+                  <input type="number" min="0" value={newPostMetrics.viewsCount} onChange={(e) => setNewPostMetrics(p => ({ ...p, viewsCount: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Comments</label>
+                  <input type="number" min="0" value={newPostMetrics.commentsCount} onChange={(e) => setNewPostMetrics(p => ({ ...p, commentsCount: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Shares</label>
+                  <input type="number" min="0" value={newPostMetrics.sharesCount} onChange={(e) => setNewPostMetrics(p => ({ ...p, sharesCount: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="0" />
+                </div>
+              </div>
+              <p className="text-xs text-gray-400">Metrics are optional. Add them now or update later.</p>
               <button onClick={handleAddPost} className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
                 Add Post
               </button>

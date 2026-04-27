@@ -203,7 +203,7 @@ export class PaidCollaborationService {
         post.viewsCount = modashPost.stats?.views || modashPost.stats?.plays || 0;
         post.sharesCount = modashPost.stats?.shares || 0;
         post.postDate = new Date(postTimestamp);
-        post.postUrl = '';
+        post.postUrl = this.constructPostUrl(modashPost.post_id, username, report.platform || 'INSTAGRAM');
         await this.postRepo.save(post);
 
         entry.likes += post.likesCount;
@@ -487,7 +487,7 @@ export class PaidCollaborationService {
   async getReportById(userId: string, reportId: string): Promise<PaidCollabReportDetailDto> {
     const report = await this.reportRepo.findOne({
       where: { id: reportId },
-      relations: ['influencers', 'posts', 'categorizations'],
+      relations: ['influencers', 'posts', 'posts.influencer', 'categorizations'],
     });
 
     if (!report) {
@@ -515,7 +515,7 @@ export class PaidCollaborationService {
   async getReportByShareToken(token: string): Promise<PaidCollabReportDetailDto> {
     const report = await this.reportRepo.findOne({
       where: { shareUrlToken: token, isPublic: true },
-      relations: ['influencers', 'posts', 'categorizations'],
+      relations: ['influencers', 'posts', 'posts.influencer', 'categorizations'],
     });
 
     if (!report) {
@@ -987,5 +987,14 @@ export class PaidCollaborationService {
       sharesCount: Number(cat.sharesCount) || 0,
       engagementRate: cat.engagementRate ? Number(cat.engagementRate) : undefined,
     };
+  }
+
+  private constructPostUrl(postId: string, username: string, platform: string): string {
+    if (!postId) return '';
+    const p = platform.toUpperCase();
+    if (p === 'INSTAGRAM') return `https://www.instagram.com/p/${postId}/`;
+    if (p === 'TIKTOK') return `https://www.tiktok.com/@${username}/video/${postId}`;
+    if (p === 'YOUTUBE') return `https://www.youtube.com/watch?v=${postId}`;
+    return '';
   }
 }

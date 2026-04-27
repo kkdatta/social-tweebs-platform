@@ -358,6 +358,21 @@ let ModashService = ModashService_1 = class ModashService {
         if (filters.age) {
             filter.age = filters.age;
         }
+        if (filters.lastposted !== undefined) {
+            filter.lastposted = filters.lastposted;
+        }
+        if (filters.textTags && filters.textTags.length > 0) {
+            filter.textTags = filters.textTags;
+        }
+        if (filters.relevance && filters.relevance.length > 0) {
+            filter.relevance = filters.relevance;
+        }
+        if (filters.audienceRelevance && filters.audienceRelevance.length > 0) {
+            filter.audienceRelevance = filters.audienceRelevance;
+        }
+        if (filters.hasYouTube !== undefined) {
+            filter.hasYouTube = filters.hasYouTube;
+        }
         if (filters.username) {
             filter.username = filters.username;
         }
@@ -379,6 +394,9 @@ let ModashService = ModashService_1 = class ModashService {
         }
         if (filters.language) {
             audienceFilter.language = filters.language;
+        }
+        if (filters.credibility !== undefined) {
+            audienceFilter.credibility = filters.credibility;
         }
         return audienceFilter;
     }

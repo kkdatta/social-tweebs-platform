@@ -182,6 +182,45 @@ let AuthService = class AuthService {
             message: 'Signup request approved and user account activated.',
         };
     }
+    async getSignupRequests(status) {
+        const where = {};
+        if (status && Object.values(enums_1.SignupRequestStatus).includes(status)) {
+            where.status = status;
+        }
+        const requests = await this.signupRequestRepository.find({
+            where,
+            order: { createdAt: 'DESC' },
+        });
+        return requests.map(r => ({
+            id: r.id,
+            email: r.email,
+            name: r.name,
+            phone: r.phone,
+            businessName: r.businessName,
+            campaignFrequency: r.campaignFrequency,
+            message: r.message,
+            status: r.status,
+            createdAt: r.createdAt,
+            processedAt: r.processedAt,
+            rejectionReason: r.rejectionReason,
+        }));
+    }
+    async rejectSignup(signupRequestId, reason) {
+        const signupRequest = await this.signupRequestRepository.findOne({
+            where: { id: signupRequestId },
+        });
+        if (!signupRequest) {
+            throw new common_1.BadRequestException('Signup request not found');
+        }
+        if (signupRequest.status !== enums_1.SignupRequestStatus.PENDING) {
+            throw new common_1.BadRequestException('Signup request is not in pending state');
+        }
+        signupRequest.status = enums_1.SignupRequestStatus.REJECTED;
+        signupRequest.rejectionReason = reason || 'Rejected by admin';
+        signupRequest.processedAt = new Date();
+        await this.signupRequestRepository.save(signupRequest);
+        return { success: true, message: 'Signup request rejected.' };
+    }
     async resetPassword(dto) {
         const newPassword = dto.newPassword || dto.password;
         if (!newPassword) {

@@ -59,6 +59,11 @@ export declare class AudienceDemographicsDto {
         percentage: number;
         followers: number;
     }>;
+    topStates?: Array<{
+        state: string;
+        percentage: number;
+        followers: number;
+    }>;
     topCities?: Array<{
         city: string;
         percentage: number;

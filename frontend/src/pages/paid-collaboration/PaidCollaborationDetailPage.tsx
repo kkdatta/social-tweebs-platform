@@ -669,6 +669,18 @@ export const PaidCollaborationDetailPage = () => {
         </div>
       )}
 
+      {/* Empty result state */}
+      {report.status === 'COMPLETED' && report.totalInfluencers === 0 && report.totalPosts === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+          <AlertCircle className="w-10 h-10 text-amber-500 mx-auto mb-3" />
+          <h3 className="text-lg font-semibold text-gray-900 mb-1">No Collaborations Found</h3>
+          <p className="text-gray-600 text-sm max-w-md mx-auto">
+            No paid collaboration posts were found for the given hashtags/mentions in the selected date range.
+            Try broadening your date range or adjusting the search terms.
+          </p>
+        </div>
+      )}
+
       {/* Summary Cards */}
       {report.status === 'COMPLETED' && (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">

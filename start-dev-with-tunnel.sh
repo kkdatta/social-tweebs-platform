@@ -125,32 +125,35 @@ echo "📍 Backend Tunnel:  $BACKEND_TUNNEL_URL"
 echo "📍 Frontend Tunnel: $FRONTEND_TUNNEL_URL"
 echo ""
 
-echo "📍 Step 3: Configuring Frontend to use Backend Tunnel..."
+echo "📍 Step 3: Configuring & Building Frontend..."
 echo ""
 
-# Update frontend .env with backend tunnel URL
-if [ -f "frontend/.env" ]; then
-    # Create backup
-    cp frontend/.env frontend/.env.backup
-    
-    # Update the API URL
-    sed -i.bak "s|VITE_API_URL=.*|VITE_API_URL=$BACKEND_TUNNEL_URL|g" frontend/.env
-    rm -f frontend/.env.bak
-    
-    echo "✅ Frontend configured to use: $BACKEND_TUNNEL_URL"
-else
-    echo "# API Configuration" > frontend/.env
-    echo "VITE_API_URL=$BACKEND_TUNNEL_URL" >> frontend/.env
-    echo "✅ Created frontend/.env with tunnel URL"
-fi
+# Update both .env and .env.production with backend tunnel URL
+for envfile in frontend/.env frontend/.env.production; do
+    if [ -f "$envfile" ]; then
+        cp "$envfile" "${envfile}.backup"
+        sed -i.bak "s|VITE_API_URL=.*|VITE_API_URL=$BACKEND_TUNNEL_URL|g" "$envfile"
+        rm -f "${envfile}.bak"
+    else
+        echo "VITE_API_URL=$BACKEND_TUNNEL_URL" > "$envfile"
+    fi
+done
+echo "✅ Frontend configured to use: $BACKEND_TUNNEL_URL"
 
-echo ""
-echo "📍 Step 4: Starting Frontend..."
-echo ""
-
-# Start frontend
+# Build production bundle (avoids Vite dev server HMR issues through tunnels)
+echo "⏳ Building frontend for production..."
 cd frontend
-npm run dev &
+npx vite build --mode production 2>&1 | tail -3
+echo "✅ Frontend built successfully"
+cd ..
+
+echo ""
+echo "📍 Step 4: Starting Frontend (production serve with SPA support)..."
+echo ""
+
+# Serve production build with SPA fallback (-s flag)
+cd frontend
+npx serve dist -l 5173 -s &
 FRONTEND_PID=$!
 cd ..
 

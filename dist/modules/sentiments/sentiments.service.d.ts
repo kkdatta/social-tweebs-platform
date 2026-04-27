@@ -23,6 +23,9 @@ export declare class SentimentsService {
     private extractUsernameFromUrl;
     private processReport;
     private processReportWithRawApi;
+    private processProfileReportWithRawApi;
+    private fetchCommentsForMedia;
+    private analyzeAndSaveComments;
     private analyzeCommentSentiment;
     private extractMediaIdFromUrl;
     private simulateSinglePostProcessing;

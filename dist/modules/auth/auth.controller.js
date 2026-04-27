@@ -42,8 +42,14 @@ let AuthController = class AuthController {
     async refreshToken(refreshTokenDto) {
         return this.authService.refreshToken(refreshTokenDto);
     }
+    async getSignupRequests(status) {
+        return this.authService.getSignupRequests(status);
+    }
     async approveSignup(id) {
         return this.authService.approveSignup(id);
+    }
+    async rejectSignup(id, reason) {
+        return this.authService.rejectSignup(id, reason);
     }
     async logout(user, body) {
         await this.authService.logout(user.sub, body.refreshToken);
@@ -109,6 +115,18 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "refreshToken", null);
 __decorate([
+    (0, common_1.Get)('signup-requests'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard, guards_1.RolesGuard),
+    (0, decorators_1.Roles)(enums_1.UserRole.SUPER_ADMIN),
+    (0, swagger_1.ApiBearerAuth)('JWT-auth'),
+    (0, swagger_1.ApiOperation)({ summary: 'List signup requests (Super Admin only)' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'List of signup requests' }),
+    __param(0, (0, common_1.Query)('status')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "getSignupRequests", null);
+__decorate([
     (0, common_1.Post)('approve-signup/:id'),
     (0, common_1.UseGuards)(guards_1.JwtAuthGuard, guards_1.RolesGuard),
     (0, decorators_1.Roles)(enums_1.UserRole.SUPER_ADMIN),
@@ -122,6 +140,20 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "approveSignup", null);
+__decorate([
+    (0, common_1.Post)('reject-signup/:id'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard, guards_1.RolesGuard),
+    (0, decorators_1.Roles)(enums_1.UserRole.SUPER_ADMIN),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiBearerAuth)('JWT-auth'),
+    (0, swagger_1.ApiOperation)({ summary: 'Reject a signup request (Super Admin only)' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Signup rejected' }),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)('reason')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "rejectSignup", null);
 __decorate([
     (0, common_1.Post)('logout'),
     (0, common_1.UseGuards)(guards_1.JwtAuthGuard),

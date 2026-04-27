@@ -301,7 +301,7 @@ let TieBreakerService = TieBreakerService_1 = class TieBreakerService {
                 if (report.audience.interests?.length) {
                     influencer.followersInterests = report.audience.interests.map(i => ({
                         interest: i.name,
-                        percentage: i.weight * 100,
+                        percentage: (i.weight ?? 0) * 100,
                     }));
                 }
             }

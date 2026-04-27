@@ -116,7 +116,7 @@ export class SentimentsService {
   }
 
   /**
-   * Process report (simulate sentiment analysis). PROFILE reports aggregate across simulated recent posts.
+   * Process report: dispatches to Raw-API or simulated flow depending on config + report type.
    */
   private async processReport(reportId: string): Promise<void> {
     const report = await this.reportRepo.findOne({ where: { id: reportId } });
@@ -135,18 +135,26 @@ export class SentimentsService {
       }
 
       if (this.modashRawService.isRawApiEnabled()) {
-        await this.processReportWithRawApi(report);
+        if (report.reportType === ReportType.PROFILE) {
+          await this.processProfileReportWithRawApi(report);
+        } else {
+          await this.processReportWithRawApi(report);
+        }
       } else if (report.reportType === ReportType.PROFILE) {
         await this.simulateProfileProcessing(report);
       } else {
         await this.simulateSinglePostProcessing(report);
       }
 
+      if ((report.status as string) === SentimentReportStatus.FAILED) {
+        this.logger.error(`Sentiment report ${reportId} failed — NO credits charged`);
+        return;
+      }
+
       report.status = SentimentReportStatus.COMPLETED;
       report.completedAt = new Date();
       await this.reportRepo.save(report);
 
-      // Deduct credits ONLY after successful processing (universal refresh guard)
       await this.creditsService.deductCredits(report.ownerId, {
         actionType: ActionType.REPORT_GENERATION,
         quantity: CREDIT_PER_URL,
@@ -168,53 +176,157 @@ export class SentimentsService {
 
     const mediaId = this.extractMediaIdFromUrl(report.targetUrl, report.platform);
 
-    // 404 Guard: validate media ID exists before calling Raw API (Modash counts 404 as consumed request)
     if (!mediaId || mediaId === 'unknown') {
       report.status = SentimentReportStatus.FAILED;
-      report.errorMessage = 'Could not extract valid media ID from URL. Private or deleted content will consume API quota — skipping.';
+      report.errorMessage = 'Could not extract valid media ID from URL. Ensure the URL points to a specific post/reel/video.';
       await this.reportRepo.save(report);
       return;
     }
 
-    const comments: Array<{ text: string; author: string; likes: number }> = [];
+    const comments = await this.fetchCommentsForMedia(report, mediaId);
+    if (report.status === SentimentReportStatus.FAILED) return;
+
+    await this.analyzeAndSaveComments(report, report.targetUrl, mediaId, comments);
+  }
+
+  /**
+   * Process a PROFILE-type report via Raw API: fetch recent posts, then aggregate comments.
+   */
+  private async processProfileReportWithRawApi(report: SentimentReport): Promise<void> {
+    this.logger.log(`Processing profile sentiments via Modash Raw API for report ${report.id}`);
+
+    const username = report.influencerUsername || this.extractUsernameFromUrl(report.targetUrl, report.platform);
+    if (!username || username === 'unknown') {
+      report.status = SentimentReportStatus.FAILED;
+      report.errorMessage = 'Could not extract username from profile URL.';
+      await this.reportRepo.save(report);
+      return;
+    }
+
+    const plat = (report.platform || '').toUpperCase();
+    const recentPosts: Array<{ id: string; url: string }> = [];
 
     try {
-      const plat = (report.platform || '').toUpperCase();
       if (plat === 'INSTAGRAM' || plat === 'INSTA') {
-        const result = await this.modashRawService.getIgMediaComments(mediaId);
-        for (const c of (result.data || [])) {
-          comments.push({ text: c.text, author: c.user?.username || '', likes: c.comment_like_count || 0 });
+        const feed = await this.modashRawService.getIgUserFeed(username);
+        for (const post of (feed.data || []).slice(0, 6)) {
+          recentPosts.push({
+            id: post.id || post.code,
+            url: `https://www.instagram.com/p/${post.code}/`,
+          });
         }
       } else if (plat === 'TIKTOK') {
-        const result = await this.modashRawService.getTiktokComments(mediaId);
-        for (const c of (result.data || [])) {
-          comments.push({ text: c.text, author: c.user?.unique_id || '', likes: c.digg_count || 0 });
+        const feed = await this.modashRawService.getTiktokUserFeed(username);
+        for (const post of (feed.data || []).slice(0, 6)) {
+          recentPosts.push({
+            id: post.id,
+            url: `https://www.tiktok.com/@${username}/video/${post.id}`,
+          });
         }
       } else if (plat === 'YOUTUBE') {
-        const result = await this.modashRawService.getYoutubeVideoComments(mediaId);
-        for (const c of (result.data || [])) {
-          comments.push({ text: c.text, author: c.authorDisplayName || '', likes: c.likeCount || 0 });
+        const feed = await this.modashRawService.getYoutubeUploadedVideos(username);
+        for (const vid of (feed.data || []).slice(0, 6)) {
+          recentPosts.push({
+            id: vid.videoId,
+            url: `https://www.youtube.com/watch?v=${vid.videoId}`,
+          });
         }
       }
     } catch (err) {
-      this.logger.error(`Raw API error for sentiment report ${report.id}: ${err.message}`);
+      this.logger.error(`Raw API error fetching feed for ${username}: ${err.message}`);
       report.status = SentimentReportStatus.FAILED;
-      report.errorMessage = `Failed to fetch comments from platform: ${err.message}`;
+      report.errorMessage = `Failed to fetch recent posts: ${err.message}`;
       await this.reportRepo.save(report);
       return;
     }
 
-    if (comments.length === 0) {
-      this.logger.warn(`No comments found for ${report.targetUrl}`);
+    if (recentPosts.length === 0) {
+      report.status = SentimentReportStatus.FAILED;
+      report.errorMessage = 'No recent posts found for this profile.';
+      await this.reportRepo.save(report);
+      return;
+    }
+
+    let weightedPos = 0;
+    let weightedNeu = 0;
+    let weightedNeg = 0;
+    let totalComments = 0;
+
+    for (const rp of recentPosts) {
+      const comments = await this.fetchCommentsForMedia(report, rp.id);
+      if (report.status === SentimentReportStatus.FAILED) return;
+      if (comments.length === 0) continue;
+
+      const result = await this.analyzeAndSaveComments(report, rp.url, rp.id, comments);
+      const count = result.total;
+      weightedPos += result.positivePct * count;
+      weightedNeu += result.neutralPct * count;
+      weightedNeg += result.negativePct * count;
+      totalComments += count;
+    }
+
+    if (totalComments > 0) {
+      report.positivePercentage = Number((weightedPos / totalComments).toFixed(2));
+      report.neutralPercentage = Number((weightedNeu / totalComments).toFixed(2));
+      report.negativePercentage = Number((weightedNeg / totalComments).toFixed(2));
+      report.overallSentimentScore =
+        report.positivePercentage * 1.2 - report.negativePercentage * 0.5 + 20;
+    } else {
       report.positivePercentage = 0;
       report.neutralPercentage = 0;
       report.negativePercentage = 0;
       report.overallSentimentScore = 0;
-      report.status = SentimentReportStatus.COMPLETED;
-      report.completedAt = new Date();
-      report.errorMessage = 'No comments found for this content';
+    }
+  }
+
+  /**
+   * Fetch comments for a single media item across platforms.
+   * Sets report.status to FAILED on API error (caller must check).
+   */
+  private async fetchCommentsForMedia(
+    report: SentimentReport,
+    mediaId: string,
+  ): Promise<Array<{ text: string; author: string; likes: number }>> {
+    const comments: Array<{ text: string; author: string; likes: number }> = [];
+    try {
+      const plat = (report.platform || '').toUpperCase();
+      if (plat === 'INSTAGRAM' || plat === 'INSTA') {
+        const result = await this.modashRawService.getIgMediaComments(mediaId);
+        for (const c of result.data || []) {
+          comments.push({ text: c.text, author: c.user?.username || '', likes: c.comment_like_count || 0 });
+        }
+      } else if (plat === 'TIKTOK') {
+        const result = await this.modashRawService.getTiktokComments(mediaId);
+        for (const c of result.data || []) {
+          comments.push({ text: c.text, author: c.user?.unique_id || '', likes: c.digg_count || 0 });
+        }
+      } else if (plat === 'YOUTUBE') {
+        const result = await this.modashRawService.getYoutubeVideoComments(mediaId);
+        for (const c of result.data || []) {
+          comments.push({ text: c.text, author: c.authorDisplayName || '', likes: c.likeCount || 0 });
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Raw API error for sentiment report ${report.id}, media ${mediaId}: ${err.message}`);
+      report.status = SentimentReportStatus.FAILED;
+      report.errorMessage = `Failed to fetch comments from platform: ${err.message}`;
       await this.reportRepo.save(report);
-      return;
+    }
+    return comments;
+  }
+
+  /**
+   * Analyze comment sentiments and persist post + word-cloud rows.
+   * Returns aggregate percentages so the caller can weight across posts.
+   */
+  private async analyzeAndSaveComments(
+    report: SentimentReport,
+    postUrl: string,
+    mediaId: string,
+    comments: Array<{ text: string; author: string; likes: number }>,
+  ): Promise<{ positivePct: number; neutralPct: number; negativePct: number; total: number }> {
+    if (comments.length === 0) {
+      return { positivePct: 0, neutralPct: 0, negativePct: 0, total: 0 };
     }
 
     let positiveCount = 0;
@@ -239,7 +351,9 @@ export class SentimentsService {
     const neutralPct = (neutralCount / total) * 100;
     const negativePct = (negativeCount / total) * 100;
 
-    report.overallSentimentScore = positivePct * 1.2 - negativePct * 0.5 + 20;
+    const score = positivePct * 1.2 - negativePct * 0.5 + 20;
+
+    report.overallSentimentScore = score;
     report.positivePercentage = Number(positivePct.toFixed(2));
     report.neutralPercentage = Number(neutralPct.toFixed(2));
     report.negativePercentage = Number(negativePct.toFixed(2));
@@ -247,14 +361,14 @@ export class SentimentsService {
     const post = new SentimentPost();
     post.reportId = report.id;
     post.postId = mediaId;
-    post.postUrl = report.targetUrl;
+    post.postUrl = postUrl;
     post.description = `Analyzed ${total} real comments`;
     post.commentsCount = total;
     post.commentsAnalyzed = total;
-    post.sentimentScore = report.overallSentimentScore;
-    post.positivePercentage = report.positivePercentage;
-    post.neutralPercentage = report.neutralPercentage;
-    post.negativePercentage = report.negativePercentage;
+    post.sentimentScore = score;
+    post.positivePercentage = Number(positivePct.toFixed(2));
+    post.neutralPercentage = Number(neutralPct.toFixed(2));
+    post.negativePercentage = Number(negativePct.toFixed(2));
     post.postDate = new Date();
     const savedPost = await this.postRepo.save(post);
 
@@ -272,6 +386,8 @@ export class SentimentsService {
       wc.sentiment = count > total * 0.1 ? 'positive' : 'neutral';
       await this.wordCloudRepo.save(wc);
     }
+
+    return { positivePct, neutralPct, negativePct, total };
   }
 
   private analyzeCommentSentiment(text: string): number {
@@ -878,7 +994,7 @@ export class SentimentsService {
       reportType: report.reportType,
       influencerName: report.influencerName,
       influencerAvatarUrl: report.influencerAvatarUrl,
-      overallSentimentScore: report.overallSentimentScore ? Number(report.overallSentimentScore) : undefined,
+      overallSentimentScore: report.overallSentimentScore != null ? Number(report.overallSentimentScore) : undefined,
       status: report.status,
       creditsUsed: report.creditsUsed,
       createdAt: report.createdAt,
@@ -899,10 +1015,10 @@ export class SentimentsService {
       influencerAvatarUrl: report.influencerAvatarUrl,
       status: report.status,
       errorMessage: report.errorMessage,
-      overallSentimentScore: report.overallSentimentScore ? Number(report.overallSentimentScore) : undefined,
-      positivePercentage: report.positivePercentage ? Number(report.positivePercentage) : undefined,
-      neutralPercentage: report.neutralPercentage ? Number(report.neutralPercentage) : undefined,
-      negativePercentage: report.negativePercentage ? Number(report.negativePercentage) : undefined,
+      overallSentimentScore: report.overallSentimentScore != null ? Number(report.overallSentimentScore) : undefined,
+      positivePercentage: report.positivePercentage != null ? Number(report.positivePercentage) : undefined,
+      neutralPercentage: report.neutralPercentage != null ? Number(report.neutralPercentage) : undefined,
+      negativePercentage: report.negativePercentage != null ? Number(report.negativePercentage) : undefined,
       deepBrandAnalysis: report.deepBrandAnalysis,
       brandName: report.brandName,
       brandUsername: report.brandUsername,
@@ -915,11 +1031,11 @@ export class SentimentsService {
         likesCount: p.likesCount,
         commentsCount: p.commentsCount,
         viewsCount: p.viewsCount,
-        engagementRate: p.engagementRate ? Number(p.engagementRate) : undefined,
-        sentimentScore: p.sentimentScore ? Number(p.sentimentScore) : undefined,
-        positivePercentage: p.positivePercentage ? Number(p.positivePercentage) : undefined,
-        neutralPercentage: p.neutralPercentage ? Number(p.neutralPercentage) : undefined,
-        negativePercentage: p.negativePercentage ? Number(p.negativePercentage) : undefined,
+        engagementRate: p.engagementRate != null ? Number(p.engagementRate) : undefined,
+        sentimentScore: p.sentimentScore != null ? Number(p.sentimentScore) : undefined,
+        positivePercentage: p.positivePercentage != null ? Number(p.positivePercentage) : undefined,
+        neutralPercentage: p.neutralPercentage != null ? Number(p.neutralPercentage) : undefined,
+        negativePercentage: p.negativePercentage != null ? Number(p.negativePercentage) : undefined,
         commentsAnalyzed: p.commentsAnalyzed,
         postDate: p.postDate ? (p.postDate instanceof Date ? p.postDate.toISOString().split('T')[0] : String(p.postDate).split('T')[0]) : undefined,
       })),

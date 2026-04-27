@@ -841,7 +841,8 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
         profile.followerCount = modash.stats?.followers || profileAny?.followers || 0;
         profile.followingCount = modash.stats?.following || 0;
         profile.postCount = modash.stats?.posts || 0;
-        profile.engagementRate = modash.stats?.engagementRate || profileAny?.engagementRate || null;
+        const rawER = modash.stats?.engagementRate || profileAny?.engagementRate || null;
+        profile.engagementRate = rawER != null && rawER < 1 ? rawER * 100 : rawER;
         profile.avgLikes = modash.stats?.avgLikes || 0;
         profile.avgComments = modash.stats?.avgComments || 0;
         profile.avgViews = modash.stats?.avgViews || 0;
@@ -882,9 +883,10 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
             innerProfile?.followers ??
                 this.extractStatValue(r.stats?.followers) ??
                 profile.followerCount ?? 0;
-        profile.engagementRate =
-            innerProfile?.engagementRate ??
-                profile.engagementRate ?? null;
+        const reportER = innerProfile?.engagementRate ?? null;
+        profile.engagementRate = reportER != null
+            ? (reportER < 1 ? reportER * 100 : reportER)
+            : profile.engagementRate ?? null;
         profile.avgLikes =
             r.avgLikes ??
                 innerProfile?.avgLikes ??
@@ -940,7 +942,7 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
         }
         if (audience.interests) {
             for (const i of audience.interests)
-                pushIfValid(entities_1.AudienceDataType.INTEREST, i.name, i.weight);
+                pushIfValid(entities_1.AudienceDataType.INTEREST, i.name, i.weight ?? 0);
         }
         if (audience.languages) {
             for (const l of audience.languages)
