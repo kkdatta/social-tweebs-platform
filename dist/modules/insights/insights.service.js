@@ -328,7 +328,7 @@ let InsightsService = InsightsService_1 = class InsightsService {
         const popularPosts = modashData.popularPosts
             || [...(modashData.recentPosts || [])].sort((a, b) => ((b.likes || 0) + (b.comments || 0)) - ((a.likes || 0) + (a.comments || 0))).slice(0, 12);
         const popularReels = reelPosts.length > 0
-            ? [...reelPosts].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 12)
+            ? [...reelPosts].sort((a, b) => ((b.views || 0) + (b.likes || 0)) - ((a.views || 0) + (a.likes || 0))).slice(0, 12)
             : [];
         const sponsoredPosts = allPosts.filter((p) => p.text && /#(ad|sponsored|partner|collab)\b/i.test(p.text));
         const hashtagsFromModash = modashData.hashtags;
@@ -366,9 +366,9 @@ let InsightsService = InsightsService_1 = class InsightsService {
             locationCity: modashData.city || audience.geoCities?.[0]?.name || null,
             isVerified: modashData.isVerified ?? innerProfile.isVerified ?? false,
             audienceCredibility: audience.credibility ?? null,
-            notableFollowersPct: audience.notable ?? null,
+            notableFollowersPct: audience.notable != null ? audience.notable * 100 : null,
             engagerCredibility: audience.engagers?.credibility ?? null,
-            notableEngagersPct: audience.engagers?.notable ?? null,
+            notableEngagersPct: audience.engagers?.notable != null ? audience.engagers.notable * 100 : null,
             audienceData: audience,
             engagementData: {
                 distribution: modashData.engagementDistribution || this.buildEngagementDistribution(allPosts, innerProfile.engagementRate || allStats.engagementRate, innerProfile.followers),
@@ -757,7 +757,7 @@ let InsightsService = InsightsService_1 = class InsightsService {
         const popularPosts = modashData.popularPosts
             || [...(modashData.recentPosts || [])].sort((a, b) => ((b.likes || 0) + (b.comments || 0)) - ((a.likes || 0) + (a.comments || 0))).slice(0, 12);
         const popularReels = reelPosts.length > 0
-            ? [...reelPosts].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 12)
+            ? [...reelPosts].sort((a, b) => ((b.views || 0) + (b.likes || 0)) - ((a.views || 0) + (a.likes || 0))).slice(0, 12)
             : [];
         const sponsoredPosts = allPosts.filter((p) => p.text && /#(ad|sponsored|partner|collab)\b/i.test(p.text));
         const hashtagsFromModash = modashData.hashtags;
@@ -787,9 +787,9 @@ let InsightsService = InsightsService_1 = class InsightsService {
         insight.locationCountry = modashData.country || audience.geoCountries?.[0]?.name || insight.locationCountry;
         insight.locationCity = modashData.city || audience.geoCities?.[0]?.name || insight.locationCity;
         insight.audienceCredibility = audience.credibility ?? insight.audienceCredibility;
-        insight.notableFollowersPct = audience.notable ?? insight.notableFollowersPct;
+        insight.notableFollowersPct = audience.notable != null ? audience.notable * 100 : insight.notableFollowersPct;
         insight.engagerCredibility = audience.engagers?.credibility ?? insight.engagerCredibility;
-        insight.notableEngagersPct = audience.engagers?.notable ?? insight.notableEngagersPct;
+        insight.notableEngagersPct = audience.engagers?.notable != null ? audience.engagers.notable * 100 : insight.notableEngagersPct;
         insight.audienceData = audience;
         insight.engagementData = {
             distribution: modashData.engagementDistribution || this.buildEngagementDistribution(allPosts, innerProfile.engagementRate || allStats.engagementRate, innerProfile.followers) || insight.engagementData?.distribution,
@@ -967,11 +967,15 @@ let InsightsService = InsightsService_1 = class InsightsService {
             reels: (() => {
                 const reels = insight.recentReels?.length ? insight.recentReels
                     : (insight.recentPosts || []).filter((p) => this.isReelOrVideo(p));
-                const popReels = insight.popularReels?.length ? insight.popularReels
-                    : (reels.length > 0 ? [...reels].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 10) : []);
+                const recentSorted = [...reels].sort((a, b) => {
+                    const da = a.created ? new Date(a.created).getTime() : 0;
+                    const db = b.created ? new Date(b.created).getTime() : 0;
+                    return db - da;
+                });
+                const popReels = [...reels].sort((a, b) => ((b.views || 0) + (b.likes || 0)) - ((a.views || 0) + (a.likes || 0))).slice(0, 10);
                 return {
-                    recent: this.normalizePosts(reels.length > 0 ? reels : undefined),
-                    popular: this.normalizePosts(popReels.length > 0 ? popReels : undefined),
+                    recent: this.normalizePosts(recentSorted),
+                    popular: this.normalizePosts(popReels),
                     sponsored: [],
                 };
             })(),
@@ -1336,6 +1340,7 @@ let InsightsService = InsightsService_1 = class InsightsService {
             return [];
         return posts.map(p => ({
             ...p,
+            caption: p.caption || p.text || undefined,
             postedAt: p.postedAt || this.safeParseDate(p.created),
             imageUrl: p.imageUrl || p.thumbnail || p.image || undefined,
         }));

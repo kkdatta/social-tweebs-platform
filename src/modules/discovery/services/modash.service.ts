@@ -691,17 +691,16 @@ export class ModashService {
       page: dto.page || 0,
     };
 
-    // Build influencer filters
+    body.filter = {};
+
     if (dto.influencer) {
-      body.filter = this.buildInfluencerFilter(dto.influencer);
+      body.filter.influencer = this.buildInfluencerFilter(dto.influencer);
     }
 
-    // Build audience filters
     if (dto.audience) {
-      body.audienceFilter = this.buildAudienceFilter(dto.audience);
+      body.filter.audience = this.buildAudienceFilter(dto.audience);
     }
 
-    // Build sort
     if (dto.sort?.field) {
       body.sort = {
         field: dto.sort.field,

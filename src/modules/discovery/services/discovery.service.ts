@@ -328,11 +328,18 @@ export class DiscoveryService {
           isVerified: filters.isVerified,
         });
       }
-      // location is now number[] (location IDs)
+      // location is number[] (location IDs) - resolve to names for local DB query
       if (filters.location && filters.location.length > 0) {
-        queryBuilder.andWhere('profile.locationCountry IN (:...countries)', {
-          countries: filters.location,
-        });
+        const locationNames = await this.dataSource.query(
+          `SELECT name FROM zorbitads.locations WHERE id = ANY($1)`,
+          [filters.location],
+        );
+        if (locationNames.length > 0) {
+          const names = locationNames.map((l: any) => l.name);
+          queryBuilder.andWhere('profile.locationCountry IN (:...countries)', {
+            countries: names,
+          });
+        }
       }
       if (filters.bio) {
         queryBuilder.andWhere('profile.biography ILIKE :bio', {

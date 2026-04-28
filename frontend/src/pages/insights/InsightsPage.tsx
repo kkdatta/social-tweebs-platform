@@ -12,6 +12,8 @@ import {
   PieChart as RePieChart, Pie, Cell, BarChart, Bar, LineChart, Line, Legend,
 } from 'recharts';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import { insightsApi, influencerGroupsApi, campaignsApi } from '../../services/api';
 
 const COLORS = ['#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f97316', '#14b8a6'];
@@ -62,6 +64,17 @@ const formatNum = (num: number | undefined | null): string => {
   return num.toLocaleString();
 };
 
+const formatDate = (value: string | undefined | null): string => {
+  if (!value) return '';
+  try {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return value;
+    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return value;
+  }
+};
+
 /** Modash items often use `weight` (0–1); mock/local data may use `percentage` (0–100). */
 const itemWeightOrPct = (item: any): number | null => {
   if (!item || typeof item !== 'object') return null;
@@ -97,10 +110,12 @@ const InsightsPage: React.FC = () => {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [viewMoreData, setViewMoreData] = useState<ViewMoreModalProps | null>(null);
-  const [audienceSection, setAudienceSection] = useState<'followers' | 'engagers'>('followers');
+
   const [locationTab, setLocationTab] = useState<'country' | 'state' | 'city'>('country');
   const [postCategory, setPostCategory] = useState<'popular' | 'sponsored' | 'recent'>('popular');
   const [reelCategory, setReelCategory] = useState<'popular' | 'recent'>('popular');
+  const [isPdfExporting, setIsPdfExporting] = useState(false);
+  const pdfContainerRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (id) fetchInsight(); }, [id]);
 
@@ -140,7 +155,124 @@ const InsightsPage: React.FC = () => {
     document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
   };
 
-  const handleExportPDF = () => window.print();
+  const handleExportPDF = async () => {
+    if (!insights) return;
+    try {
+      setIsPdfExporting(true);
+      await new Promise(r => setTimeout(r, 800));
+
+      const container = pdfContainerRef.current;
+      if (!container) { setIsPdfExporting(false); return; }
+
+      const origWidth = container.style.width;
+      container.style.width = '900px';
+      container.querySelectorAll('.line-clamp-2, .line-clamp-3, .truncate').forEach(el => {
+        (el as HTMLElement).style.setProperty('-webkit-line-clamp', 'unset', 'important');
+        (el as HTMLElement).style.setProperty('overflow', 'visible', 'important');
+        (el as HTMLElement).style.setProperty('text-overflow', 'unset', 'important');
+        (el as HTMLElement).style.setProperty('white-space', 'normal', 'important');
+      });
+      await new Promise(r => setTimeout(r, 300));
+
+      const sections = container.querySelectorAll<HTMLElement>('.pdf-section');
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      const M = 8;
+      const usableW = W - M * 2;
+      const usableH = H - M - 12;
+      let y = M;
+      let isFirstImage = true;
+
+      for (const section of Array.from(sections)) {
+        const canvas = await html2canvas(section, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+          windowWidth: 900,
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        const imgWPx = canvas.width;
+        const imgHPx = canvas.height;
+        const ratio = usableW / imgWPx;
+        const imgHMm = imgHPx * ratio;
+
+        if (imgHMm > usableH) {
+          let srcY = 0;
+          const pageImgHPx = usableH / ratio;
+          while (srcY < imgHPx) {
+            const sliceH = Math.min(pageImgHPx, imgHPx - srcY);
+            const sliceCanvas = document.createElement('canvas');
+            sliceCanvas.width = imgWPx;
+            sliceCanvas.height = sliceH;
+            const ctx = sliceCanvas.getContext('2d')!;
+            ctx.drawImage(canvas, 0, srcY, imgWPx, sliceH, 0, 0, imgWPx, sliceH);
+            const sliceData = sliceCanvas.toDataURL('image/png');
+            const sliceHMm = sliceH * ratio;
+
+            if (!isFirstImage) doc.addPage();
+            isFirstImage = false;
+            y = M;
+            doc.addImage(sliceData, 'PNG', M, y, usableW, sliceHMm);
+            srcY += sliceH;
+          }
+          y = M;
+        } else {
+          if (y + imgHMm > usableH + M) {
+            doc.addPage();
+            y = M;
+          }
+          if (!isFirstImage && y === M) { /* already on fresh page */ }
+          isFirstImage = false;
+          doc.addImage(imgData, 'PNG', M, y, usableW, imgHMm);
+          y += imgHMm + 2;
+        }
+
+        const links = section.querySelectorAll<HTMLAnchorElement>('a[href]');
+        links.forEach(a => {
+          const href = a.getAttribute('href');
+          if (!href || href.startsWith('#') || href.startsWith('javascript')) return;
+          const sectionRect = section.getBoundingClientRect();
+          const linkRect = a.getBoundingClientRect();
+          const relX = (linkRect.left - sectionRect.left) / sectionRect.width * usableW;
+          const relY = (linkRect.top - sectionRect.top) / sectionRect.height * imgHMm;
+          const relW = linkRect.width / sectionRect.width * usableW;
+          const relH = linkRect.height / sectionRect.height * imgHMm;
+          const linkPageY = y - imgHMm - 2 + relY;
+          if (linkPageY >= 0 && linkPageY < H) {
+            doc.link(M + relX, linkPageY, relW, relH, { url: href });
+          }
+        });
+      }
+
+      const total = doc.getNumberOfPages();
+      for (let i = 1; i <= total; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(180, 180, 180);
+        doc.text(`@${insights.username} — Influencer Insights`, M, H - 4);
+        doc.text(`Page ${i} / ${total}`, W - M, H - 4, { align: 'right' });
+        doc.setDrawColor(229, 231, 235); doc.line(M, H - 7, W - M, H - 7);
+      }
+
+      doc.save(`${insights.username}_insight_${new Date().toISOString().split('T')[0]}.pdf`);
+
+      container.style.width = origWidth;
+      container.querySelectorAll('.line-clamp-2, .line-clamp-3, .truncate').forEach(el => {
+        (el as HTMLElement).style.removeProperty('-webkit-line-clamp');
+        (el as HTMLElement).style.removeProperty('overflow');
+        (el as HTMLElement).style.removeProperty('text-overflow');
+        (el as HTMLElement).style.removeProperty('white-space');
+      });
+      setIsPdfExporting(false);
+    } catch (err) {
+      console.error('PDF export error:', err);
+      setIsPdfExporting(false);
+      alert('PDF export failed: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
 
   const handleExportExcel = () => {
     if (!insights) return;
@@ -261,8 +393,7 @@ const InsightsPage: React.FC = () => {
   const look = insights.lookalikes || {};
   const posts = insights.posts || {};
   const reels = insights.reels || {};
-  const engagers = aud.engagers || {};
-  const currentAud = audienceSection === 'followers' ? aud : engagers;
+  const currentAud = aud;
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -273,7 +404,7 @@ const InsightsPage: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-4 sm:space-y-6 animate-fadeIn insights-print-root">
+    <div ref={pdfContainerRef} className="space-y-4 sm:space-y-6 animate-fadeIn insights-print-root">
       <style>{`
         @media print {
           .flex.h-screen > div:first-child,
@@ -291,6 +422,16 @@ const InsightsPage: React.FC = () => {
         }
       `}</style>
       {viewMoreData && <ViewMoreModal {...viewMoreData} onClose={() => setViewMoreData(null)} />}
+
+      {isPdfExporting && (
+        <div className="fixed inset-0 bg-black/40 z-[9999] flex items-center justify-center">
+          <div className="bg-white rounded-xl p-6 shadow-2xl flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm font-medium text-gray-700">Generating PDF...</p>
+            <p className="text-xs text-gray-400">Capturing each section</p>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 no-print print:hidden">
@@ -329,10 +470,10 @@ const InsightsPage: React.FC = () => {
       </div>
 
       {/* Profile Header */}
-      <div className="card p-4 sm:p-6">
+      <div className="pdf-section card p-4 sm:p-6" data-title="Profile">
         <div className="flex items-start gap-3 sm:gap-4">
           <div className="relative shrink-0">
-            <img src={insights.profilePictureUrl || `https://ui-avatars.com/api/?name=${insights.username}&background=6366f1&color=fff`} alt={insights.username} className="w-16 h-16 sm:w-24 sm:h-24 rounded-full object-cover ring-2 sm:ring-4 ring-primary-100" />
+            <img src={insights.profilePictureUrl || `https://ui-avatars.com/api/?name=${insights.username}&background=6366f1&color=fff`} alt={insights.username} className="w-16 h-16 sm:w-24 sm:h-24 rounded-full object-cover ring-2 sm:ring-4 ring-primary-100" crossOrigin="anonymous" />
             {insights.isVerified && <div className="absolute -bottom-0.5 -right-0.5 sm:-bottom-1 sm:-right-1 w-5 h-5 sm:w-8 sm:h-8 bg-blue-500 rounded-full flex items-center justify-center ring-2 ring-white"><BadgeCheck className="w-3 h-3 sm:w-5 sm:h-5 text-white" /></div>}
           </div>
           <div className="min-w-0 flex-1">
@@ -354,22 +495,25 @@ const InsightsPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 overflow-x-auto hide-scrollbar print:hidden">
-        <nav className="flex min-w-max">
-          {tabs.map(tab => (
-            <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 py-3 px-3 sm:px-4 border-b-2 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap ${activeTab === tab.id ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-              <tab.icon className="w-4 h-4" /><span>{tab.label}</span>
-            </button>
-          ))}
-        </nav>
-      </div>
+      {!isPdfExporting && (
+        <div className="border-b border-gray-200 overflow-x-auto hide-scrollbar print:hidden">
+          <nav className="flex min-w-max">
+            {tabs.map(tab => (
+              <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 py-3 px-3 sm:px-4 border-b-2 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap ${activeTab === tab.id ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                <tab.icon className="w-4 h-4" /><span>{tab.label}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
+      )}
 
       {/* ==================== OVERVIEW TAB ==================== */}
-      {activeTab === 'overview' && (
+      {(isPdfExporting || activeTab === 'overview') && (
         <div className="space-y-6">
+          {isPdfExporting && <h2 className="text-xl font-bold text-primary-600 border-b-2 border-primary-600 pb-2 pdf-section" data-title="Overview Header">Overview</h2>}
           {/* 11 Stat Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+          <div className="pdf-section grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3" data-title="Stats Cards">
             {[
               { label: 'Followers', value: formatNum(s.followerCount), icon: Users, color: 'bg-blue-50 text-blue-600' },
               { label: 'Avg Likes', value: formatNum(s.avgLikes), icon: Heart, color: 'bg-pink-50 text-pink-600' },
@@ -393,7 +537,7 @@ const InsightsPage: React.FC = () => {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Growth Chart */}
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Growth Chart">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Growth (6 Months)</h3>
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={growth.last6Months || []}>
@@ -410,7 +554,7 @@ const InsightsPage: React.FC = () => {
             </div>
 
             {/* Word Cloud */}
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Word Cloud">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Word Cloud</h3>
               {insights.wordCloud && Array.isArray(insights.wordCloud) && insights.wordCloud.length > 0 ? (
                 <div className="flex flex-wrap gap-2 justify-center items-center min-h-[250px]">
@@ -429,7 +573,7 @@ const InsightsPage: React.FC = () => {
             </div>
 
             {/* Influencer Lookalikes */}
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Influencer Lookalikes">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Influencer Lookalikes</h3>
               {look.influencer && look.influencer.length > 0 ? (
                 <div className="overflow-x-auto">
@@ -456,7 +600,7 @@ const InsightsPage: React.FC = () => {
             </div>
 
             {/* Audience Lookalikes */}
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Audience Lookalikes">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Lookalikes</h3>
               {look.audience && look.audience.length > 0 ? (
                 <div className="overflow-x-auto">
@@ -483,7 +627,7 @@ const InsightsPage: React.FC = () => {
             </div>
 
             {/* Brand Affinity */}
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Influencer Brand Affinity">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Influencer Brand Affinity</h3>
               {insights.brandAffinity && insights.brandAffinity.length > 0 ? (
                 <div className="space-y-3">
@@ -503,7 +647,7 @@ const InsightsPage: React.FC = () => {
             </div>
 
             {/* Influencer Interests */}
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Influencer Interests">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Influencer Interests</h3>
               {insights.interests && insights.interests.length > 0 ? (
                 <div className="space-y-3">
@@ -526,11 +670,12 @@ const InsightsPage: React.FC = () => {
       )}
 
       {/* ==================== ENGAGEMENT TAB ==================== */}
-      {activeTab === 'engagement' && (
+      {(isPdfExporting || activeTab === 'engagement') && (
         <div className="space-y-6">
+          {isPdfExporting && <h2 className="text-xl font-bold text-primary-600 border-b-2 border-primary-600 pb-2 pdf-section" data-title="Engagement Header">Engagement</h2>}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* ER Distribution Chart */}
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="ER Distribution">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Engagement Rate Distribution</h3>
               <p className="text-sm text-gray-500 mb-4">Number of similar influencers by engagement rate range</p>
               {eng.rateDistribution && eng.rateDistribution.length > 0 ? (
@@ -553,7 +698,7 @@ const InsightsPage: React.FC = () => {
             </div>
 
             {/* ER Rate Circle */}
-            <div className="card p-6 flex flex-col items-center justify-center">
+            <div className="pdf-section card p-6 flex flex-col items-center justify-center" data-title="Your ER">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Engagement Rate</h3>
               <div className="w-40 h-40 relative mb-4">
                 <svg className="w-40 h-40 transform -rotate-90">
@@ -572,7 +717,7 @@ const InsightsPage: React.FC = () => {
 
           {/* Engagement Spread Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Likes Spread">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Likes Spread (Last 150 Posts)</h3>
               {eng.likesSpread && eng.likesSpread.length > 0 ? (
                 <>
@@ -591,7 +736,7 @@ const InsightsPage: React.FC = () => {
               ) : <p className="text-gray-500 text-center py-16">No likes spread data</p>}
             </div>
 
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Comments Spread">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Comments Spread (Last 150 Posts)</h3>
               {eng.commentsSpread && eng.commentsSpread.length > 0 ? (
                 <>
@@ -612,7 +757,7 @@ const InsightsPage: React.FC = () => {
           </div>
 
           {/* Popular Hashtags */}
-          <div className="card p-6">
+          <div className="pdf-section card p-6" data-title="Popular Hashtags">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Popular Hashtags</h3>
             {eng.topHashtags && eng.topHashtags.length > 0 ? (
               <>
@@ -635,38 +780,32 @@ const InsightsPage: React.FC = () => {
       )}
 
       {/* ==================== AUDIENCE TAB ==================== */}
-      {activeTab === 'audience' && (
+      {(isPdfExporting || activeTab === 'audience') && (
         <div className="space-y-6">
-          {/* Followers/Engagers Toggle */}
-          <div className="flex gap-2 bg-gray-100 p-1 rounded-lg w-fit print:hidden">
-            <button type="button" onClick={() => setAudienceSection('followers')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${audienceSection === 'followers' ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>Followers</button>
-            <button type="button" onClick={() => setAudienceSection('engagers')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${audienceSection === 'engagers' ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>Engagers</button>
-          </div>
+          {isPdfExporting && <h2 className="text-xl font-bold text-primary-600 border-b-2 border-primary-600 pb-2 pdf-section" data-title="Audience Header">Audience</h2>}
 
           {/* Credibility & Notable Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="pdf-section grid grid-cols-1 sm:grid-cols-2 gap-4" data-title="Credibility & Notable">
             <div className="card p-6 text-center">
               <div className="w-24 h-24 mx-auto relative mb-3">
                 <svg className="w-24 h-24 transform -rotate-90"><circle cx="48" cy="48" r="42" stroke="#e5e7eb" strokeWidth="10" fill="none" /><circle cx="48" cy="48" r="42" stroke="#22c55e" strokeWidth="10" fill="none" strokeDasharray={`${(currentAud.credibility || aud.credibility || 0) * 264} 264`} strokeLinecap="round" /></svg>
                 <span className="absolute inset-0 flex items-center justify-center text-xl font-bold text-green-600">{currentAud.credibility ? `${(currentAud.credibility * 100).toFixed(0)}%` : aud.credibility ? `${(aud.credibility * 100).toFixed(0)}%` : 'N/A'}</span>
               </div>
-              <p className="font-semibold text-gray-900">{audienceSection === 'followers' ? 'Followers Credibility' : 'Engagers Credibility'}</p>
+              <p className="font-semibold text-gray-900">Followers Credibility</p>
               <p className="text-xs text-gray-500 mt-1">Based on avatar, bio, post count & follow ratio</p>
             </div>
             <div className="card p-6 text-center">
               <p className="text-5xl font-bold text-blue-600 mb-3">
-                {audienceSection === 'followers'
-                  ? (aud.notableFollowersPct ? `${Number(aud.notableFollowersPct).toFixed(1)}%` : 'N/A')
-                  : (currentAud.notableEngagersPct ? `${Number(currentAud.notableEngagersPct).toFixed(1)}%` : 'N/A')}
+                {aud.notableFollowersPct ? `${Number(aud.notableFollowersPct).toFixed(1)}%` : 'N/A'}
               </p>
-              <p className="font-semibold text-gray-900">{audienceSection === 'followers' ? 'Notable Followers' : 'Notable Engagers'}</p>
-              <p className="text-xs text-gray-500 mt-1">{audienceSection === 'followers' ? 'Followers who are influencers' : 'Engagers who are influencers'}</p>
+              <p className="font-semibold text-gray-900">Notable Followers</p>
+              <p className="text-xs text-gray-500 mt-1">Followers who are influencers</p>
             </div>
           </div>
 
           {/* Credibility Distribution */}
           {currentAud.credibilityDistribution && (
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Audience Credibility">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Credibility</h3>
               <ResponsiveContainer width="100%" height={250}>
                 <BarChart data={currentAud.credibilityDistribution}>
@@ -685,7 +824,7 @@ const InsightsPage: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Audience Type Pie */}
             {currentAud.audienceTypes && (
-              <div className="card p-6">
+              <div className="pdf-section card p-6" data-title="Audience Type">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Type</h3>
                 <ResponsiveContainer width="100%" height={250}>
                   <RePieChart>
@@ -699,7 +838,7 @@ const InsightsPage: React.FC = () => {
             )}
 
             {/* Location with Tabs */}
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Location">
               <h3 className="text-lg font-semibold text-gray-900 mb-3">Location</h3>
               <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg w-fit mb-4 print:hidden">
                 {(['country', 'state', 'city'] as const).map(t => (
@@ -725,7 +864,7 @@ const InsightsPage: React.FC = () => {
                       ))}
                     </div>
                     <button onClick={() => setViewMoreData({
-                      title: `${audienceSection === 'followers' ? 'Followers' : 'Engagers'} by ${locationTab}`,
+                      title: `Followers by ${locationTab}`,
                       columns: [{ key: nameKey, label: locationTab.charAt(0).toUpperCase() + locationTab.slice(1) }, { key: 'followers', label: 'Count' }, { key: 'percentage', label: '%' }, { key: 'engagements', label: 'Engagements' }],
                       data: locData, onClose: () => setViewMoreData(null)
                     })} className="text-primary-600 hover:text-primary-700 text-sm font-medium mt-3 flex items-center gap-1 print:hidden">View More <ChevronRight className="w-4 h-4" /></button>
@@ -738,7 +877,7 @@ const InsightsPage: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Gender Split */}
             {currentAud.genderSplit && (
-              <div className="card p-6">
+              <div className="pdf-section card p-6" data-title="Gender Split">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Gender Split</h3>
                 <ResponsiveContainer width="100%" height={200}>
                   <RePieChart>
@@ -753,7 +892,7 @@ const InsightsPage: React.FC = () => {
 
             {/* Age & Gender */}
             {currentAud.ageGroups && (
-              <div className="card p-6">
+              <div className="pdf-section card p-6" data-title="Age & Gender">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Age & Gender Split</h3>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={currentAud.ageGroups}>
@@ -777,7 +916,7 @@ const InsightsPage: React.FC = () => {
 
           {/* Reachability */}
           {currentAud.reachability && (
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Audience Reachability">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Reachability</h3>
               <p className="text-sm text-gray-500 mb-4">Followers grouped by number of influencers they follow</p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -797,13 +936,13 @@ const InsightsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Notable Followers/Engagers */}
+          {/* Notable Followers */}
           {(() => {
-            const notable = audienceSection === 'followers' ? currentAud.notableFollowers : currentAud.notableEngagers;
+            const notable = currentAud.notableFollowers;
             if (!notable || notable.length === 0) return null;
             return (
-              <div className="card p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Notable {audienceSection === 'followers' ? 'Followers' : 'Engagers'}</h3>
+              <div className="pdf-section card p-6" data-title="Notable Followers">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Notable Followers</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50"><tr>
@@ -825,7 +964,7 @@ const InsightsPage: React.FC = () => {
                   </table>
                 </div>
                 <button onClick={() => setViewMoreData({
-                  title: `Notable ${audienceSection === 'followers' ? 'Followers' : 'Engagers'}`,
+                  title: 'Notable Followers',
                   columns: [{ key: 'username', label: 'Username' }, { key: 'fullName', label: 'Name' }, { key: 'followers', label: 'Followers' }, { key: 'engagements', label: 'Engagements' }],
                   data: notable, onClose: () => setViewMoreData(null)
                 })} className="text-primary-600 hover:text-primary-700 text-sm font-medium mt-3 flex items-center gap-1 print:hidden">View All <ChevronRight className="w-4 h-4" /></button>
@@ -835,7 +974,7 @@ const InsightsPage: React.FC = () => {
 
           {/* Audience Brand Affinity */}
           {currentAud.brandAffinity && currentAud.brandAffinity.length > 0 && (
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Audience Brand Affinity">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Brand Affinity</h3>
               <div className="space-y-3">
                 {currentAud.brandAffinity.slice(0, 5).map((b: any, i: number) => {
@@ -860,7 +999,7 @@ const InsightsPage: React.FC = () => {
 
           {/* Audience Interests */}
           {currentAud.interests && currentAud.interests.length > 0 && (
-            <div className="card p-6">
+            <div className="pdf-section card p-6" data-title="Audience Interests">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Interests</h3>
               <div className="space-y-3">
                 {currentAud.interests.slice(0, 5).map((int: any, i: number) => {
@@ -886,102 +1025,120 @@ const InsightsPage: React.FC = () => {
       )}
 
       {/* ==================== POSTS TAB ==================== */}
-      {activeTab === 'posts' && (
+      {(isPdfExporting || activeTab === 'posts') && (
         <div className="space-y-6">
-          <div className="flex gap-2 bg-gray-100 p-1 rounded-lg w-fit print:hidden">
-            {([['popular', 'Top Posts'], ['sponsored', 'Sponsored'], ['recent', 'Recent Posts']] as const).map(([key, label]) => (
-              <button type="button" key={key} onClick={() => setPostCategory(key as any)} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${postCategory === key ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>{label}</button>
-            ))}
-          </div>
-          {(() => {
-            const postList = posts[postCategory] || [];
-            if (postList.length === 0) return (
-              <div className="card p-12 text-center"><Instagram className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-gray-900">No {postCategory} posts data</h3>
+          {isPdfExporting && <h2 className="text-xl font-bold text-primary-600 border-b-2 border-primary-600 pb-2 pdf-section" data-title="Posts Header">Posts</h2>}
+          {!isPdfExporting && (
+            <div className="flex gap-2 bg-gray-100 p-1 rounded-lg w-fit print:hidden">
+              {([['popular', 'Top Posts'], ['sponsored', 'Sponsored'], ['recent', 'Recent Posts']] as const).map(([key, label]) => (
+                <button type="button" key={key} onClick={() => setPostCategory(key as any)} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${postCategory === key ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>{label}</button>
+              ))}
+            </div>
+          )}
+          {(isPdfExporting
+            ? [['popular', 'Top Posts'], ['sponsored', 'Sponsored'], ['recent', 'Recent Posts']] as const
+            : [[postCategory, postCategory === 'popular' ? 'Top Posts' : postCategory === 'sponsored' ? 'Sponsored' : 'Recent Posts']] as [string, string][]
+          ).map(([catKey, catLabel]) => {
+            const postList = posts[catKey] || [];
+            if (postList.length === 0) return isPdfExporting ? null : (
+              <div key={catKey} className="card p-12 text-center"><Instagram className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900">No {catKey} posts data</h3>
                 <p className="text-gray-500 mt-2">Posts data will be available after refresh</p></div>
             );
             return (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {postList.map((post: any, i: number) => (
-                  <a key={post.id || i} href={post.url || '#'} target="_blank" rel="noopener noreferrer" className="card overflow-hidden group cursor-pointer hover:shadow-md transition-shadow block">
-                    <div className="relative aspect-square bg-gray-100">
-                      {post.imageUrl || post.thumbnail ? (
-                        <img src={post.imageUrl || post.thumbnail} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center"><Instagram className="w-12 h-12 text-gray-300" /></div>
-                      )}
-                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-6">
-                        <div className="text-white text-center"><Heart className="w-6 h-6 mx-auto mb-1" /><p className="font-semibold">{formatNum(post.likes)}</p></div>
-                        <div className="text-white text-center"><MessageCircle className="w-6 h-6 mx-auto mb-1" /><p className="font-semibold">{formatNum(post.comments)}</p></div>
+              <div key={catKey} className="pdf-section" data-title={`Posts - ${catLabel}`}>
+                {isPdfExporting && <h3 className="text-lg font-semibold text-gray-800 mb-3">{catLabel}</h3>}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {postList.map((post: any, i: number) => (
+                    <a key={post.id || i} href={post.url || '#'} target="_blank" rel="noopener noreferrer" className="card overflow-hidden group cursor-pointer hover:shadow-md transition-shadow block">
+                      <div className="relative aspect-square bg-gray-100">
+                        {post.imageUrl || post.thumbnail ? (
+                          <img src={post.imageUrl || post.thumbnail} alt="" className="w-full h-full object-cover" crossOrigin="anonymous" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center"><Instagram className="w-12 h-12 text-gray-300" /></div>
+                        )}
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-6">
+                          <div className="text-white text-center"><Heart className="w-6 h-6 mx-auto mb-1" /><p className="font-semibold">{formatNum(post.likes)}</p></div>
+                          <div className="text-white text-center"><MessageCircle className="w-6 h-6 mx-auto mb-1" /><p className="font-semibold">{formatNum(post.comments)}</p></div>
+                        </div>
+                        {post.url && <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"><ExternalLink className="w-5 h-5 text-white" /></div>}
                       </div>
-                      {post.url && <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"><ExternalLink className="w-5 h-5 text-white" /></div>}
-                    </div>
-                    <div className="p-3">
-                      <p className="text-sm text-gray-600 line-clamp-2">{post.caption || 'No caption'}</p>
-                      <div className="flex items-center justify-between mt-2">
-                        <p className="text-xs text-gray-400">{post.postedAt}</p>
-                        <div className="flex items-center gap-3 text-xs text-gray-500">
-                          <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{formatNum(post.likes)}</span>
-                          <span className="flex items-center gap-1"><MessageCircle className="w-3 h-3" />{formatNum(post.comments)}</span>
+                      <div className="p-3">
+                        <p className="text-sm text-gray-600 line-clamp-2">{post.caption || 'No caption'}</p>
+                        <div className="flex items-center justify-between mt-2">
+                          <p className="text-xs text-gray-400">{formatDate(post.postedAt)}</p>
+                          <div className="flex items-center gap-3 text-xs text-gray-500">
+                            <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{formatNum(post.likes)}</span>
+                            <span className="flex items-center gap-1"><MessageCircle className="w-3 h-3" />{formatNum(post.comments)}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </a>
-                ))}
+                    </a>
+                  ))}
+                </div>
               </div>
             );
-          })()}
+          })}
         </div>
       )}
 
       {/* ==================== REELS TAB ==================== */}
-      {activeTab === 'reels' && (
+      {(isPdfExporting || activeTab === 'reels') && (
         <div className="space-y-6">
-          <div className="flex gap-2 bg-gray-100 p-1 rounded-lg w-fit print:hidden">
-            {([['popular', 'Top Reels'], ['recent', 'Recent Reels']] as const).map(([key, label]) => (
-              <button type="button" key={key} onClick={() => setReelCategory(key as any)} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${reelCategory === key ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>{label}</button>
-            ))}
-          </div>
-          {(() => {
-            const reelList = reels[reelCategory] || [];
-            if (reelList.length === 0) return (
-              <div className="card p-12 text-center"><Play className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-gray-900">No {reelCategory} reels data</h3>
+          {isPdfExporting && <h2 className="text-xl font-bold text-primary-600 border-b-2 border-primary-600 pb-2 pdf-section" data-title="Reels Header">Reels</h2>}
+          {!isPdfExporting && (
+            <div className="flex gap-2 bg-gray-100 p-1 rounded-lg w-fit print:hidden">
+              {([['popular', 'Top Reels'], ['recent', 'Recent Reels']] as const).map(([key, label]) => (
+                <button type="button" key={key} onClick={() => setReelCategory(key as any)} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${reelCategory === key ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>{label}</button>
+              ))}
+            </div>
+          )}
+          {(isPdfExporting
+            ? [['popular', 'Top Reels'], ['recent', 'Recent Reels']] as const
+            : [[reelCategory, reelCategory === 'popular' ? 'Top Reels' : 'Recent Reels']] as [string, string][]
+          ).map(([catKey, catLabel]) => {
+            const reelList = reels[catKey] || [];
+            if (reelList.length === 0) return isPdfExporting ? null : (
+              <div key={catKey} className="card p-12 text-center"><Play className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900">No {catKey} reels data</h3>
                 <p className="text-gray-500 mt-2">Reels data will be available after refresh</p></div>
             );
             return (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {reelList.map((reel: any, i: number) => (
-                  <a key={reel.id || i} href={reel.url || '#'} target="_blank" rel="noopener noreferrer" className="card overflow-hidden group cursor-pointer hover:shadow-md transition-shadow block">
-                    <div className="relative aspect-[9/16] bg-gray-100">
-                      {reel.thumbnail ? (
-                        <img src={reel.thumbnail} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center"><Play className="w-12 h-12 text-gray-300" /></div>
-                      )}
-                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-                        <div className="text-white text-center"><Eye className="w-5 h-5 mx-auto mb-1" /><p className="font-semibold text-sm">{formatNum(reel.views)}</p></div>
-                        <div className="text-white text-center"><Heart className="w-5 h-5 mx-auto mb-1" /><p className="font-semibold text-sm">{formatNum(reel.likes)}</p></div>
-                        <div className="text-white text-center"><MessageCircle className="w-5 h-5 mx-auto mb-1" /><p className="font-semibold text-sm">{formatNum(reel.comments)}</p></div>
+              <div key={catKey} className="pdf-section" data-title={`Reels - ${catLabel}`}>
+                {isPdfExporting && <h3 className="text-lg font-semibold text-gray-800 mb-3">{catLabel}</h3>}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {reelList.map((reel: any, i: number) => (
+                    <a key={reel.id || i} href={reel.url || '#'} target="_blank" rel="noopener noreferrer" className="card overflow-hidden group cursor-pointer hover:shadow-md transition-shadow block">
+                      <div className="relative aspect-[9/16] bg-gray-100">
+                        {reel.thumbnail ? (
+                          <img src={reel.thumbnail} alt="" className="w-full h-full object-cover" crossOrigin="anonymous" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center"><Play className="w-12 h-12 text-gray-300" /></div>
+                        )}
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                          <div className="text-white text-center"><Eye className="w-5 h-5 mx-auto mb-1" /><p className="font-semibold text-sm">{formatNum(reel.views)}</p></div>
+                          <div className="text-white text-center"><Heart className="w-5 h-5 mx-auto mb-1" /><p className="font-semibold text-sm">{formatNum(reel.likes)}</p></div>
+                          <div className="text-white text-center"><MessageCircle className="w-5 h-5 mx-auto mb-1" /><p className="font-semibold text-sm">{formatNum(reel.comments)}</p></div>
+                        </div>
+                        <div className="absolute top-2 left-2 bg-black/60 px-2 py-1 rounded text-xs text-white flex items-center gap-1"><Play className="w-3 h-3" /> Reel</div>
+                        {reel.url && <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"><ExternalLink className="w-5 h-5 text-white" /></div>}
                       </div>
-                      <div className="absolute top-2 left-2 bg-black/60 px-2 py-1 rounded text-xs text-white flex items-center gap-1"><Play className="w-3 h-3" /> Reel</div>
-                      {reel.url && <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"><ExternalLink className="w-5 h-5 text-white" /></div>}
-                    </div>
-                    <div className="p-3">
-                      <p className="text-sm text-gray-600 line-clamp-2">{reel.caption || 'No caption'}</p>
-                      <div className="flex items-center justify-between mt-2">
-                        <p className="text-xs text-gray-400">{reel.postedAt}</p>
-                        <div className="flex items-center gap-2 text-xs text-gray-500">
-                          <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{formatNum(reel.views)}</span>
-                          <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{formatNum(reel.likes)}</span>
+                      <div className="p-3">
+                        <p className="text-sm text-gray-600 line-clamp-2">{reel.caption || 'No caption'}</p>
+                        <div className="flex items-center justify-between mt-2">
+                          <p className="text-xs text-gray-400">{formatDate(reel.postedAt)}</p>
+                          <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{formatNum(reel.views)}</span>
+                            <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{formatNum(reel.likes)}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </a>
-                ))}
+                    </a>
+                  ))}
+                </div>
               </div>
             );
-          })()}
+          })}
         </div>
       )}
     </div>

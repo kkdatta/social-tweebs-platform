@@ -291,11 +291,12 @@ let ModashService = ModashService_1 = class ModashService {
         const body = {
             page: dto.page || 0,
         };
+        body.filter = {};
         if (dto.influencer) {
-            body.filter = this.buildInfluencerFilter(dto.influencer);
+            body.filter.influencer = this.buildInfluencerFilter(dto.influencer);
         }
         if (dto.audience) {
-            body.audienceFilter = this.buildAudienceFilter(dto.audience);
+            body.filter.audience = this.buildAudienceFilter(dto.audience);
         }
         if (dto.sort?.field) {
             body.sort = {
