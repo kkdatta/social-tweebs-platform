@@ -14,6 +14,7 @@ const tie_breaker_service_1 = require("./tie-breaker.service");
 const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
 const influencer_profile_entity_1 = require("../discovery/entities/influencer-profile.entity");
+const influencer_insight_entity_1 = require("../insights/entities/influencer-insight.entity");
 const unlocked_influencer_entity_1 = require("../credits/entities/unlocked-influencer.entity");
 const credits_module_1 = require("../credits/credits.module");
 const discovery_module_1 = require("../discovery/discovery.module");
@@ -29,6 +30,7 @@ exports.TieBreakerModule = TieBreakerModule = __decorate([
                 entities_1.TieBreakerShare,
                 user_entity_1.User,
                 influencer_profile_entity_1.InfluencerProfile,
+                influencer_insight_entity_1.InfluencerInsight,
                 unlocked_influencer_entity_1.UnlockedInfluencer,
             ]),
             credits_module_1.CreditsModule,

@@ -32,6 +32,9 @@ let DiscoveryController = class DiscoveryController {
     async getSearchHistory(userId, page, limit) {
         return this.discoveryService.getSearchHistory(userId, page || 1, limit || 20);
     }
+    async typeaheadSearch(q, limit) {
+        return this.discoveryService.typeaheadSearch(q || '', limit || 8);
+    }
     async getInfluencerProfile(userId, profileId) {
         return this.discoveryService.getProfile(userId, profileId);
     }
@@ -100,6 +103,17 @@ __decorate([
     __metadata("design:paramtypes", [String, Number, Number]),
     __metadata("design:returntype", Promise)
 ], DiscoveryController.prototype, "getSearchHistory", null);
+__decorate([
+    (0, common_1.Get)('typeahead'),
+    (0, swagger_1.ApiOperation)({ summary: 'Typeahead search for cached influencer profiles' }),
+    (0, swagger_1.ApiQuery)({ name: 'q', required: true, type: String }),
+    (0, swagger_1.ApiQuery)({ name: 'limit', required: false, type: Number }),
+    __param(0, (0, common_1.Query)('q')),
+    __param(1, (0, common_1.Query)('limit')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Number]),
+    __metadata("design:returntype", Promise)
+], DiscoveryController.prototype, "typeaheadSearch", null);
 __decorate([
     (0, common_1.Get)('influencer/:id'),
     (0, swagger_1.ApiOperation)({ summary: 'Get influencer profile' }),

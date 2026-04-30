@@ -9,6 +9,7 @@ import {
 } from './entities';
 import { User } from '../users/entities/user.entity';
 import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
+import { InfluencerInsight } from '../insights/entities/influencer-insight.entity';
 import { UnlockedInfluencer } from '../credits/entities/unlocked-influencer.entity';
 import { CreditsModule } from '../credits/credits.module';
 import { DiscoveryModule } from '../discovery/discovery.module';
@@ -21,6 +22,7 @@ import { DiscoveryModule } from '../discovery/discovery.module';
       TieBreakerShare,
       User,
       InfluencerProfile,
+      InfluencerInsight,
       UnlockedInfluencer,
     ]),
     CreditsModule,

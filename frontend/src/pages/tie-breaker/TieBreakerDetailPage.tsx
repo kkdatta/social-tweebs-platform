@@ -86,6 +86,18 @@ export const TieBreakerDetailPage = () => {
   useEffect(() => {
     loadComparison();
   }, [id]);
+
+  useEffect(() => {
+    if (!comparison || (comparison.status !== 'PROCESSING' && comparison.status !== 'PENDING')) return;
+    const interval = setInterval(async () => {
+      try {
+        const data = await tieBreakerApi.getById(comparison.id);
+        setComparison(data);
+        if (data.status !== 'PROCESSING' && data.status !== 'PENDING') clearInterval(interval);
+      } catch {}
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [comparison?.id, comparison?.status]);
   
   const loadComparison = async () => {
     if (!id) return;

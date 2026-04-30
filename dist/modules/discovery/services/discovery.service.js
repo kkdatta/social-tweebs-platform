@@ -545,6 +545,49 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
             lastUpdatedAt: profile.lastUpdatedAt,
         };
     }
+    async typeaheadSearch(q, limit = 8) {
+        const term = q.trim();
+        const likeQ = `%${term}%`;
+        const profileQb = this.profileRepository.createQueryBuilder('p')
+            .select(['p.id', 'p.username', 'p.fullName', 'p.profilePictureUrl', 'p.followerCount', 'p.platform', 'p.isVerified'])
+            .orderBy('p.followerCount', 'DESC')
+            .take(limit);
+        if (term)
+            profileQb.andWhere('(p.username ILIKE :q OR p.fullName ILIKE :q)', { q: likeQ });
+        const cached = await profileQb.getMany();
+        const insightQb = this.insightsAccessRepository.manager
+            .createQueryBuilder('InfluencerInsight', 'i')
+            .select(['i.id', 'i.username', 'i.fullName', 'i.profilePictureUrl', 'i.followerCount', 'i.platform', 'i.isVerified'])
+            .orderBy('i.followerCount', 'DESC')
+            .take(limit);
+        if (term)
+            insightQb.andWhere('(i.username ILIKE :q OR i.fullName ILIKE :q)', { q: likeQ });
+        const insights = await insightQb.getMany();
+        const seen = new Set();
+        const results = [];
+        const addItem = (item, source) => {
+            const key = `${(item.platform || '').toLowerCase()}_${(item.username || '').toLowerCase()}`;
+            if (seen.has(key))
+                return;
+            seen.add(key);
+            results.push({
+                id: item.id,
+                username: item.username,
+                fullName: item.fullName,
+                profilePictureUrl: item.profilePictureUrl,
+                followerCount: item.followerCount,
+                platform: item.platform,
+                isVerified: item.isVerified,
+                source,
+            });
+        };
+        for (const p of cached)
+            addItem(p, 'discovery');
+        for (const i of insights)
+            addItem(i, 'insights');
+        results.sort((a, b) => Number(b.followerCount || 0) - Number(a.followerCount || 0));
+        return results.slice(0, limit);
+    }
     async getSearchHistory(userId, page = 1, limit = 20) {
         const [searches, total] = await this.searchRepository.findAndCount({
             where: { userId, status: entities_1.SearchStatus.COMPLETED },

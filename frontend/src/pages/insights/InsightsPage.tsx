@@ -14,10 +14,82 @@ import {
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import {
+  ComposableMap, Geographies, Geography, Marker, ZoomableGroup,
+} from 'react-simple-maps';
 import { insightsApi, influencerGroupsApi, campaignsApi } from '../../services/api';
 
 const COLORS = ['#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f97316', '#14b8a6'];
 const PIE_COLORS = ['#22c55e', '#6366f1', '#f59e0b', '#ef4444'];
+
+const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
+
+const COUNTRY_COORDS: Record<string, [number, number]> = {
+  'India': [78.9, 20.6], 'United States': [-95.7, 37.1], 'United Kingdom': [-1.2, 52.2],
+  'Canada': [-106.3, 56.1], 'Australia': [133.8, -25.3], 'Germany': [10.5, 51.2],
+  'France': [2.2, 46.2], 'Brazil': [-51.9, -14.2], 'Japan': [138.3, 36.2],
+  'Mexico': [-102.6, 23.6], 'Italy': [12.6, 41.9], 'Spain': [-3.7, 40.5],
+  'Russia': [105.3, 61.5], 'China': [104.2, 35.9], 'South Korea': [128.0, 35.9],
+  'Indonesia': [113.9, -0.8], 'Turkey': [35.2, 38.9], 'Saudi Arabia': [45.1, 23.9],
+  'Nigeria': [8.7, 9.1], 'South Africa': [22.9, -30.6], 'Argentina': [-63.6, -38.4],
+  'Colombia': [-74.3, 4.6], 'Egypt': [30.8, 26.8], 'Pakistan': [69.3, 30.4],
+  'Bangladesh': [90.4, 23.7], 'Thailand': [101.0, 15.9], 'Vietnam': [108.3, 14.1],
+  'Philippines': [122.0, 12.9], 'Malaysia': [101.7, 4.2], 'Netherlands': [5.3, 52.1],
+  'Sweden': [18.6, 60.1], 'Poland': [19.1, 51.9], 'Belgium': [4.5, 50.5],
+  'Switzerland': [8.2, 46.8], 'Portugal': [-8.2, 39.4], 'Greece': [21.8, 39.1],
+  'Czech Republic': [15.5, 49.8], 'Romania': [24.97, 45.9], 'Ireland': [-8.2, 53.4],
+  'Austria': [14.6, 47.5], 'Norway': [8.5, 60.5], 'Denmark': [9.5, 56.3],
+  'Finland': [25.7, 61.9], 'Israel': [34.9, 31.0], 'Singapore': [103.8, 1.4],
+  'New Zealand': [174.9, -40.9], 'Chile': [-71.5, -35.7], 'Peru': [-75.0, -9.2],
+  'United Arab Emirates': [53.8, 23.4], 'Kenya': [37.9, -0.02], 'Ghana': [-1.02, 7.9],
+  'Morocco': [-7.1, 31.8], 'Ukraine': [31.2, 48.4], 'Iran': [53.7, 32.4],
+  'Iraq': [43.7, 33.2], 'Sri Lanka': [80.8, 7.9], 'Nepal': [84.1, 28.4],
+  'Hungary': [19.5, 47.2], 'Taiwan': [121.0, 23.7], 'Qatar': [51.2, 25.4],
+  'Kuwait': [47.5, 29.3], 'Oman': [55.9, 21.5], 'Jordan': [36.2, 30.6],
+  'Lebanon': [35.9, 33.9], 'Ethiopia': [40.5, 9.1], 'Tanzania': [34.9, -6.4],
+  'Myanmar': [96.0, 21.9], 'Cambodia': [105.0, 12.6],
+};
+
+const CITY_COORDS: Record<string, [number, number]> = {
+  'Mumbai': [72.88, 19.08], 'Delhi': [77.21, 28.61], 'Bangalore': [77.59, 12.97],
+  'Bengaluru': [77.59, 12.97], 'Hyderabad': [78.47, 17.39], 'Chennai': [80.27, 13.08],
+  'Kolkata': [88.36, 22.57], 'Pune': [73.86, 18.52], 'Ahmedabad': [72.58, 23.02],
+  'Jaipur': [75.79, 26.91], 'Lucknow': [80.95, 26.85], 'Surat': [72.83, 21.17],
+  'New York': [-74.0, 40.71], 'Los Angeles': [-118.24, 34.05], 'Chicago': [-87.63, 41.88],
+  'Houston': [-95.37, 29.76], 'Miami': [-80.19, 25.76], 'San Francisco': [-122.42, 37.77],
+  'London': [-0.13, 51.51], 'Paris': [2.35, 48.86], 'Berlin': [13.41, 52.52],
+  'Tokyo': [139.69, 35.69], 'Sydney': [151.21, -33.87], 'Toronto': [-79.38, 43.65],
+  'Dubai': [55.27, 25.2], 'Singapore': [103.85, 1.29], 'São Paulo': [-46.63, -23.55],
+  'Jakarta': [106.85, -6.21], 'Bangkok': [100.5, 13.76], 'Istanbul': [28.98, 41.01],
+  'Moscow': [37.62, 55.76], 'Seoul': [126.98, 37.57], 'Lagos': [3.39, 6.52],
+  'Cairo': [31.24, 30.04], 'Riyadh': [46.72, 24.69], 'Kuala Lumpur': [101.69, 3.14],
+  'Manila': [120.98, 14.6], 'Karachi': [67.01, 24.86], 'Dhaka': [90.41, 23.81],
+  'Lima': [-77.04, -12.05], 'Mexico City': [-99.13, 19.43], 'Bogota': [-74.07, 4.71],
+  'Buenos Aires': [-58.38, -34.6], 'Nairobi': [36.82, -1.29], 'Cape Town': [18.42, -33.93],
+  'Johannesburg': [28.05, -26.2], 'Amsterdam': [4.9, 52.37], 'Madrid': [-3.7, 40.42],
+  'Rome': [12.5, 41.9], 'Barcelona': [2.17, 41.39], 'Milan': [9.19, 45.46],
+  'Melbourne': [144.96, -37.81], 'Vancouver': [-123.12, 49.28], 'Montreal': [-73.57, 45.5],
+};
+
+const STATE_COORDS: Record<string, [number, number]> = {
+  'Maharashtra': [75.71, 19.75], 'Karnataka': [75.71, 15.32], 'Tamil Nadu': [78.66, 11.13],
+  'Uttar Pradesh': [80.95, 26.85], 'Gujarat': [71.19, 22.26], 'Rajasthan': [74.22, 27.02],
+  'West Bengal': [87.85, 22.99], 'Madhya Pradesh': [78.66, 23.47], 'Kerala': [76.27, 10.85],
+  'Telangana': [79.02, 18.11], 'Andhra Pradesh': [79.74, 15.91], 'Bihar': [85.31, 25.1],
+  'Punjab': [75.34, 31.15], 'Haryana': [76.09, 29.06], 'Delhi': [77.1, 28.7],
+  'California': [-119.42, 36.78], 'Texas': [-99.9, 31.97], 'New York': [-74.22, 43.3],
+  'Florida': [-81.52, 27.66], 'Illinois': [-89.4, 40.63], 'Ohio': [-82.91, 40.42],
+  'Pennsylvania': [-77.21, 41.2], 'Georgia': [-82.9, 32.17], 'England': [-1.17, 52.36],
+  'Scotland': [-4.2, 56.49], 'Wales': [-3.78, 51.48], 'Ontario': [-85.32, 51.25],
+  'Queensland': [144.38, -22.58], 'Victoria': [145.61, -37.47],
+  'São Paulo': [-48.55, -22.19], 'Rio de Janeiro': [-43.17, -22.91],
+};
+
+const getLocationCoords = (name: string, type: 'country' | 'state' | 'city'): [number, number] | null => {
+  if (type === 'country') return COUNTRY_COORDS[name] || null;
+  if (type === 'city') return CITY_COORDS[name] || null;
+  return STATE_COORDS[name] || null;
+};
 
 interface ViewMoreModalProps {
   title: string;
@@ -112,6 +184,7 @@ const InsightsPage: React.FC = () => {
   const [viewMoreData, setViewMoreData] = useState<ViewMoreModalProps | null>(null);
 
   const [locationTab, setLocationTab] = useState<'country' | 'state' | 'city'>('country');
+  const [locationView, setLocationView] = useState<'list' | 'map'>('list');
   const [postCategory, setPostCategory] = useState<'popular' | 'sponsored' | 'recent'>('popular');
   const [reelCategory, setReelCategory] = useState<'popular' | 'recent'>('popular');
   const [isPdfExporting, setIsPdfExporting] = useState(false);
@@ -573,22 +646,29 @@ const InsightsPage: React.FC = () => {
             </div>
 
             {/* Influencer Lookalikes */}
-            <div className="pdf-section card p-6" data-title="Influencer Lookalikes">
+            <div className={`pdf-section card p-6 ${!(look.audience && look.audience.length > 0) ? 'lg:col-span-2' : ''}`} data-title="Influencer Lookalikes">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Influencer Lookalikes</h3>
               {look.influencer && look.influencer.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50"><tr>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Username</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Full Name</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Profile</th>
                       <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Followers</th>
                       <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Similarity</th>
                     </tr></thead>
                     <tbody className="divide-y divide-gray-100">
                       {look.influencer.map((l: any, i: number) => (
                         <tr key={i} className="hover:bg-gray-50">
-                          <td className="px-3 py-2 text-primary-600 font-medium">@{l.username}</td>
-                          <td className="px-3 py-2 text-gray-700">{l.fullName || '-'}</td>
+                          <td className="px-3 py-2">
+                            <a href={`https://instagram.com/${l.username}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 group">
+                              <img src={l.profilePictureUrl || l.picture || `https://ui-avatars.com/api/?name=${l.username}&background=6366f1&color=fff&size=40`} alt={l.username} className="w-9 h-9 rounded-full object-cover ring-2 ring-gray-100 group-hover:ring-primary-200 transition-all shrink-0" crossOrigin="anonymous" />
+                              <div className="min-w-0">
+                                <p className="text-primary-600 font-medium group-hover:underline truncate">@{l.username}</p>
+                                {l.fullName && <p className="text-xs text-gray-500 truncate">{l.fullName}</p>}
+                              </div>
+                              <ExternalLink className="w-3.5 h-3.5 text-gray-300 group-hover:text-primary-400 shrink-0 ml-auto" />
+                            </a>
+                          </td>
                           <td className="px-3 py-2 text-right text-gray-700">{formatNum(l.followers)}</td>
                           <td className="px-3 py-2 text-right"><span className="text-green-600 font-medium">{l.similarity != null && Number.isFinite(l.similarity) ? `${(l.similarity * 100).toFixed(0)}%` : '—'}</span></td>
                         </tr>
@@ -599,23 +679,30 @@ const InsightsPage: React.FC = () => {
               ) : <p className="text-gray-500 text-center py-8">No lookalike data available</p>}
             </div>
 
-            {/* Audience Lookalikes */}
-            <div className="pdf-section card p-6" data-title="Audience Lookalikes">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Lookalikes</h3>
-              {look.audience && look.audience.length > 0 ? (
+            {/* Audience Lookalikes — only shown if data exists */}
+            {look.audience && look.audience.length > 0 && (
+              <div className="pdf-section card p-6" data-title="Audience Lookalikes">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Lookalikes</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50"><tr>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Username</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Full Name</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Profile</th>
                       <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Followers</th>
                       <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Overlap</th>
                     </tr></thead>
                     <tbody className="divide-y divide-gray-100">
                       {look.audience.map((l: any, i: number) => (
                         <tr key={i} className="hover:bg-gray-50">
-                          <td className="px-3 py-2 text-primary-600 font-medium">@{l.username}</td>
-                          <td className="px-3 py-2 text-gray-700">{l.fullName || '-'}</td>
+                          <td className="px-3 py-2">
+                            <a href={`https://instagram.com/${l.username}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 group">
+                              <img src={l.profilePictureUrl || l.picture || `https://ui-avatars.com/api/?name=${l.username}&background=8b5cf6&color=fff&size=40`} alt={l.username} className="w-9 h-9 rounded-full object-cover ring-2 ring-gray-100 group-hover:ring-purple-200 transition-all shrink-0" crossOrigin="anonymous" />
+                              <div className="min-w-0">
+                                <p className="text-primary-600 font-medium group-hover:underline truncate">@{l.username}</p>
+                                {l.fullName && <p className="text-xs text-gray-500 truncate">{l.fullName}</p>}
+                              </div>
+                              <ExternalLink className="w-3.5 h-3.5 text-gray-300 group-hover:text-primary-400 shrink-0 ml-auto" />
+                            </a>
+                          </td>
                           <td className="px-3 py-2 text-right text-gray-700">{formatNum(l.followers)}</td>
                           <td className="px-3 py-2 text-right"><span className="text-blue-600 font-medium">{l.overlap != null && Number.isFinite(l.overlap) ? `${(l.overlap * 100).toFixed(0)}%` : '—'}</span></td>
                         </tr>
@@ -623,8 +710,8 @@ const InsightsPage: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
-              ) : <p className="text-gray-500 text-center py-8">No audience lookalike data available</p>}
-            </div>
+              </div>
+            )}
 
             {/* Brand Affinity */}
             <div className="pdf-section card p-6" data-title="Influencer Brand Affinity">
@@ -767,11 +854,10 @@ const InsightsPage: React.FC = () => {
                       <Hash className="w-5 h-5 text-primary-500 mx-auto mb-1" />
                       <p className="font-medium text-gray-900 text-sm truncate">{h.tag}</p>
                       <p className="text-xs text-gray-500 mt-1">{pctDisplay(itemWeightOrPct(h))} usage</p>
-                      <p className="text-xs text-gray-400">{h.count || 0} posts</p>
                     </div>
                   ))}
                 </div>
-                <button onClick={() => setViewMoreData({ title: 'All Hashtags', columns: [{ key: 'tag', label: 'Hashtag' }, { key: 'usagePercentage', label: 'Usage %' }, { key: 'count', label: 'Post Count' }], data: eng.topHashtags, onClose: () => setViewMoreData(null) })}
+                <button onClick={() => setViewMoreData({ title: 'All Hashtags', columns: [{ key: 'tag', label: 'Hashtag' }, { key: 'usagePercentage', label: 'Usage %' }], data: eng.topHashtags, onClose: () => setViewMoreData(null) })}
                   className="text-primary-600 hover:text-primary-700 text-sm font-medium mt-4 flex items-center gap-1 print:hidden">View All Hashtags <ChevronRight className="w-4 h-4" /></button>
               </>
             ) : <p className="text-gray-500 text-center py-8">No hashtag data</p>}
@@ -821,58 +907,117 @@ const InsightsPage: React.FC = () => {
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Audience Type Pie */}
-            {currentAud.audienceTypes && (
-              <div className="pdf-section card p-6" data-title="Audience Type">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Type</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                  <RePieChart>
-                    <Pie data={currentAud.audienceTypes} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="percentage" label={({ type, percentage }: any) => `${type}: ${percentage}%`}>
-                      {currentAud.audienceTypes.map((_: any, i: number) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                    </Pie>
-                    <Tooltip />
-                  </RePieChart>
-                </ResponsiveContainer>
+          {/* Audience Location — unified list + map */}
+          <div className="pdf-section card p-6" data-title="Location">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Audience Location</h3>
+              <div className="flex items-center gap-3">
+                <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg w-fit print:hidden">
+                  {(['country', 'state', 'city'] as const).map(t => (
+                    <button type="button" key={t} onClick={() => setLocationTab(t)} className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors ${locationTab === t ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-500'}`}>{t}</button>
+                  ))}
+                </div>
+                <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg w-fit print:hidden">
+                  {([['list', 'List'], ['map', 'Map']] as const).map(([key, label]) => (
+                    <button type="button" key={key} onClick={() => setLocationView(key as any)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${locationView === key ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-500'}`}>{label}</button>
+                  ))}
+                </div>
               </div>
-            )}
+            </div>
+            {(() => {
+              const locData = locationTab === 'country' ? currentAud.topCountries
+                : locationTab === 'state' ? currentAud.topStates
+                : currentAud.topCities;
+              const nameKey = locationTab === 'country' ? 'country' : locationTab === 'state' ? 'state' : 'city';
+              if (!locData || locData.length === 0) return <p className="text-gray-500 text-center py-8">No location data</p>;
 
-            {/* Location with Tabs */}
-            <div className="pdf-section card p-6" data-title="Location">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Location</h3>
-              <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg w-fit mb-4 print:hidden">
-                {(['country', 'state', 'city'] as const).map(t => (
-                  <button type="button" key={t} onClick={() => setLocationTab(t)} className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors ${locationTab === t ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-500'}`}>{t}</button>
-                ))}
-              </div>
-              {(() => {
-                const locData = locationTab === 'country' ? currentAud.topCountries
-                  : locationTab === 'state' ? currentAud.topStates
-                  : currentAud.topCities;
-                const nameKey = locationTab === 'country' ? 'country' : locationTab === 'state' ? 'state' : 'city';
-                if (!locData || locData.length === 0) return <p className="text-gray-500 text-center py-8">No location data</p>;
+              if (locationView === 'map') {
                 return (
                   <>
-                    <div className="space-y-2">
-                      {locData.slice(0, 5).map((loc: any, i: number) => (
-                        <div key={i} className="flex items-center gap-3">
-                          <Globe className="w-4 h-4 text-gray-400 shrink-0" />
-                          <span className="text-sm text-gray-700 flex-1 truncate">{locationRowLabel(loc, locationTab) || loc[nameKey]}</span>
-                          <span className="text-sm font-medium w-14 text-right shrink-0">{pctDisplay(itemWeightOrPct(loc))}</span>
-                          <span className="text-xs text-gray-400 w-16 text-right">{formatNum(loc.followers)}</span>
-                        </div>
-                      ))}
+                    <div className="rounded-xl overflow-hidden border border-gray-200 bg-[#f0f4f8]">
+                      <ComposableMap
+                        projectionConfig={{ rotate: [-10, 0, 0], scale: 147 }}
+                        width={800} height={400}
+                        style={{ width: '100%', height: 'auto' }}
+                      >
+                        <ZoomableGroup>
+                          <Geographies geography={GEO_URL}>
+                            {({ geographies }: any) =>
+                              geographies.map((geo: any) => (
+                                <Geography
+                                  key={geo.rsmKey}
+                                  geography={geo}
+                                  fill="#d6dee8"
+                                  stroke="#fff"
+                                  strokeWidth={0.5}
+                                  style={{
+                                    default: { outline: 'none' },
+                                    hover: { fill: '#c4ccd8', outline: 'none' },
+                                    pressed: { outline: 'none' },
+                                  }}
+                                />
+                              ))
+                            }
+                          </Geographies>
+                          {locData.map((loc: any, i: number) => {
+                            const name = loc[nameKey] || loc.name || '';
+                            const coords = getLocationCoords(name, locationTab);
+                            if (!coords) return null;
+                            const pct = loc.percentage ?? (loc.weight != null ? loc.weight * 100 : 0);
+                            const maxPct = Math.max(...locData.map((l: any) => l.percentage ?? (l.weight != null ? l.weight * 100 : 0)));
+                            const intensity = maxPct > 0 ? pct / maxPct : 0;
+                            const radius = Math.max(5, Math.min(22, pct / 2));
+                            const opacity = 0.25 + intensity * 0.7;
+                            return (
+                              <Marker key={i} coordinates={coords}>
+                                <circle r={radius} fill={`rgba(99, 102, 241, ${opacity})`} stroke="#4f46e5" strokeWidth={1} strokeOpacity={opacity} />
+                              </Marker>
+                            );
+                          })}
+                        </ZoomableGroup>
+                      </ComposableMap>
                     </div>
-                    <button onClick={() => setViewMoreData({
-                      title: `Followers by ${locationTab}`,
-                      columns: [{ key: nameKey, label: locationTab.charAt(0).toUpperCase() + locationTab.slice(1) }, { key: 'followers', label: 'Count' }, { key: 'percentage', label: '%' }, { key: 'engagements', label: 'Engagements' }],
-                      data: locData, onClose: () => setViewMoreData(null)
-                    })} className="text-primary-600 hover:text-primary-700 text-sm font-medium mt-3 flex items-center gap-1 print:hidden">View More <ChevronRight className="w-4 h-4" /></button>
+                    <p className="text-xs text-gray-400 mt-2 text-center">Scroll to zoom · Drag to pan · Circle size represents audience share</p>
                   </>
                 );
-              })()}
-            </div>
+              }
+
+              return (
+                <>
+                  <div className="space-y-2">
+                    {locData.slice(0, 5).map((loc: any, i: number) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <Globe className="w-4 h-4 text-gray-400 shrink-0" />
+                        <span className="text-sm text-gray-700 flex-1 truncate">{locationRowLabel(loc, locationTab) || loc[nameKey]}</span>
+                        <span className="text-sm font-medium w-14 text-right shrink-0">{pctDisplay(itemWeightOrPct(loc))}</span>
+                        <span className="text-xs text-gray-400 w-16 text-right">{formatNum(loc.followers)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => setViewMoreData({
+                    title: `Followers by ${locationTab}`,
+                    columns: [{ key: nameKey, label: locationTab.charAt(0).toUpperCase() + locationTab.slice(1) }, { key: 'followers', label: 'Count' }, { key: 'percentage', label: '%' }, { key: 'engagements', label: 'Engagements' }],
+                    data: locData, onClose: () => setViewMoreData(null)
+                  })} className="text-primary-600 hover:text-primary-700 text-sm font-medium mt-3 flex items-center gap-1 print:hidden">View More <ChevronRight className="w-4 h-4" /></button>
+                </>
+              );
+            })()}
           </div>
+
+          {/* Audience Type Pie */}
+          {currentAud.audienceTypes && (
+            <div className="pdf-section card p-6" data-title="Audience Type">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Audience Type</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <RePieChart>
+                  <Pie data={currentAud.audienceTypes} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="percentage" label={({ type, percentage }: any) => `${type}: ${percentage}%`}>
+                    {currentAud.audienceTypes.map((_: any, i: number) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip />
+                </RePieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Gender Split */}
@@ -946,16 +1091,28 @@ const InsightsPage: React.FC = () => {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50"><tr>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Username</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Full Name</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Profile</th>
                       <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Followers</th>
                       <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Engagements</th>
                     </tr></thead>
                     <tbody className="divide-y divide-gray-100">
                       {notable.slice(0, 5).map((n: any, i: number) => (
                         <tr key={i} className="hover:bg-gray-50">
-                          <td className="px-3 py-2 text-primary-600 font-medium">@{n.username}</td>
-                          <td className="px-3 py-2 text-gray-700">{n.fullName || '-'}</td>
+                          <td className="px-3 py-2">
+                            <a href={`https://instagram.com/${n.username}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 group">
+                              <img
+                                src={n.profilePictureUrl || n.picture || `https://ui-avatars.com/api/?name=${n.username}&background=6366f1&color=fff&size=40`}
+                                alt={n.username}
+                                className="w-9 h-9 rounded-full object-cover ring-2 ring-gray-100 group-hover:ring-primary-200 transition-all shrink-0"
+                                crossOrigin="anonymous"
+                              />
+                              <div className="min-w-0">
+                                <p className="text-primary-600 font-medium group-hover:underline truncate">@{n.username}</p>
+                                {n.fullName && <p className="text-xs text-gray-500 truncate">{n.fullName}</p>}
+                              </div>
+                              <ExternalLink className="w-3.5 h-3.5 text-gray-300 group-hover:text-primary-400 shrink-0 ml-auto" />
+                            </a>
+                          </td>
                           <td className="px-3 py-2 text-right">{formatNum(n.followers)}</td>
                           <td className="px-3 py-2 text-right">{formatNum(n.engagements)}</td>
                         </tr>

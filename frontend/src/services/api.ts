@@ -259,6 +259,11 @@ export const discoveryApi = {
     const { data } = await api.get('/api/v1/discovery/search/history', { params: { page, limit } });
     return data;
   },
+
+  typeahead: async (q: string, limit = 8): Promise<{ id: string; username: string; fullName?: string; profilePictureUrl?: string; followerCount: number; platform: string; isVerified: boolean }[]> => {
+    const { data } = await api.get('/api/v1/discovery/typeahead', { params: { q, limit } });
+    return data;
+  },
   
   // ============ DICTIONARY ENDPOINTS ============
   

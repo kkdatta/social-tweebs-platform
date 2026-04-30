@@ -1282,7 +1282,7 @@ export class InsightsService {
     const result: any = {};
     for (const g of genders) {
       if (g.code && g.weight != null) {
-        result[g.code] = Math.round(g.weight * 100 * 10) / 10;
+        result[g.code.toLowerCase()] = Math.round(g.weight * 100 * 10) / 10;
       }
     }
     return Object.keys(result).length > 0 ? result : undefined;

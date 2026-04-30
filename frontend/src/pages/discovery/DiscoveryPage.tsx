@@ -227,6 +227,26 @@ const AsyncSelect: React.FC<{
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const debouncedQuery = useDebounce(query, 300);
+  const didInitRef = useRef(false);
+
+  useEffect(() => {
+    if (didInitRef.current || value.length === 0) return;
+    didInitRef.current = true;
+    const resolve = async () => {
+      try {
+        const results = await fetchOptions('');
+        setOptions(results.slice(0, 50));
+        setSelectedCache(prev => {
+          const next = new Map(prev);
+          for (const r of results) {
+            if (value.includes(r.id)) next.set(r.id, r.name);
+          }
+          return next;
+        });
+      } catch {}
+    };
+    resolve();
+  }, [value, fetchOptions]);
 
   useEffect(() => {
     const load = async () => {
@@ -261,17 +281,15 @@ const AsyncSelect: React.FC<{
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
-  const selectedLabels = value.map(id => selectedCache.get(id) || options.find(o => o.id === id)?.name).filter(Boolean);
-
   return (
     <div className="relative" ref={containerRef}>
       <div
         onClick={() => setIsOpen(!isOpen)}
         className="input py-1.5 text-sm cursor-pointer min-h-[34px] flex flex-wrap gap-1 items-center"
       >
-        {selectedLabels.length > 0 ? (
+        {value.length > 0 ? (
           value.map((id) => {
-            const name = selectedCache.get(id) || options.find(o => o.id === id)?.name || `#${id}`;
+            const name = selectedCache.get(id) || options.find(o => o.id === id)?.name || `ID:${id}`;
             return (
               <span key={id} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-primary-100 text-primary-700 rounded text-xs">
                 {name}
@@ -292,6 +310,7 @@ const AsyncSelect: React.FC<{
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Type to search..."
               className="input py-1 text-sm w-full"
+              autoFocus
               onClick={(e) => e.stopPropagation()}
             />
           </div>
@@ -313,7 +332,7 @@ const AsyncSelect: React.FC<{
                   }
                 }}
                 className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center justify-between ${
-                  value.includes(opt.id) ? 'bg-primary-50 text-primary-700' : ''
+                  value.includes(opt.id) ? 'bg-primary-50 text-primary-700 font-medium' : ''
                 }`}
               >
                 {opt.name}
@@ -400,6 +419,38 @@ const DiscoveryPage: React.FC = () => {
         if (inf.engagementRate) parts.push('ER');
         if (inf.engagements) parts.push('Engagements');
         if (inf.reelsPlays) parts.push('Reels');
+        return parts.length > 0 ? parts.join(', ') : null;
+      }
+      case 'activity': {
+        const parts: string[] = [];
+        if (inf.lastposted) parts.push(`${inf.lastposted}d`);
+        if (inf.keywords) parts.push(inf.keywords.split(',')[0].trim());
+        if (inf.textTags?.length) parts.push(`${inf.textTags.length} tag${inf.textTags.length > 1 ? 's' : ''}`);
+        return parts.length > 0 ? parts.join(', ') : null;
+      }
+      case 'lookalike': {
+        const parts: string[] = [];
+        if (inf.relevance?.length) parts.push(`${inf.relevance.length} topic${inf.relevance.length > 1 ? 's' : ''}`);
+        if (inf.audienceRelevance?.length) parts.push(`${inf.audienceRelevance.length} audience`);
+        return parts.length > 0 ? parts.join(', ') : null;
+      }
+      case 'growth': {
+        const parts: string[] = [];
+        if (inf.followersGrowthRate?.value != null) parts.push(`${(inf.followersGrowthRate.value * 100).toFixed(0)}% growth`);
+        if (inf.hasSponsoredPosts) parts.push('Sponsored');
+        return parts.length > 0 ? parts.join(', ') : null;
+      }
+      case 'account': {
+        const parts: string[] = [];
+        if (inf.accountTypes?.length) parts.push(inf.accountTypes.join(', '));
+        if (inf.isVerified) parts.push('Verified');
+        if (inf.hasYouTube) parts.push('YouTube');
+        return parts.length > 0 ? parts.join(', ') : null;
+      }
+      case 'contact': {
+        const parts: string[] = [];
+        if (inf.hasContactDetails?.length) parts.push(`${inf.hasContactDetails.length} type${inf.hasContactDetails.length > 1 ? 's' : ''}`);
+        if (inf.contactInfoFilter?.length) parts.push(`${inf.contactInfoFilter.length} filter${inf.contactInfoFilter.length > 1 ? 's' : ''}`);
         return parts.length > 0 ? parts.join(', ') : null;
       }
       case 'brands': {
@@ -815,11 +866,11 @@ const DiscoveryPage: React.FC = () => {
         </div>
 
         <div className="relative">
-          <button type="button" onClick={() => toggleFilter('activity')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'activity' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+          <button type="button" onClick={() => toggleFilter('activity')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'activity' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('activity') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <Calendar className="w-3.5 h-3.5" />
             <span>Activity</span>
-            {(filters.influencer?.lastposted || filters.influencer?.keywords || (filters.influencer?.textTags && filters.influencer.textTags.length > 0)) && (
-              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            {getFilterSummary('activity') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('activity')})</span>
             )}
             <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'activity' ? 'rotate-180' : ''}`} />
           </button>
@@ -843,11 +894,11 @@ const DiscoveryPage: React.FC = () => {
         </div>
 
         <div className="relative">
-          <button type="button" onClick={() => toggleFilter('lookalike')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'lookalike' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+          <button type="button" onClick={() => toggleFilter('lookalike')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'lookalike' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('lookalike') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <Target className="w-3.5 h-3.5" />
             <span>Lookalike</span>
-            {((filters.influencer?.relevance && filters.influencer.relevance.length > 0) || (filters.influencer?.audienceRelevance && filters.influencer.audienceRelevance.length > 0)) && (
-              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            {getFilterSummary('lookalike') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('lookalike')})</span>
             )}
             <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'lookalike' ? 'rotate-180' : ''}`} />
           </button>
@@ -868,11 +919,11 @@ const DiscoveryPage: React.FC = () => {
         </div>
 
         <div className="relative">
-          <button type="button" onClick={() => toggleFilter('growth')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'growth' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+          <button type="button" onClick={() => toggleFilter('growth')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'growth' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('growth') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <TrendingUp className="w-3.5 h-3.5" />
             <span>Growth</span>
-            {(filters.influencer?.followersGrowthRate || filters.influencer?.hasSponsoredPosts) && (
-              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            {getFilterSummary('growth') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('growth')})</span>
             )}
             <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'growth' ? 'rotate-180' : ''}`} />
           </button>
@@ -906,11 +957,11 @@ const DiscoveryPage: React.FC = () => {
         </div>
 
         <div className="relative">
-          <button type="button" onClick={() => toggleFilter('account')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'account' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+          <button type="button" onClick={() => toggleFilter('account')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'account' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('account') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <BadgeCheck className="w-3.5 h-3.5" />
             <span>Account</span>
-            {(filters.influencer?.accountTypes?.length || filters.influencer?.isVerified || filters.influencer?.hasYouTube) && (
-              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            {getFilterSummary('account') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('account')})</span>
             )}
             <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'account' ? 'rotate-180' : ''}`} />
           </button>
@@ -946,11 +997,11 @@ const DiscoveryPage: React.FC = () => {
         </div>
 
         <div className="relative">
-          <button type="button" onClick={() => toggleFilter('contact')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'contact' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+          <button type="button" onClick={() => toggleFilter('contact')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'contact' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('contact') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <Mail className="w-3.5 h-3.5" />
             <span>Contact</span>
-            {(filters.influencer?.hasContactDetails && filters.influencer.hasContactDetails.length > 0) && (
-              <span className="w-2 h-2 bg-primary-500 rounded-full ml-1" />
+            {getFilterSummary('contact') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('contact')})</span>
             )}
             <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'contact' ? 'rotate-180' : ''}`} />
           </button>
@@ -996,7 +1047,7 @@ const DiscoveryPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Language</label>
-                  <select value={filters.influencer?.language || ''} onChange={(e) => updateInfluencerFilter('language', e.target.value || undefined)} className="input py-1.5 text-sm w-full">
+                  <select value={filters.influencer?.language || ''} onChange={(e) => updateInfluencerFilter('language', e.target.value || undefined)} className={`input py-1.5 text-sm w-full ${filters.influencer?.language ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : ''}`}>
                     <option value="">Any</option>
                     <option value="en">English</option>
                     <option value="es">Spanish</option>
@@ -1012,7 +1063,7 @@ const DiscoveryPage: React.FC = () => {
                 </div>
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Gender</label>
-                  <select value={filters.influencer?.gender || ''} onChange={(e) => updateInfluencerFilter('gender', e.target.value || undefined)} className="input py-1.5 text-sm w-full">
+                  <select value={filters.influencer?.gender || ''} onChange={(e) => updateInfluencerFilter('gender', e.target.value || undefined)} className={`input py-1.5 text-sm w-full ${filters.influencer?.gender ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : ''}`}>
                     <option value="">Any</option>
                     <option value="MALE">Male</option>
                     <option value="FEMALE">Female</option>
@@ -1022,14 +1073,14 @@ const DiscoveryPage: React.FC = () => {
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Age</label>
                 <div className="flex gap-2">
-                  <select value={filters.influencer?.age?.min || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1">
+                  <select value={filters.influencer?.age?.min || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, min: e.target.value ? parseInt(e.target.value) : undefined })} className={`input py-1.5 text-sm flex-1 ${filters.influencer?.age?.min ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : ''}`}>
                     <option value="">Min</option>
                     <option value="18">18</option>
                     <option value="25">25</option>
                     <option value="35">35</option>
                     <option value="45">45</option>
                   </select>
-                  <select value={filters.influencer?.age?.max || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1">
+                  <select value={filters.influencer?.age?.max || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, max: e.target.value ? parseInt(e.target.value) : undefined })} className={`input py-1.5 text-sm flex-1 ${filters.influencer?.age?.max ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : ''}`}>
                     <option value="">Max</option>
                     <option value="25">25</option>
                     <option value="35">35</option>

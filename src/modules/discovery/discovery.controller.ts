@@ -75,6 +75,17 @@ export class DiscoveryController {
     return this.discoveryService.getSearchHistory(userId, page || 1, limit || 20);
   }
 
+  @Get('typeahead')
+  @ApiOperation({ summary: 'Typeahead search for cached influencer profiles' })
+  @ApiQuery({ name: 'q', required: true, type: String })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async typeaheadSearch(
+    @Query('q') q: string,
+    @Query('limit') limit?: number,
+  ) {
+    return this.discoveryService.typeaheadSearch(q || '', limit || 8);
+  }
+
   // ============ INFLUENCER ENDPOINTS ============
 
   @Get('influencer/:id')

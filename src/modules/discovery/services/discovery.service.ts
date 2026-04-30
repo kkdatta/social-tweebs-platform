@@ -750,6 +750,51 @@ export class DiscoveryService {
     };
   }
 
+  // ============ TYPEAHEAD ============
+  async typeaheadSearch(q: string, limit: number = 8) {
+    const term = q.trim();
+    const likeQ = `%${term}%`;
+
+    const profileQb = this.profileRepository.createQueryBuilder('p')
+      .select(['p.id', 'p.username', 'p.fullName', 'p.profilePictureUrl', 'p.followerCount', 'p.platform', 'p.isVerified'])
+      .orderBy('p.followerCount', 'DESC')
+      .take(limit);
+    if (term) profileQb.andWhere('(p.username ILIKE :q OR p.fullName ILIKE :q)', { q: likeQ });
+    const cached = await profileQb.getMany();
+
+    const insightQb = this.insightsAccessRepository.manager
+      .createQueryBuilder('InfluencerInsight', 'i')
+      .select(['i.id', 'i.username', 'i.fullName', 'i.profilePictureUrl', 'i.followerCount', 'i.platform', 'i.isVerified'])
+      .orderBy('i.followerCount', 'DESC')
+      .take(limit);
+    if (term) insightQb.andWhere('(i.username ILIKE :q OR i.fullName ILIKE :q)', { q: likeQ });
+    const insights = await insightQb.getMany();
+
+    const seen = new Set<string>();
+    const results: any[] = [];
+    const addItem = (item: any, source: string) => {
+      const key = `${(item.platform || '').toLowerCase()}_${(item.username || '').toLowerCase()}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      results.push({
+        id: item.id,
+        username: item.username,
+        fullName: item.fullName,
+        profilePictureUrl: item.profilePictureUrl,
+        followerCount: item.followerCount,
+        platform: item.platform,
+        isVerified: item.isVerified,
+        source,
+      });
+    };
+
+    for (const p of cached) addItem(p, 'discovery');
+    for (const i of insights) addItem(i, 'insights');
+
+    results.sort((a, b) => Number(b.followerCount || 0) - Number(a.followerCount || 0));
+    return results.slice(0, limit);
+  }
+
   // ============ SEARCH HISTORY ============
   async getSearchHistory(
     userId: string,

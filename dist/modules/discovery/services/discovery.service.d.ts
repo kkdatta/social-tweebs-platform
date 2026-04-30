@@ -32,6 +32,7 @@ export declare class DiscoveryService {
     viewInsights(userId: string, profileId: string): Promise<ViewInsightsResponseDto>;
     refreshInsights(userId: string, profileId: string): Promise<RefreshInsightsResponseDto>;
     getProfile(userId: string, profileId: string): Promise<InfluencerProfileDto>;
+    typeaheadSearch(q: string, limit?: number): Promise<any[]>;
     getSearchHistory(userId: string, page?: number, limit?: number): Promise<SearchHistoryResponseDto>;
     exportInfluencers(userId: string, dto: ExportInfluencersDto): Promise<ExportResponseDto>;
     getExportHistory(userId: string): Promise<ExportHistoryResponseDto>;

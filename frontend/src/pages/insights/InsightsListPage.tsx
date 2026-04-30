@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -22,7 +22,7 @@ import {
   CheckSquare,
   Square,
 } from 'lucide-react';
-import { insightsApi, influencerGroupsApi, campaignsApi } from '../../services/api';
+import { insightsApi, influencerGroupsApi, campaignsApi, discoveryApi } from '../../services/api';
 import type { Platform } from '../../types';
 
 interface InsightItem {
@@ -55,6 +55,27 @@ const InsightsListPage: React.FC = () => {
   const [searchUsername, setSearchUsername] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
+
+  const [typeaheadResults, setTypeaheadResults] = useState<any[]>([]);
+  const [typeaheadOpen, setTypeaheadOpen] = useState(false);
+  const typeaheadTimer = useRef<ReturnType<typeof setTimeout>>();
+  const typeaheadBoxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!typeaheadOpen) return;
+    const handler = (e: MouseEvent) => { if (typeaheadBoxRef.current && !typeaheadBoxRef.current.contains(e.target as Node)) setTypeaheadOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [typeaheadOpen]);
+
+  const onUsernameChange = (val: string) => {
+    setSearchUsername(val);
+    clearTimeout(typeaheadTimer.current);
+    if (val.trim().length < 2) { setTypeaheadResults([]); setTypeaheadOpen(false); return; }
+    typeaheadTimer.current = setTimeout(() => {
+      discoveryApi.typeahead(val.trim(), 6).then(r => { setTypeaheadResults(r); setTypeaheadOpen(r.length > 0); }).catch(() => {});
+    }, 250);
+  };
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -397,7 +418,7 @@ const InsightsListPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <div className="relative shrink-0">
+                          <div className="relative shrink-0 cursor-pointer" onClick={() => navigate(`/insights/${insight.id}`)}>
                             <img
                               src={insight.profilePictureUrl || `https://ui-avatars.com/api/?name=${insight.username}&background=6366f1&color=fff`}
                               alt={insight.username}
@@ -410,16 +431,25 @@ const InsightsListPage: React.FC = () => {
                             )}
                           </div>
                           <div className="min-w-0">
-                            <p className="font-medium text-gray-900 text-sm truncate">{insight.fullName || insight.username}</p>
-                            <p className="text-xs text-gray-500">@{insight.username}</p>
+                            <p className="font-medium text-primary-600 hover:text-primary-700 text-sm truncate cursor-pointer hover:underline" onClick={() => navigate(`/insights/${insight.id}`)}>
+                              {insight.fullName || insight.username}
+                            </p>
+                            <a href={`https://instagram.com/${insight.username}`} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-primary-500 hover:underline">
+                              @{insight.username}
+                            </a>
                           </div>
                         </div>
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${getPlatformColor(insight.platform)}`}>
+                        <a
+                          href={insight.platform === 'INSTAGRAM' ? `https://instagram.com/${insight.username}` : insight.platform === 'YOUTUBE' ? `https://youtube.com/@${insight.username}` : insight.platform === 'TIKTOK' ? `https://tiktok.com/@${insight.username}` : '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium hover:opacity-80 transition-opacity ${getPlatformColor(insight.platform)}`}
+                        >
                           {getPlatformIcon(insight.platform)}
                           {insight.platform}
-                        </span>
+                        </a>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-700 hidden lg:table-cell">{formatNumber(insight.followerCount)}</td>
                       <td className="px-4 py-3 text-sm hidden lg:table-cell">
@@ -483,16 +513,34 @@ const InsightsListPage: React.FC = () => {
                     ))}
                   </div>
                 </div>
-                <div>
+                <div className="relative" ref={typeaheadBoxRef}>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Username / Handle</label>
                   <input
                     type="text"
                     placeholder="Enter username (without @)"
                     value={searchUsername}
-                    onChange={(e) => setSearchUsername(e.target.value)}
+                    onChange={(e) => onUsernameChange(e.target.value)}
+                    onFocus={() => { if (typeaheadResults.length > 0) setTypeaheadOpen(true); }}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearchInfluencer()}
                     className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    autoComplete="off"
                   />
+                  {typeaheadOpen && typeaheadResults.length > 0 && (
+                    <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-auto">
+                      <p className="px-3 py-1.5 text-xs text-gray-400 border-b bg-gray-50">Previously discovered — click to view insights</p>
+                      {typeaheadResults.map((p) => (
+                        <button key={p.id} onClick={() => { setTypeaheadOpen(false); setShowSearchModal(false); navigate(`/insights/${p.id}`); }}
+                          className="w-full px-3 py-2.5 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-50 last:border-0 transition-colors">
+                          <img src={p.profilePictureUrl || `https://ui-avatars.com/api/?name=${p.username}&background=6366f1&color=fff&size=36`} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-gray-900 truncate">{p.fullName || p.username} {p.isVerified && <BadgeCheck className="w-3.5 h-3.5 text-blue-500 inline" />}</p>
+                            <p className="text-xs text-gray-500">@{p.username}</p>
+                          </div>
+                          <span className="text-xs text-gray-400 shrink-0">{p.followerCount >= 1000000 ? (p.followerCount / 1000000).toFixed(1) + 'M' : p.followerCount >= 1000 ? (p.followerCount / 1000).toFixed(1) + 'K' : p.followerCount}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {searchError && (
                   <div className="flex items-center gap-2 text-red-600 text-sm"><AlertCircle className="w-4 h-4" />{searchError}</div>

@@ -7,6 +7,7 @@ export declare class DiscoveryController {
     constructor(discoveryService: DiscoveryService);
     searchInfluencers(userId: string, dto: SearchInfluencersDto): Promise<SearchResponseDto>;
     getSearchHistory(userId: string, page?: number, limit?: number): Promise<SearchHistoryResponseDto>;
+    typeaheadSearch(q: string, limit?: number): Promise<any[]>;
     getInfluencerProfile(userId: string, profileId: string): Promise<InfluencerProfileDto>;
     viewInsights(userId: string, profileId: string): Promise<ViewInsightsResponseDto>;
     refreshInsights(userId: string, profileId: string): Promise<RefreshInsightsResponseDto>;

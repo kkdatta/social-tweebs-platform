@@ -12,6 +12,7 @@ import {
 } from './entities';
 import { User } from '../users/entities/user.entity';
 import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
+import { InfluencerInsight } from '../insights/entities/influencer-insight.entity';
 import { UnlockedInfluencer } from '../credits/entities/unlocked-influencer.entity';
 import { CreditsService } from '../credits/credits.service';
 import { ActionType, ModuleType, PlatformType } from '../../common/enums';
@@ -47,6 +48,8 @@ export class TieBreakerService {
     private readonly profileRepo: Repository<InfluencerProfile>,
     @InjectRepository(UnlockedInfluencer)
     private readonly unlockedRepo: Repository<UnlockedInfluencer>,
+    @InjectRepository(InfluencerInsight)
+    private readonly insightRepo: Repository<InfluencerInsight>,
     private readonly creditsService: CreditsService,
     private readonly modashService: ModashService,
   ) {}
@@ -120,8 +123,9 @@ export class TieBreakerService {
       influencersToUnlock,
     );
 
-    // Process comparison (simulate async processing)
-    setTimeout(() => this.processComparison(savedComparison.id), 1500);
+    setTimeout(() => this.processComparison(savedComparison.id).catch(err =>
+      this.logger.error(`processComparison ${savedComparison.id} unhandled: ${err.message}`),
+    ), 500);
 
     savedComparison.influencers = influencers;
 
@@ -167,19 +171,30 @@ export class TieBreakerService {
         influencer.avgLikes = profile.avgLikes || 0;
         influencer.avgViews = profile.avgViews || 0;
         influencer.avgComments = profile.avgComments || 0;
-        influencer.avgReelViews = 0; // Reel views from separate API call
+        influencer.avgReelViews = 0;
         influencer.engagementRate = Number(profile.engagementRate) || 0;
         influencer.isVerified = profile.isVerified || false;
       } else {
-        // Fallback for when profile not found (should not happen in production)
-        influencer.influencerName = `Influencer ${i + 1}`;
-        influencer.influencerUsername = `influencer_${i + 1}`;
-        influencer.followerCount = Math.floor(Math.random() * 500000) + 50000;
-        influencer.avgLikes = Math.floor(Math.random() * 10000) + 1000;
-        influencer.avgViews = Math.floor(Math.random() * 50000) + 5000;
-        influencer.avgComments = Math.floor(Math.random() * 500) + 50;
-        influencer.engagementRate = Number((Math.random() * 5 + 1).toFixed(2));
-        influencer.isVerified = Math.random() > 0.7;
+        // Profile not in cached_influencer_profiles — check influencer_insights
+        const insight = await this.insightRepo.findOne({ where: { id: profileId } });
+        if (insight) {
+          influencer.platformUserId = insight.platformUserId || insight.username;
+          influencer.influencerName = insight.fullName || insight.username || `Influencer ${i + 1}`;
+          influencer.influencerUsername = insight.username || undefined;
+          influencer.profilePictureUrl = insight.profilePictureUrl || undefined;
+          influencer.followerCount = Number(insight.followerCount) || 0;
+          influencer.followingCount = Number(insight.followingCount) || 0;
+          influencer.avgLikes = Number(insight.avgLikes) || 0;
+          influencer.avgViews = Number(insight.avgViews) || 0;
+          influencer.avgComments = Number(insight.avgComments) || 0;
+          influencer.avgReelViews = Number(insight.avgReelViews) || 0;
+          influencer.engagementRate = Number(insight.engagementRate) || 0;
+          influencer.isVerified = insight.isVerified || false;
+        } else {
+          throw new BadRequestException(
+            `Influencer with ID ${profileId} not found in profiles or insights`,
+          );
+        }
       }
 
       // If this influencer was unlocked, create unlock record
@@ -211,13 +226,20 @@ export class TieBreakerService {
 
     try {
       for (const influencer of comparison.influencers) {
-        if (this.modashService.isModashEnabled()) {
+        const usedInsights = await this.populateFromInsights(influencer);
+        if (!usedInsights) {
           const usedCache = await this.populateFromCacheIfFresh(influencer);
           if (!usedCache) {
-            await this.populateInfluencerFromModash(influencer);
+            if (this.modashService.isModashEnabled()) {
+              try {
+                await this.populateInfluencerFromModash(influencer);
+              } catch (err) {
+                this.logger.warn(`Modash fetch failed for ${influencer.influencerUsername}: ${err instanceof Error ? err.message : err}`);
+              }
+            } else {
+              this.logger.warn(`No data source available for ${influencer.influencerUsername} — Modash disabled, no insights/cache found`);
+            }
           }
-        } else {
-          await this.populateInfluencerAudienceData(influencer);
         }
         await this.influencerRepo.save(influencer);
       }
@@ -282,7 +304,10 @@ export class TieBreakerService {
     influencer.avgViews = Number(profile.avgViews) || influencer.avgViews;
     influencer.engagementRate = Number(profile.engagementRate) || influencer.engagementRate;
     influencer.isVerified = profile.isVerified ?? influencer.isVerified;
-    influencer.audienceQuality = Number(profile.audienceCredibility) || influencer.audienceQuality;
+    const cacheCredibility = Number(profile.audienceCredibility) || null;
+    if (cacheCredibility != null) {
+      influencer.audienceQuality = cacheCredibility <= 1 ? cacheCredibility * 100 : cacheCredibility;
+    }
 
     if (profile.profilePictureUrl) {
       influencer.profilePictureUrl = profile.profilePictureUrl;
@@ -325,6 +350,201 @@ export class TieBreakerService {
         }));
       }
     }
+
+    // Mirror followers to engagers if engager-specific data isn't set
+    if (!influencer.engagersGenderData && influencer.followersGenderData) {
+      influencer.engagersGenderData = { ...influencer.followersGenderData };
+    }
+    if (!influencer.engagersAgeData && influencer.followersAgeData) {
+      influencer.engagersAgeData = [...influencer.followersAgeData];
+    }
+    if (!influencer.engagersCountries && influencer.followersCountries) {
+      influencer.engagersCountries = [...influencer.followersCountries];
+    }
+    if (!influencer.engagersCities && influencer.followersCities) {
+      influencer.engagersCities = [...influencer.followersCities];
+    }
+    if (!influencer.engagersInterests && influencer.followersInterests) {
+      influencer.engagersInterests = [...influencer.followersInterests];
+    }
+    if (!influencer.engagersQuality && influencer.audienceQuality) {
+      influencer.engagersQuality = influencer.audienceQuality;
+    }
+    if (!influencer.notableEngagersPct && influencer.notableFollowersPct) {
+      influencer.notableEngagersPct = influencer.notableFollowersPct;
+    }
+
+    return true;
+  }
+
+  /**
+   * Pull data from existing influencer_insights (already paid for, free to reuse).
+   */
+  private async populateFromInsights(influencer: TieBreakerInfluencer): Promise<boolean> {
+    const username = influencer.influencerUsername || influencer.platformUserId;
+    const profileId = influencer.influencerProfileId;
+
+    // Try by ID first (covers cases where the ID is from influencer_insights table)
+    let insight = profileId
+      ? await this.insightRepo.findOne({ where: { id: profileId } })
+      : null;
+
+    // Fall back to username/platformUserId lookup
+    if (!insight && username) {
+      insight = await this.insightRepo.findOne({
+        where: [
+          { username },
+          { platformUserId: username },
+        ],
+      });
+    }
+    if (!insight) return false;
+
+    this.logger.log(`Tie-breaker: using existing insights for ${insight.username}`);
+
+    // Correct name/username if they were set to fallback values
+    if (insight.username && (!influencer.influencerUsername || influencer.influencerUsername.startsWith('influencer_'))) {
+      influencer.influencerUsername = insight.username;
+    }
+    if (insight.fullName && (!influencer.influencerName || influencer.influencerName.startsWith('Influencer '))) {
+      influencer.influencerName = insight.fullName;
+    }
+    if (insight.profilePictureUrl && !influencer.profilePictureUrl) {
+      influencer.profilePictureUrl = insight.profilePictureUrl;
+    }
+    if (insight.platformUserId && !influencer.platformUserId) {
+      influencer.platformUserId = insight.platformUserId;
+    }
+
+    influencer.followerCount = Number(insight.followerCount) || influencer.followerCount;
+    influencer.followingCount = Number(insight.followingCount) || influencer.followingCount;
+    influencer.avgLikes = Number(insight.avgLikes) || influencer.avgLikes;
+    influencer.avgComments = Number(insight.avgComments) || influencer.avgComments;
+    influencer.avgViews = Number(insight.avgViews) || influencer.avgViews;
+    influencer.avgReelViews = Number(insight.avgReelViews) || influencer.avgReelViews;
+    influencer.engagementRate = Number(insight.engagementRate) || influencer.engagementRate;
+    influencer.isVerified = insight.isVerified ?? influencer.isVerified;
+    if (insight.profilePictureUrl) influencer.profilePictureUrl = insight.profilePictureUrl;
+
+    const aud = insight.audienceData || {};
+    const rawCredibility = aud.credibility ?? Number(insight.audienceCredibility) ?? null;
+    if (rawCredibility != null) {
+      influencer.audienceQuality = rawCredibility <= 1 ? rawCredibility * 100 : rawCredibility;
+    }
+    influencer.notableFollowersPct = aud.notable != null ? aud.notable * 100 : (insight.notableFollowersPct ?? influencer.notableFollowersPct);
+
+    const genders = aud.genders || aud.followers?.genderSplit;
+    if (Array.isArray(genders) && genders.length) {
+      const m = genders.find((g: any) => /^male$/i.test(g.code));
+      const f = genders.find((g: any) => /^female$/i.test(g.code));
+      influencer.followersGenderData = { male: m ? m.weight * 100 : 0, female: f ? f.weight * 100 : 0 };
+    } else if (typeof genders === 'object' && genders && !Array.isArray(genders)) {
+      influencer.followersGenderData = { male: (genders.male || 0) * 100, female: (genders.female || 0) * 100 };
+    }
+
+    const gendersPerAge = aud.gendersPerAge;
+    if (Array.isArray(gendersPerAge) && gendersPerAge.length) {
+      influencer.followersAgeData = gendersPerAge.map((a: any) => ({
+        ageRange: a.code,
+        male: (a.male || 0) * 100,
+        female: (a.female || 0) * 100,
+      }));
+    } else {
+      const ages = aud.ages || aud.followers?.ageGroups;
+      if (Array.isArray(ages) && ages.length) {
+        influencer.followersAgeData = ages.map((a: any) => ({ ageRange: a.code, male: a.weight * 50, female: a.weight * 50 }));
+      }
+    }
+
+    const countries = aud.geoCountries || aud.followers?.topCountries;
+    if (Array.isArray(countries) && countries.length) {
+      influencer.followersCountries = countries.map((c: any) => ({ country: c.name, percentage: (c.weight || c.percentage || 0) * 100 }));
+    }
+
+    const cities = aud.geoCities || aud.followers?.topCities;
+    if (Array.isArray(cities) && cities.length) {
+      influencer.followersCities = cities.map((c: any) => ({ city: c.name, percentage: (c.weight || c.percentage || 0) * 100 }));
+    }
+
+    const interests = aud.interests || aud.followers?.interests;
+    if (Array.isArray(interests) && interests.length) {
+      influencer.followersInterests = interests.map((i: any) => ({ interest: i.name, percentage: (i.weight || 0) * 100 }));
+    }
+
+    // Engagers audience — use dedicated engager data if available, otherwise mirror followers
+    const eng = aud.engagers || {};
+    const hasEngagerData = eng.genders || eng.ages || eng.geoCountries;
+
+    const rawEngCredibility = eng.credibility ?? aud.credibility ?? null;
+    if (rawEngCredibility != null) {
+      influencer.engagersQuality = rawEngCredibility <= 1 ? rawEngCredibility * 100 : rawEngCredibility;
+    }
+    influencer.notableEngagersPct = eng.notable != null ? eng.notable * 100
+      : (aud.notable != null ? aud.notable * 100 : influencer.notableEngagersPct);
+
+    if (hasEngagerData) {
+      const eGenders = eng.genders;
+      if (Array.isArray(eGenders) && eGenders.length) {
+        const m = eGenders.find((g: any) => /^male$/i.test(g.code));
+        const f = eGenders.find((g: any) => /^female$/i.test(g.code));
+        influencer.engagersGenderData = { male: m ? m.weight * 100 : 0, female: f ? f.weight * 100 : 0 };
+      }
+      const eAges = eng.ages;
+      if (Array.isArray(eAges) && eAges.length) {
+        influencer.engagersAgeData = eAges.map((a: any) => ({ ageRange: a.code, male: a.weight * 50, female: a.weight * 50 }));
+      }
+      const eCountries = eng.geoCountries;
+      if (Array.isArray(eCountries) && eCountries.length) {
+        influencer.engagersCountries = eCountries.map((c: any) => ({ country: c.name, percentage: (c.weight || 0) * 100 }));
+      }
+      const eCities = eng.geoCities;
+      if (Array.isArray(eCities) && eCities.length) {
+        influencer.engagersCities = eCities.map((c: any) => ({ city: c.name, percentage: (c.weight || 0) * 100 }));
+      }
+      const eInterests = eng.interests;
+      if (Array.isArray(eInterests) && eInterests.length) {
+        influencer.engagersInterests = eInterests.map((i: any) => ({ interest: i.name, percentage: (i.weight || 0) * 100 }));
+      }
+    } else {
+      // Mirror followers' audience data as proxy for engagers
+      if (influencer.followersGenderData) influencer.engagersGenderData = { ...influencer.followersGenderData };
+      if (influencer.followersAgeData) influencer.engagersAgeData = [...influencer.followersAgeData];
+      if (influencer.followersCountries) influencer.engagersCountries = [...influencer.followersCountries];
+      if (influencer.followersCities) influencer.engagersCities = [...influencer.followersCities];
+      if (influencer.followersInterests) influencer.engagersInterests = [...influencer.followersInterests];
+    }
+
+    // Top posts from insights
+    const topPosts: any[] = [];
+    const seenUrls = new Set<string>();
+    const followerCount = Number(insight.followerCount) || Number(influencer.followerCount) || 1;
+    const addPosts = (list: any[]) => {
+      for (const p of (list || [])) {
+        if (topPosts.length >= 10) break;
+        const postUrl = p.url || '';
+        if (postUrl && seenUrls.has(postUrl)) continue;
+        if (postUrl) seenUrls.add(postUrl);
+        const likes = Number(p.likes) || 0;
+        const comments = Number(p.comments) || 0;
+        const views = Number(p.views) || 0;
+        const er = followerCount > 0 ? Number(((likes + comments) / followerCount * 100).toFixed(2)) : 0;
+        topPosts.push({
+          postId: p.id || p.postId || `post_${topPosts.length}`,
+          postUrl,
+          thumbnailUrl: p.thumbnail || p.image || p.imageUrl || '',
+          caption: p.text || p.caption || '',
+          likes,
+          comments,
+          views,
+          engagementRate: er,
+          isSponsored: !!(p.text && /#(ad|sponsored|partner|collab)\b/i.test(p.text)),
+          postDate: p.created || p.postedAt || null,
+        });
+      }
+    };
+    addPosts(insight.popularPosts);
+    addPosts(insight.recentPosts);
+    if (topPosts.length > 0) influencer.topPosts = topPosts;
 
     return true;
   }
@@ -402,113 +622,13 @@ export class TieBreakerService {
         }
       }
     } catch (error) {
-      this.logger.warn(`Failed to fetch Modash data for ${influencer.influencerUsername}, using cached data`);
-      await this.populateInfluencerAudienceData(influencer);
+      this.logger.warn(`Failed to fetch Modash data for ${influencer.influencerUsername}: ${error instanceof Error ? error.message : error}`);
+      throw error;
     }
   }
 
-  /**
-   * Populate audience data for an influencer (simulated)
-   */
-  private async populateInfluencerAudienceData(influencer: TieBreakerInfluencer): Promise<void> {
-    // In production, this would fetch from Modash API
-    // For now, generate realistic mock data
-
-    // Followers' Audience
-    influencer.audienceQuality = Number((Math.random() * 30 + 60).toFixed(2)); // 60-90%
-    influencer.notableFollowersPct = Number((Math.random() * 10 + 2).toFixed(2)); // 2-12%
-    influencer.followersGenderData = {
-      male: Math.floor(Math.random() * 30 + 30), // 30-60%
-      female: 100 - Math.floor(Math.random() * 30 + 30),
-    };
-    influencer.followersAgeData = [
-      { ageRange: '13-17', male: Math.random() * 10, female: Math.random() * 10 },
-      { ageRange: '18-24', male: Math.random() * 20 + 10, female: Math.random() * 20 + 10 },
-      { ageRange: '25-34', male: Math.random() * 25 + 15, female: Math.random() * 25 + 15 },
-      { ageRange: '35-44', male: Math.random() * 15 + 5, female: Math.random() * 15 + 5 },
-      { ageRange: '45-64', male: Math.random() * 10, female: Math.random() * 10 },
-      { ageRange: '65+', male: Math.random() * 5, female: Math.random() * 5 },
-    ];
-    influencer.followersCountries = [
-      { country: 'India', percentage: Math.random() * 30 + 30 },
-      { country: 'United States', percentage: Math.random() * 15 + 10 },
-      { country: 'United Kingdom', percentage: Math.random() * 10 + 5 },
-      { country: 'Australia', percentage: Math.random() * 8 + 3 },
-      { country: 'Canada', percentage: Math.random() * 6 + 2 },
-      { country: 'Germany', percentage: Math.random() * 5 + 2 },
-    ];
-    influencer.followersCities = [
-      { city: 'Mumbai', percentage: Math.random() * 15 + 10 },
-      { city: 'Delhi', percentage: Math.random() * 12 + 8 },
-      { city: 'Bangalore', percentage: Math.random() * 10 + 5 },
-      { city: 'New York', percentage: Math.random() * 8 + 3 },
-      { city: 'London', percentage: Math.random() * 6 + 2 },
-      { city: 'Los Angeles', percentage: Math.random() * 5 + 2 },
-    ];
-    influencer.followersInterests = [
-      { interest: 'Fashion', percentage: Math.random() * 20 + 20 },
-      { interest: 'Lifestyle', percentage: Math.random() * 18 + 15 },
-      { interest: 'Travel', percentage: Math.random() * 15 + 10 },
-      { interest: 'Sports', percentage: Math.random() * 12 + 8 },
-      { interest: 'Technology', percentage: Math.random() * 10 + 5 },
-    ];
-
-    // Engagers' Audience
-    influencer.engagersQuality = Number((Math.random() * 25 + 65).toFixed(2)); // 65-90%
-    influencer.notableEngagersPct = Number((Math.random() * 8 + 3).toFixed(2)); // 3-11%
-    influencer.engagersGenderData = {
-      male: Math.floor(Math.random() * 25 + 35),
-      female: 100 - Math.floor(Math.random() * 25 + 35),
-    };
-    influencer.engagersAgeData = [
-      { ageRange: '13-17', male: Math.random() * 8, female: Math.random() * 8 },
-      { ageRange: '18-24', male: Math.random() * 25 + 15, female: Math.random() * 25 + 15 },
-      { ageRange: '25-34', male: Math.random() * 25 + 15, female: Math.random() * 25 + 15 },
-      { ageRange: '35-44', male: Math.random() * 12 + 5, female: Math.random() * 12 + 5 },
-      { ageRange: '45-64', male: Math.random() * 8, female: Math.random() * 8 },
-      { ageRange: '65+', male: Math.random() * 3, female: Math.random() * 3 },
-    ];
-    influencer.engagersCountries = [
-      { country: 'India', percentage: Math.random() * 35 + 30 },
-      { country: 'United States', percentage: Math.random() * 12 + 8 },
-      { country: 'United Kingdom', percentage: Math.random() * 8 + 4 },
-      { country: 'Indonesia', percentage: Math.random() * 6 + 3 },
-      { country: 'Brazil', percentage: Math.random() * 5 + 2 },
-      { country: 'Turkey', percentage: Math.random() * 4 + 2 },
-    ];
-    influencer.engagersCities = [
-      { city: 'Mumbai', percentage: Math.random() * 12 + 8 },
-      { city: 'Delhi', percentage: Math.random() * 10 + 6 },
-      { city: 'Kolkata', percentage: Math.random() * 8 + 4 },
-      { city: 'Chennai', percentage: Math.random() * 6 + 3 },
-      { city: 'Hyderabad', percentage: Math.random() * 5 + 2 },
-      { city: 'Pune', percentage: Math.random() * 4 + 2 },
-    ];
-    influencer.engagersInterests = [
-      { interest: 'Fashion', percentage: Math.random() * 22 + 18 },
-      { interest: 'Beauty', percentage: Math.random() * 18 + 12 },
-      { interest: 'Fitness', percentage: Math.random() * 14 + 8 },
-      { interest: 'Music', percentage: Math.random() * 12 + 6 },
-      { interest: 'Food', percentage: Math.random() * 10 + 5 },
-    ];
-
-    // Top Posts
-    influencer.topPosts = [];
-    for (let i = 0; i < 10; i++) {
-      influencer.topPosts.push({
-        postId: `post_${uuidv4().substring(0, 8)}`,
-        postUrl: `https://instagram.com/p/${uuidv4().substring(0, 8)}`,
-        thumbnailUrl: `https://picsum.photos/seed/${Math.random()}/300/300`,
-        caption: `Amazing post #${i + 1} 🔥 #trending #viral`,
-        likes: Math.floor(Math.random() * 50000) + 5000,
-        comments: Math.floor(Math.random() * 2000) + 100,
-        views: Math.floor(Math.random() * 200000) + 20000,
-        engagementRate: Number((Math.random() * 8 + 2).toFixed(2)),
-        isSponsored: i < 3, // First 3 are sponsored
-        postDate: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
-      });
-    }
-  }
+  // No mock/synthetic data generation — all data must come from real sources
+  // (influencer_insights, cached_influencer_profiles, or Modash API)
 
   /**
    * Get list of comparisons with filters
@@ -726,43 +846,91 @@ export class TieBreakerService {
     query: string,
     limit: number = 20,
   ): Promise<SearchInfluencerResultDto[]> {
-    const queryBuilder = this.profileRepo.createQueryBuilder('profile');
-
     const safePlatform = (platform || 'INSTAGRAM').toUpperCase();
-    queryBuilder.where('profile.platform = :platform', { platform: safePlatform });
+    const likeQ = query ? `%${query.toLowerCase()}%` : null;
 
-    if (query) {
-      queryBuilder.andWhere(
-        '(LOWER(profile.username) LIKE :query OR LOWER(profile.fullName) LIKE :query)',
-        { query: `%${query.toLowerCase()}%` },
-      );
+    // Search cached_influencer_profiles
+    const profileQb = this.profileRepo.createQueryBuilder('profile')
+      .where('profile.platform = :platform', { platform: safePlatform });
+    if (likeQ) {
+      profileQb.andWhere('(LOWER(profile.username) LIKE :query OR LOWER(profile.fullName) LIKE :query)', { query: likeQ });
+    }
+    profileQb.orderBy('profile.followerCount', 'DESC').take(limit);
+    const profiles = await profileQb.getMany();
+
+    // Also search influencer_insights for influencers that may not be in cached profiles
+    const insightQb = this.insightRepo.createQueryBuilder('i')
+      .where('i.platform = :platform', { platform: safePlatform });
+    if (likeQ) {
+      insightQb.andWhere('(LOWER(i.username) LIKE :query OR LOWER(i.fullName) LIKE :query)', { query: likeQ });
+    }
+    insightQb.orderBy('i.followerCount', 'DESC').take(limit);
+    const insights = await insightQb.getMany();
+
+    // Merge and deduplicate by username
+    const seen = new Set<string>();
+    const merged: any[] = [];
+
+    for (const p of profiles) {
+      const key = (p.username || '').toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push({
+        id: p.id,
+        platform: p.platform,
+        platformUserId: p.platformUserId,
+        username: p.username || '',
+        fullName: p.fullName || undefined,
+        profilePictureUrl: p.profilePictureUrl || undefined,
+        followerCount: p.followerCount || 0,
+        engagementRate: p.engagementRate ? Number(p.engagementRate) : undefined,
+        isVerified: p.isVerified || false,
+        locationCountry: p.locationCountry || undefined,
+        _source: 'profile',
+      });
     }
 
-    queryBuilder.orderBy('profile.followerCount', 'DESC').take(limit);
+    for (const i of insights) {
+      const key = (i.username || '').toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push({
+        id: i.id,
+        platform: i.platform,
+        platformUserId: i.platformUserId || i.username,
+        username: i.username || '',
+        fullName: i.fullName || undefined,
+        profilePictureUrl: i.profilePictureUrl || undefined,
+        followerCount: Number(i.followerCount) || 0,
+        engagementRate: i.engagementRate ? Number(i.engagementRate) : undefined,
+        isVerified: i.isVerified || false,
+        locationCountry: i.locationCountry || undefined,
+        _source: 'insight',
+      });
+    }
 
-    const profiles = await queryBuilder.getMany();
+    merged.sort((a, b) => Number(b.followerCount || 0) - Number(a.followerCount || 0));
+    const results = merged.slice(0, limit);
 
     // Check which are unlocked
-    const unlockedProfiles = await this.unlockedRepo.find({
-      where: {
-        userId,
-        influencerId: In(profiles.map(p => p.id)),
-      },
-    });
+    const profileIds = results.filter(r => r._source === 'profile').map(r => r.id);
+    const unlockedProfiles = profileIds.length > 0
+      ? await this.unlockedRepo.find({ where: { userId, influencerId: In(profileIds) } })
+      : [];
     const unlockedIds = new Set(unlockedProfiles.map(u => u.influencerId));
 
-    return profiles.map(profile => ({
-      id: profile.id,
-      platform: profile.platform,
-      platformUserId: profile.platformUserId,
-      username: profile.username || '',
-      fullName: profile.fullName || undefined,
-      profilePictureUrl: profile.profilePictureUrl || undefined,
-      followerCount: profile.followerCount || 0,
-      engagementRate: profile.engagementRate ? Number(profile.engagementRate) : undefined,
-      isVerified: profile.isVerified || false,
-      isUnlocked: unlockedIds.has(profile.id),
-      locationCountry: profile.locationCountry || undefined,
+    return results.map(r => ({
+      id: r.id,
+      platform: r.platform,
+      platformUserId: r.platformUserId,
+      username: r.username,
+      fullName: r.fullName,
+      profilePictureUrl: r.profilePictureUrl,
+      followerCount: r.followerCount,
+      engagementRate: r.engagementRate,
+      isVerified: r.isVerified,
+      isUnlocked: r._source === 'insight' ? true : unlockedIds.has(r.id),
+      locationCountry: r.locationCountry,
     }));
   }
 
