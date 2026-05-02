@@ -1,6 +1,8 @@
 import { Repository } from 'typeorm';
 import { CollabCheckReport, CollabCheckInfluencer, CollabCheckPost, CollabCheckShare } from './entities';
 import { User } from '../users/entities/user.entity';
+import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
+import { InfluencerInsight } from '../insights/entities/influencer-insight.entity';
 import { CreditsService } from '../credits/credits.service';
 import { CreateCollabCheckReportDto, UpdateCollabCheckReportDto, ShareCollabCheckReportDto, CollabCheckReportFilterDto, CollabCheckReportListResponseDto, CollabCheckReportDetailDto, DashboardStatsDto, PostsChartDataDto } from './dto';
 import { ModashService } from '../discovery/services/modash.service';
@@ -10,10 +12,12 @@ export declare class CollabCheckService {
     private readonly postRepo;
     private readonly shareRepo;
     private readonly userRepo;
+    private readonly profileRepo;
+    private readonly insightRepo;
     private readonly creditsService;
     private readonly modashService;
     private readonly logger;
-    constructor(reportRepo: Repository<CollabCheckReport>, influencerRepo: Repository<CollabCheckInfluencer>, postRepo: Repository<CollabCheckPost>, shareRepo: Repository<CollabCheckShare>, userRepo: Repository<User>, creditsService: CreditsService, modashService: ModashService);
+    constructor(reportRepo: Repository<CollabCheckReport>, influencerRepo: Repository<CollabCheckInfluencer>, postRepo: Repository<CollabCheckPost>, shareRepo: Repository<CollabCheckShare>, userRepo: Repository<User>, profileRepo: Repository<InfluencerProfile>, insightRepo: Repository<InfluencerInsight>, creditsService: CreditsService, modashService: ModashService);
     createReport(userId: string, dto: CreateCollabCheckReportDto): Promise<{
         success: boolean;
         report: CollabCheckReport;

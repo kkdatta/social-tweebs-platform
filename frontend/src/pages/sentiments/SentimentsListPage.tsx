@@ -394,7 +394,10 @@ export const SentimentsListPage = () => {
                           alt={report.influencerName || ''}
                           className="w-10 h-10 rounded-full"
                         />
-                        <Instagram className="absolute -bottom-1 -right-1 w-4 h-4 text-pink-500 bg-white rounded-full" />
+                        {(report as any).platform?.toUpperCase() === 'TIKTOK'
+                          ? <span className="absolute -bottom-1 -right-1 w-4 h-4 text-xs font-bold text-black bg-white rounded-full flex items-center justify-center">T</span>
+                          : <Instagram className="absolute -bottom-1 -right-1 w-4 h-4 text-pink-500 bg-white rounded-full" />
+                        }
                       </div>
                       <span className="font-medium text-gray-900">{report.influencerName || 'Unknown'}</span>
                     </div>

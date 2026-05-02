@@ -157,10 +157,10 @@ export const PaidCollaborationDetailPage = () => {
       setLoading(prev => prev === true ? true : false);
       const [reportData, chartDataResult] = await Promise.all([
         paidCollaborationApi.getById(id),
-        paidCollaborationApi.getChartData(id).catch(() => ({ data: [] })),
+        paidCollaborationApi.getChartData(id).catch(() => []),
       ]);
       setReport(reportData);
-      setChartData(chartDataResult.data || []);
+      setChartData(Array.isArray(chartDataResult) ? chartDataResult : []);
       setNewTitle(reportData.title);
     } catch (err) {
       console.error('Failed to load report:', err);

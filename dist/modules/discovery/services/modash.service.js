@@ -311,8 +311,13 @@ let ModashService = ModashService_1 = class ModashService {
         if (filters.followers) {
             filter.followers = filters.followers;
         }
-        if (filters.engagementRate) {
-            filter.engagementRate = filters.engagementRate;
+        if (filters.engagementRate != null) {
+            if (typeof filters.engagementRate === 'number') {
+                filter.engagementRate = { min: filters.engagementRate };
+            }
+            else {
+                filter.engagementRate = filters.engagementRate;
+            }
         }
         if (filters.engagements) {
             filter.engagements = filters.engagements;
@@ -386,6 +391,9 @@ let ModashService = ModashService_1 = class ModashService {
         }
         if (filters.gender) {
             audienceFilter.gender = filters.gender;
+        }
+        if (filters.engagersGender) {
+            audienceFilter.engagersGender = filters.engagersGender;
         }
         if (filters.age && filters.age.length > 0) {
             audienceFilter.age = filters.age;

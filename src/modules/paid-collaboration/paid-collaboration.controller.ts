@@ -28,13 +28,26 @@ import {
 import { InfluencerCategory, PaidCollabReportStatus } from './entities';
 
 @ApiTags('paid-collaboration')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('paid-collaboration')
 export class PaidCollaborationController {
   constructor(private readonly service: PaidCollaborationService) {}
 
+  // =============== Public Routes ===============
+
+  @Get('shared/:token')
+  @ApiOperation({ summary: 'Get public shared report' })
+  @ApiParam({ name: 'token', description: 'Share URL token' })
+  async getSharedReport(
+    @Param('token') token: string,
+  ): Promise<PaidCollabReportDetailDto> {
+    return this.service.getReportByShareToken(token);
+  }
+
+  // =============== Protected Routes ===============
+
   @Post()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new paid collaboration report' })
   async createReport(
     @CurrentUser('id') userId: string,
@@ -44,6 +57,8 @@ export class PaidCollaborationController {
   }
 
   @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get list of paid collaboration reports' })
   @ApiQuery({ name: 'platform', required: false, description: 'Filter by platform' })
   @ApiQuery({ name: 'status', required: false, enum: PaidCollabReportStatus })
@@ -59,6 +74,8 @@ export class PaidCollaborationController {
   }
 
   @Get('dashboard')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get dashboard statistics' })
   async getDashboardStats(
     @CurrentUser('id') userId: string,
@@ -66,16 +83,9 @@ export class PaidCollaborationController {
     return this.service.getDashboardStats(userId);
   }
 
-  @Get('shared/:token')
-  @ApiOperation({ summary: 'Get public shared report' })
-  @ApiParam({ name: 'token', description: 'Share URL token' })
-  async getSharedReport(
-    @Param('token') token: string,
-  ): Promise<PaidCollabReportDetailDto> {
-    return this.service.getReportByShareToken(token);
-  }
-
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get report details by ID' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   async getReportById(
@@ -86,6 +96,8 @@ export class PaidCollaborationController {
   }
 
   @Get(':id/chart-data')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get chart data for posts over time' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   async getChartData(
@@ -96,6 +108,8 @@ export class PaidCollaborationController {
   }
 
   @Get(':id/posts')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get posts with filtering' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiQuery({ name: 'sponsoredOnly', required: false, type: Boolean })
@@ -127,6 +141,8 @@ export class PaidCollaborationController {
   }
 
   @Get(':id/influencers')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get influencers with filtering and sorting' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiQuery({ name: 'category', required: false, enum: InfluencerCategory })
@@ -155,6 +171,8 @@ export class PaidCollaborationController {
   }
 
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Update report' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   async updateReport(
@@ -166,6 +184,8 @@ export class PaidCollaborationController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete report' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   async deleteReport(
@@ -176,6 +196,8 @@ export class PaidCollaborationController {
   }
 
   @Post(':id/retry')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Retry failed report' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   async retryReport(
@@ -186,6 +208,8 @@ export class PaidCollaborationController {
   }
 
   @Post(':id/share')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Share report' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   async shareReport(

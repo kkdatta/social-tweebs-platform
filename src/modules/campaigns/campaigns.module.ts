@@ -12,6 +12,8 @@ import {
 } from './entities/campaign.entity';
 import { User } from '../users/entities/user.entity';
 import { CreditsModule } from '../credits/credits.module';
+import { DiscoveryModule } from '../discovery/discovery.module';
+import { InfluencerInsight } from '../insights/entities/influencer-insight.entity';
 
 @Module({
   imports: [
@@ -23,8 +25,10 @@ import { CreditsModule } from '../credits/credits.module';
       CampaignPost,
       CampaignShare,
       User,
+      InfluencerInsight,
     ]),
     CreditsModule,
+    DiscoveryModule,
   ],
   controllers: [CampaignsController],
   providers: [CampaignsService],

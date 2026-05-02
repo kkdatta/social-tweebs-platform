@@ -4,6 +4,7 @@ import { CreateCustomErReportDto, UpdateCustomErReportDto, ShareCustomErReportDt
 export declare class CustomErController {
     private readonly customErService;
     constructor(customErService: CustomErService);
+    getSharedReport(token: string): Promise<CustomErReportDetailDto>;
     createReport(userId: string, dto: CreateCustomErReportDto): Promise<{
         success: boolean;
         report: import("./entities").CustomErReport;
@@ -26,9 +27,12 @@ export declare class CustomErController {
     deleteReport(userId: string, reportId: string): Promise<{
         success: boolean;
     }>;
+    retryReport(userId: string, reportId: string): Promise<{
+        success: boolean;
+        report: import("./entities").CustomErReport;
+    }>;
     shareReport(userId: string, reportId: string, dto: ShareCustomErReportDto): Promise<{
         success: boolean;
         shareUrl?: string;
     }>;
-    getSharedReport(token: string): Promise<CustomErReportDetailDto>;
 }

@@ -1,10 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository, LessThan, LessThanOrEqual, In } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { CreditAccount } from '../credits/entities/credit-account.entity';
 import { UnlockedInfluencer } from '../credits/entities/unlocked-influencer.entity';
+import { Campaign, CampaignStatus } from '../campaigns/entities/campaign.entity';
+import { MentionTrackingReport, MentionReportStatus } from '../mention-tracking/entities';
+import { MentionTrackingService } from '../mention-tracking/mention-tracking.service';
 import { UserStatus } from '../../common/enums';
 import { MailService } from '../../common/services/mail.service';
 
@@ -14,12 +17,17 @@ export class SchedulerService {
 
   constructor(
     private readonly mailService: MailService,
+    private readonly mentionTrackingService: MentionTrackingService,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     @InjectRepository(CreditAccount)
     private readonly creditAccountRepo: Repository<CreditAccount>,
     @InjectRepository(UnlockedInfluencer)
     private readonly unlockedInfluencerRepo: Repository<UnlockedInfluencer>,
+    @InjectRepository(Campaign)
+    private readonly campaignRepo: Repository<Campaign>,
+    @InjectRepository(MentionTrackingReport)
+    private readonly mentionReportRepo: Repository<MentionTrackingReport>,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
@@ -88,5 +96,64 @@ export class SchedulerService {
     this.logger.log(
       `Monthly unblur reset: removed ${result.affected || 0} unblur records. All profiles are now re-blurred.`,
     );
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleCampaignStatusUpdates(): Promise<void> {
+    const now = new Date();
+
+    const stale = await this.campaignRepo.find({
+      where: [
+        { status: In([CampaignStatus.ACTIVE, CampaignStatus.PENDING]) },
+      ],
+    });
+
+    let completed = 0;
+    let activated = 0;
+
+    for (const campaign of stale) {
+      const start = campaign.startDate ? new Date(campaign.startDate) : null;
+      const end = campaign.endDate ? new Date(campaign.endDate) : null;
+
+      if (end && now > end && campaign.status !== CampaignStatus.COMPLETED) {
+        campaign.status = CampaignStatus.COMPLETED;
+        await this.campaignRepo.save(campaign);
+        completed++;
+      } else if (start && now >= start && campaign.status === CampaignStatus.PENDING) {
+        campaign.status = CampaignStatus.ACTIVE;
+        await this.campaignRepo.save(campaign);
+        activated++;
+      }
+    }
+
+    if (completed > 0 || activated > 0) {
+      this.logger.log(`Campaign status update: ${completed} completed, ${activated} activated`);
+    }
+  }
+
+  @Cron(CronExpression.EVERY_6_HOURS)
+  async handleMentionTrackingAutoRefresh(): Promise<void> {
+    const now = new Date();
+
+    const dueReports = await this.mentionReportRepo.find({
+      where: {
+        autoRefreshEnabled: true,
+        status: MentionReportStatus.COMPLETED,
+        nextRefreshDate: LessThanOrEqual(now),
+      },
+    });
+
+    if (dueReports.length === 0) return;
+
+    this.logger.log(`Mention tracking auto-refresh: found ${dueReports.length} report(s) due for refresh`);
+
+    for (const report of dueReports) {
+      try {
+        await this.mentionTrackingService.autoRefreshReport(report.id);
+        this.logger.log(`Mention tracking auto-refresh: report ${report.id} refreshed successfully`);
+      } catch (error) {
+        this.logger.error(`Mention tracking auto-refresh: report ${report.id} failed — ${error.message}`);
+      }
+    }
   }
 }

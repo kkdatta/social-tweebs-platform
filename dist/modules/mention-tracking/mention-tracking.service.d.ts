@@ -62,6 +62,7 @@ export declare class MentionTrackingService {
         page: number;
         limit: number;
     }>;
+    autoRefreshReport(reportId: string): Promise<void>;
     private getTeamUserIds;
     private checkReportAccess;
     private toSummaryDto;

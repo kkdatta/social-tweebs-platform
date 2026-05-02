@@ -93,7 +93,7 @@ const getLocationCoords = (name: string, type: 'country' | 'state' | 'city'): [n
 
 interface ViewMoreModalProps {
   title: string;
-  columns: { key: string; label: string }[];
+  columns: { key: string; label: string; render?: (row: any) => React.ReactNode }[];
   data: any[];
   onClose: () => void;
 }
@@ -115,7 +115,8 @@ const ViewMoreModal: React.FC<ViewMoreModalProps> = ({ title, columns, data, onC
               <tr key={i} className="hover:bg-gray-50">
                 {columns.map(c => (
                   <td key={c.key} className="px-3 py-2 text-gray-700">
-                    {c.key === 'url' || c.key === 'postUrl'
+                    {c.render ? c.render(row)
+                      : c.key === 'url' || c.key === 'postUrl'
                       ? row[c.key] ? <a href={row[c.key]} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline flex items-center gap-1">Open <ExternalLink className="w-3 h-3" /></a> : '-'
                       : typeof row[c.key] === 'number' ? row[c.key].toLocaleString() : row[c.key] || '-'}
                   </td>
@@ -995,9 +996,10 @@ const InsightsPage: React.FC = () => {
                     ))}
                   </div>
                   <button onClick={() => setViewMoreData({
-                    title: `Followers by ${locationTab}`,
-                    columns: [{ key: nameKey, label: locationTab.charAt(0).toUpperCase() + locationTab.slice(1) }, { key: 'followers', label: 'Count' }, { key: 'percentage', label: '%' }, { key: 'engagements', label: 'Engagements' }],
-                    data: locData, onClose: () => setViewMoreData(null)
+                    title: `Audience by ${locationTab}`,
+                    columns: [{ key: nameKey, label: locationTab.charAt(0).toUpperCase() + locationTab.slice(1) }, { key: 'percentage', label: 'Share %' }, { key: 'engagementPct', label: 'Engagement %' }],
+                    data: locData.map((loc: any) => ({ ...loc, engagementPct: loc.engagements && loc.followers ? ((loc.engagements / loc.followers) * 100).toFixed(2) + '%' : loc.percentage ? loc.percentage.toFixed(1) + '%' : '-' })),
+                    onClose: () => setViewMoreData(null)
                   })} className="text-primary-600 hover:text-primary-700 text-sm font-medium mt-3 flex items-center gap-1 print:hidden">View More <ChevronRight className="w-4 h-4" /></button>
                 </>
               );
@@ -1122,7 +1124,19 @@ const InsightsPage: React.FC = () => {
                 </div>
                 <button onClick={() => setViewMoreData({
                   title: 'Notable Followers',
-                  columns: [{ key: 'username', label: 'Username' }, { key: 'fullName', label: 'Name' }, { key: 'followers', label: 'Followers' }, { key: 'engagements', label: 'Engagements' }],
+                  columns: [
+                    { key: 'profile', label: 'Profile', render: (row: any) => (
+                      <a href={`https://www.instagram.com/${row.username}/`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 hover:opacity-80">
+                        <img src={row.profilePictureUrl || `https://ui-avatars.com/api/?name=${row.username}&background=6366f1&color=fff&size=32`} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{row.fullName || row.username}</p>
+                          <p className="text-xs text-primary-600">@{row.username}</p>
+                        </div>
+                      </a>
+                    )},
+                    { key: 'followers', label: 'Followers' },
+                    { key: 'engagements', label: 'Engagements' },
+                  ],
                   data: notable, onClose: () => setViewMoreData(null)
                 })} className="text-primary-600 hover:text-primary-700 text-sm font-medium mt-3 flex items-center gap-1 print:hidden">View All <ChevronRight className="w-4 h-4" /></button>
               </div>
@@ -1148,7 +1162,13 @@ const InsightsPage: React.FC = () => {
               </div>
               <button onClick={() => setViewMoreData({
                 title: 'Audience Brand Affinity',
-                columns: [{ key: 'brand', label: 'Brand' }, { key: 'followers', label: 'Followers' }, { key: 'likes', label: 'Likes' }, { key: 'followersAffinity', label: 'Followers Affinity' }, { key: 'engagersAffinity', label: 'Engagers Affinity' }],
+                columns: [
+                  { key: 'name', label: 'Brand', render: (row: any) => <span>{row.brand || row.name || '-'}</span> },
+                  { key: 'affinity', label: 'Affinity %', render: (row: any) => {
+                    const pct = row.percentage ?? (row.weight != null ? (row.weight * 100) : null);
+                    return <span>{pct != null ? pct.toFixed(1) + '%' : '-'}</span>;
+                  }},
+                ],
                 data: currentAud.brandAffinity, onClose: () => setViewMoreData(null)
               })} className="text-primary-600 hover:text-primary-700 text-sm font-medium mt-4 flex items-center gap-1 print:hidden">View All Brands <ChevronRight className="w-4 h-4" /></button>
             </div>
@@ -1173,7 +1193,13 @@ const InsightsPage: React.FC = () => {
               </div>
               <button onClick={() => setViewMoreData({
                 title: 'Audience Interests',
-                columns: [{ key: 'category', label: 'Interest Category' }, { key: 'followers', label: 'Followers' }, { key: 'likes', label: 'Likes' }, { key: 'followersAffinity', label: 'Followers Affinity' }, { key: 'engagersAffinity', label: 'Engagers Affinity' }],
+                columns: [
+                  { key: 'name', label: 'Interest Category', render: (row: any) => <span>{row.category || row.name || '-'}</span> },
+                  { key: 'affinity', label: 'Affinity %', render: (row: any) => {
+                    const pct = row.percentage ?? (row.weight != null ? (row.weight * 100) : null);
+                    return <span>{pct != null ? pct.toFixed(1) + '%' : '-'}</span>;
+                  }},
+                ],
                 data: currentAud.interests, onClose: () => setViewMoreData(null)
               })} className="text-primary-600 hover:text-primary-700 text-sm font-medium mt-4 flex items-center gap-1 print:hidden">View All Interests <ChevronRight className="w-4 h-4" /></button>
             </div>

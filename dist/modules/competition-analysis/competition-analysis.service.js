@@ -161,7 +161,8 @@ let CompetitionAnalysisService = CompetitionAnalysisService_1 = class Competitio
             const summary = summaryResp?.brand?.summary || summaryResp?.influencer?.summary;
             if (summary) {
                 brand.totalFollowers = summary.total_followers || brand.totalFollowers || 0;
-                brand.avgEngagementRate = summary.avg_engagement_rate ?? brand.avgEngagementRate;
+                const rawER = summary.avg_engagement_rate ?? brand.avgEngagementRate;
+                brand.avgEngagementRate = rawER <= 1 ? rawER * 100 : rawER;
             }
         }
         catch (summaryErr) {
@@ -170,13 +171,32 @@ let CompetitionAnalysisService = CompetitionAnalysisService_1 = class Competitio
         const posts = collabPosts.brand?.posts || collabPosts.influencer?.posts || [];
         const seenInfluencers = new Map();
         let brandTotalLikes = 0, brandTotalViews = 0, brandTotalComments = 0, brandTotalShares = 0;
+        let photoCount = 0, videoCount = 0, carouselCount = 0, reelCount = 0;
         for (const modashPost of posts) {
             const compPost = new entities_1.CompetitionPost();
             compPost.reportId = reportId;
             compPost.brandId = brand.id;
             compPost.platform = brand.platform || report.platforms?.[0] || 'INSTAGRAM';
             compPost.postId = modashPost.post_id;
-            compPost.postType = entities_1.PostType.PHOTO;
+            const mp = modashPost;
+            const rawType = (mp.media_type || mp.type || '').toLowerCase();
+            if (rawType.includes('reel') || (rawType === 'video' && (mp.stats?.plays > 0))) {
+                compPost.postType = entities_1.PostType.REEL;
+                reelCount++;
+            }
+            else if (rawType.includes('carousel') || rawType === 'sidecar') {
+                compPost.postType = entities_1.PostType.CAROUSEL;
+                carouselCount++;
+            }
+            else if (rawType.includes('video')) {
+                compPost.postType = entities_1.PostType.VIDEO;
+                videoCount++;
+            }
+            else {
+                compPost.postType = entities_1.PostType.PHOTO;
+                photoCount++;
+            }
+            compPost.postUrl = mp.post_url || mp.url || undefined;
             compPost.thumbnailUrl = modashPost.post_thumbnail || '';
             compPost.description = modashPost.description || modashPost.title || '';
             compPost.likesCount = modashPost.stats?.likes || 0;
@@ -188,14 +208,13 @@ let CompetitionAnalysisService = CompetitionAnalysisService_1 = class Competitio
                 : Date.now();
             compPost.postDate = new Date(compTs);
             compPost.isSponsored = modashPost.label?.includes('Sponsorship') || false;
-            await this.postRepo.save(compPost);
             brandTotalLikes += compPost.likesCount;
             brandTotalViews += compPost.viewsCount;
             brandTotalComments += compPost.commentsCount;
             brandTotalShares += compPost.sharesCount;
             const infKey = modashPost.username || modashPost.user_id || `unknown_${modashPost.post_id}`;
             if (!seenInfluencers.has(infKey)) {
-                seenInfluencers.set(infKey, { likes: 0, views: 0, comments: 0, shares: 0, posts: 0, followers: 0 });
+                seenInfluencers.set(infKey, { likes: 0, views: 0, comments: 0, shares: 0, posts: 0, followers: 0, userId: modashPost.user_id, profilePicture: mp.user_thumbnail || mp.profile_picture || undefined });
             }
             const inf = seenInfluencers.get(infKey);
             inf.likes += compPost.likesCount;
@@ -203,8 +222,26 @@ let CompetitionAnalysisService = CompetitionAnalysisService_1 = class Competitio
             inf.comments += compPost.commentsCount;
             inf.shares += compPost.sharesCount;
             inf.posts++;
+            compPost.influencerUsername = infKey;
+            await this.postRepo.save(compPost);
+        }
+        const infPlatform = (brand.platform || report.platforms?.[0] || 'INSTAGRAM');
+        for (const [username, data] of seenInfluencers) {
+            try {
+                const profileId = data.userId || username;
+                const modashReport = await this.modashService.getInfluencerReport(infPlatform, profileId, report.ownerId);
+                const rpt = modashReport;
+                const innerProfile = rpt.profile || rpt;
+                const followers = Number(innerProfile.followers) || Number(innerProfile.followerCount) || 0;
+                data.followers = followers;
+            }
+            catch (err) {
+                this.logger.warn(`Failed to fetch follower count for ${username}: ${err.message}`);
+            }
         }
         let brandTotalFollowers = 0;
+        let nanoCount = 0, microCount = 0, macroCount = 0, megaCount = 0;
+        const savedInfluencers = new Map();
         for (const [username, data] of seenInfluencers) {
             const compInf = new entities_1.CompetitionInfluencer();
             compInf.reportId = reportId;
@@ -213,14 +250,53 @@ let CompetitionAnalysisService = CompetitionAnalysisService_1 = class Competitio
             compInf.influencerName = username;
             compInf.influencerUsername = username;
             compInf.followerCount = data.followers;
+            compInf.profilePictureUrl = data.profilePicture || undefined;
             compInf.postsCount = data.posts;
             compInf.likesCount = data.likes;
             compInf.viewsCount = data.views;
             compInf.commentsCount = data.comments;
             compInf.sharesCount = data.shares;
-            compInf.category = entities_1.InfluencerCategory.NANO;
-            await this.influencerRepo.save(compInf);
+            compInf.category = this.categorizeInfluencer(data.followers);
+            const fc = Number(data.followers) || 0;
+            const denom = data.posts * fc;
+            compInf.avgEngagementRate = denom > 0 ? ((data.likes + data.comments) / denom) * 100 : 0;
+            const saved = await this.influencerRepo.save(compInf);
+            savedInfluencers.set(username, saved);
             brandTotalFollowers += data.followers;
+            switch (compInf.category) {
+                case 'NANO':
+                    nanoCount++;
+                    break;
+                case 'MICRO':
+                    microCount++;
+                    break;
+                case 'MACRO':
+                    macroCount++;
+                    break;
+                case 'MEGA':
+                    megaCount++;
+                    break;
+            }
+        }
+        try {
+            const brandPosts = await this.postRepo.find({ where: { reportId, brandId: brand.id } });
+            for (const p of brandPosts) {
+                const infUsername = p.influencerUsername;
+                const inf = infUsername ? savedInfluencers.get(infUsername) : null;
+                if (inf) {
+                    p.influencerId = inf.id;
+                    await this.postRepo.save(p);
+                }
+            }
+        }
+        catch (linkErr) {
+            this.logger.warn(`Post-influencer linking failed: ${linkErr.message}`);
+        }
+        const avgFollowers = seenInfluencers.size > 0 ? brandTotalFollowers / seenInfluencers.size : 0;
+        const brandEngDenom = posts.length * avgFollowers;
+        const computedER = brandEngDenom > 0 ? ((brandTotalLikes + brandTotalComments) / brandEngDenom) * 100 : 0;
+        if (!brand.avgEngagementRate || brand.avgEngagementRate === 0) {
+            brand.avgEngagementRate = computedER;
         }
         brand.influencerCount = seenInfluencers.size;
         brand.postsCount = posts.length;
@@ -229,6 +305,14 @@ let CompetitionAnalysisService = CompetitionAnalysisService_1 = class Competitio
         brand.totalComments = brandTotalComments;
         brand.totalShares = brandTotalShares;
         brand.totalFollowers = brandTotalFollowers;
+        brand.photoCount = photoCount;
+        brand.videoCount = videoCount;
+        brand.carouselCount = carouselCount;
+        brand.reelCount = reelCount;
+        brand.nanoCount = nanoCount;
+        brand.microCount = microCount;
+        brand.macroCount = macroCount;
+        brand.megaCount = megaCount;
         await this.brandRepo.save(brand);
         return {
             influencerCount: seenInfluencers.size,
@@ -601,7 +685,7 @@ let CompetitionAnalysisService = CompetitionAnalysisService_1 = class Competitio
         }
         report.isPublic = true;
         await this.reportRepo.save(report);
-        const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/competition-analysis/shared/${report.shareUrlToken}`;
+        const shareUrl = `/competition-analysis/shared/${report.shareUrlToken}`;
         return { success: true, shareUrl };
     }
     async getDashboardStats(userId) {
@@ -882,6 +966,7 @@ let CompetitionAnalysisService = CompetitionAnalysisService_1 = class Competitio
     toDetailDto(report) {
         const categorization = this.calculateCategorization(report.influencers || []);
         const postTypeBreakdown = this.calculatePostTypeBreakdown(report.brands || []);
+        const brandMap = new Map((report.brands || []).map(b => [b.id, b.brandName]));
         return {
             id: report.id,
             title: report.title,
@@ -898,10 +983,10 @@ let CompetitionAnalysisService = CompetitionAnalysisService_1 = class Competitio
             totalViews: Number(report.totalViews) || 0,
             totalComments: Number(report.totalComments) || 0,
             totalShares: Number(report.totalShares) || 0,
-            avgEngagementRate: report.avgEngagementRate ? Number(report.avgEngagementRate) : undefined,
+            avgEngagementRate: report.avgEngagementRate != null ? Number(report.avgEngagementRate) : undefined,
             totalFollowers: Number(report.totalFollowers) || 0,
             brands: (report.brands || []).map(b => this.toBrandSummaryDto(b)),
-            influencers: (report.influencers || []).slice(0, 50).map(i => this.toInfluencerDto(i)),
+            influencers: (report.influencers || []).slice(0, 50).map(i => this.toInfluencerDto(i, brandMap)),
             posts: (report.posts || []).slice(0, 50).map(p => this.toPostDto(p)),
             categorization,
             postTypeBreakdown,
@@ -928,7 +1013,7 @@ let CompetitionAnalysisService = CompetitionAnalysisService_1 = class Competitio
             totalComments: Number(brand.totalComments) || 0,
             totalShares: Number(brand.totalShares) || 0,
             totalFollowers: Number(brand.totalFollowers) || 0,
-            avgEngagementRate: brand.avgEngagementRate ? Number(brand.avgEngagementRate) : undefined,
+            avgEngagementRate: brand.avgEngagementRate != null ? Number(brand.avgEngagementRate) : undefined,
             photoCount: brand.photoCount || 0,
             videoCount: brand.videoCount || 0,
             carouselCount: brand.carouselCount || 0,
@@ -939,11 +1024,11 @@ let CompetitionAnalysisService = CompetitionAnalysisService_1 = class Competitio
             megaCount: brand.megaCount || 0,
         };
     }
-    toInfluencerDto(inf) {
+    toInfluencerDto(inf, brandMap) {
         return {
             id: inf.id,
             brandId: inf.brandId,
-            brandName: inf.brand?.brandName || '',
+            brandName: inf.brand?.brandName || brandMap?.get(inf.brandId) || '',
             influencerName: inf.influencerName,
             influencerUsername: inf.influencerUsername,
             platform: inf.platform,

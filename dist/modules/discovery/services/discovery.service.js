@@ -25,6 +25,7 @@ const user_entity_1 = require("../../users/entities/user.entity");
 const unlocked_influencer_entity_1 = require("../../credits/entities/unlocked-influencer.entity");
 const entities_1 = require("../entities");
 const modash_service_1 = require("./modash.service");
+const generated_reports_service_1 = require("../../generated-reports/generated-reports.service");
 const CREDIT_PER_UNBLUR = 0.04;
 const CREDIT_PER_INSIGHT = 1;
 const CREDIT_PER_REFRESH = 1;
@@ -34,7 +35,7 @@ const SEARCH_CACHE_TTL_DAYS = 30;
 const MODASH_RESULTS_PER_PAGE = 25;
 const AUTO_UNBLUR_COUNT = 3;
 let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
-    constructor(profileRepository, searchRepository, searchResultRepository, insightsAccessRepository, audienceDataRepository, unlockedInfluencerRepository, exportRecordRepository, userRepository, modashService, creditsService, dataSource, insightsService) {
+    constructor(profileRepository, searchRepository, searchResultRepository, insightsAccessRepository, audienceDataRepository, unlockedInfluencerRepository, exportRecordRepository, userRepository, modashService, creditsService, dataSource, insightsService, generatedReportsService) {
         this.profileRepository = profileRepository;
         this.searchRepository = searchRepository;
         this.searchResultRepository = searchResultRepository;
@@ -47,6 +48,7 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
         this.creditsService = creditsService;
         this.dataSource = dataSource;
         this.insightsService = insightsService;
+        this.generatedReportsService = generatedReportsService;
         this.logger = new common_1.Logger(DiscoveryService_1.name);
         this.dictCache = new Map();
         this.DICT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -108,7 +110,9 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
             search.status = entities_1.SearchStatus.COMPLETED;
             search.resultCount = modashResponse.lookalikes.length;
             search.totalAvailable = modashResponse.total;
-            search.hasMore = modashResponse.hasMore;
+            const page = dto.page || 0;
+            const computedHasMore = modashResponse.hasMore ?? (modashResponse.total > 0 && modashResponse.lookalikes.length >= RESULTS_PER_PAGE);
+            search.hasMore = computedHasMore;
             search.creditsUsed = 0;
             await this.searchRepository.save(search);
             const unlockedProfileIds = await this.getUnlockedProfileIds(userId, dto.platform);
@@ -139,8 +143,8 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
                 results,
                 resultCount: modashResponse.lookalikes.length,
                 totalAvailable: modashResponse.total,
-                page: dto.page || 0,
-                hasMore: modashResponse.hasMore,
+                page,
+                hasMore: computedHasMore,
                 creditsUsed: 0,
                 remainingBalance: balanceAfterSearch.unifiedBalance,
             };
@@ -198,7 +202,7 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
             resultCount: cachedSearch.resultCount || results.length,
             totalAvailable: cachedSearch.totalAvailable || results.length,
             page: cachedSearch.page || 0,
-            hasMore: cachedSearch.hasMore || false,
+            hasMore: cachedSearch.hasMore || (cachedSearch.totalAvailable > 0 && results.length >= RESULTS_PER_PAGE),
             creditsUsed: 0,
             remainingBalance: balance.unifiedBalance,
         };
@@ -221,10 +225,24 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
                     maxFollowers: filters.followers.max,
                 });
             }
-            if (filters.engagementRate !== undefined && filters.engagementRate !== null) {
-                queryBuilder.andWhere('profile.engagementRate >= :minEr', {
-                    minEr: filters.engagementRate * 100,
-                });
+            if (filters.engagementRate != null) {
+                if (typeof filters.engagementRate === 'number') {
+                    queryBuilder.andWhere('profile.engagementRate >= :minEr', {
+                        minEr: filters.engagementRate * 100,
+                    });
+                }
+                else {
+                    if (filters.engagementRate.min != null) {
+                        queryBuilder.andWhere('profile.engagementRate >= :minEr', {
+                            minEr: filters.engagementRate.min * 100,
+                        });
+                    }
+                    if (filters.engagementRate.max != null) {
+                        queryBuilder.andWhere('profile.engagementRate <= :maxEr', {
+                            maxEr: filters.engagementRate.max * 100,
+                        });
+                    }
+                }
             }
             if (filters.isVerified !== undefined) {
                 queryBuilder.andWhere('profile.isVerified = :isVerified', {
@@ -547,21 +565,21 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
     }
     async typeaheadSearch(q, limit = 8) {
         const term = q.trim();
+        if (!term || term.length < 2)
+            return [];
         const likeQ = `%${term}%`;
         const profileQb = this.profileRepository.createQueryBuilder('p')
             .select(['p.id', 'p.username', 'p.fullName', 'p.profilePictureUrl', 'p.followerCount', 'p.platform', 'p.isVerified'])
             .orderBy('p.followerCount', 'DESC')
             .take(limit);
-        if (term)
-            profileQb.andWhere('(p.username ILIKE :q OR p.fullName ILIKE :q)', { q: likeQ });
+        profileQb.andWhere('(p.username ILIKE :q OR p.fullName ILIKE :q)', { q: likeQ });
         const cached = await profileQb.getMany();
         const insightQb = this.insightsAccessRepository.manager
             .createQueryBuilder('InfluencerInsight', 'i')
             .select(['i.id', 'i.username', 'i.fullName', 'i.profilePictureUrl', 'i.followerCount', 'i.platform', 'i.isVerified'])
             .orderBy('i.followerCount', 'DESC')
             .take(limit);
-        if (term)
-            insightQb.andWhere('(i.username ILIKE :q OR i.fullName ILIKE :q)', { q: likeQ });
+        insightQb.andWhere('(i.username ILIKE :q OR i.fullName ILIKE :q)', { q: likeQ });
         const insights = await insightQb.getMany();
         const seen = new Set();
         const results = [];
@@ -585,6 +603,41 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
             addItem(p, 'discovery');
         for (const i of insights)
             addItem(i, 'insights');
+        if (results.length < limit && this.modashService.isModashEnabled()) {
+            try {
+                const modashResponse = await this.modashService.searchInfluencers({
+                    platform: 'INSTAGRAM',
+                    influencer: { bio: term },
+                    page: 0,
+                });
+                if (modashResponse?.lookalikes) {
+                    for (const inf of modashResponse.lookalikes) {
+                        if (results.length >= limit)
+                            break;
+                        const username = inf.profile?.username;
+                        if (!username)
+                            continue;
+                        const key = `instagram_${username.toLowerCase()}`;
+                        if (seen.has(key))
+                            continue;
+                        seen.add(key);
+                        results.push({
+                            id: `modash_${username}`,
+                            username,
+                            fullName: inf.profile?.fullname || username,
+                            profilePictureUrl: inf.profile?.picture,
+                            followerCount: inf.profile?.followers || inf.stats?.followers || 0,
+                            platform: 'INSTAGRAM',
+                            isVerified: inf.profile?.isVerified ?? false,
+                            source: 'modash',
+                        });
+                    }
+                }
+            }
+            catch (err) {
+                this.logger.warn(`Modash typeahead fallback failed: ${err.message}`);
+            }
+        }
         results.sort((a, b) => Number(b.followerCount || 0) - Number(a.followerCount || 0));
         return results.slice(0, limit);
     }
@@ -666,6 +719,20 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
             excludedPreviouslyExported: excludePreviouslyExported || false,
         });
         await this.exportRecordRepository.save(exportRecord);
+        try {
+            await this.generatedReportsService.createDiscoveryExport(userId, {
+                title: fileName || `Discovery Export - ${new Date().toLocaleDateString()}`,
+                platform: profiles[0]?.platform || 'INSTAGRAM',
+                exportFormat: format || 'CSV',
+                profileCount: profiles.length,
+                fileUrl: `/api/v1/discovery/export-download/${exportRecord.id}`,
+                exportedProfileIds: profileIds,
+                creditsUsed: creditsNeeded,
+            });
+        }
+        catch (err) {
+            this.logger.warn(`Failed to record discovery export in generated reports: ${err.message}`);
+        }
         const newBalance = await this.creditsService.getBalance(userId);
         return {
             success: true,
@@ -890,9 +957,9 @@ let DiscoveryService = DiscoveryService_1 = class DiscoveryService {
         profile.postCount = modash.stats?.posts || 0;
         const rawER = modash.stats?.engagementRate || profileAny?.engagementRate || null;
         profile.engagementRate = rawER != null && rawER < 1 ? rawER * 100 : rawER;
-        profile.avgLikes = modash.stats?.avgLikes || 0;
-        profile.avgComments = modash.stats?.avgComments || 0;
-        profile.avgViews = modash.stats?.avgViews || 0;
+        profile.avgLikes = modash.stats?.avgLikes || profile.avgLikes || 0;
+        profile.avgComments = modash.stats?.avgComments || profile.avgComments || 0;
+        profile.avgViews = modash.stats?.avgViews || profile.avgViews || 0;
         profile.audienceCredibility = modash.audience?.credibility || null;
         profile.rawModashData = modash;
     }
@@ -1112,6 +1179,7 @@ exports.DiscoveryService = DiscoveryService = DiscoveryService_1 = __decorate([
         modash_service_1.ModashService,
         credits_service_1.CreditsService,
         typeorm_2.DataSource,
-        insights_service_1.InsightsService])
+        insights_service_1.InsightsService,
+        generated_reports_service_1.GeneratedReportsService])
 ], DiscoveryService);
 //# sourceMappingURL=discovery.service.js.map

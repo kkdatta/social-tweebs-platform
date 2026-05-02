@@ -15,6 +15,7 @@ import {
 } from './entities';
 import { CreditsModule } from '../credits/credits.module';
 import { InsightsModule } from '../insights/insights.module';
+import { GeneratedReportsModule } from '../generated-reports/generated-reports.module';
 import { User } from '../users/entities/user.entity';
 import { UnlockedInfluencer } from '../credits/entities/unlocked-influencer.entity';
 
@@ -33,6 +34,7 @@ import { UnlockedInfluencer } from '../credits/entities/unlocked-influencer.enti
     ]),
     CreditsModule,
     forwardRef(() => InsightsModule),
+    GeneratedReportsModule,
   ],
   controllers: [DiscoveryController],
   providers: [DiscoveryService, ModashService, ModashRawService],

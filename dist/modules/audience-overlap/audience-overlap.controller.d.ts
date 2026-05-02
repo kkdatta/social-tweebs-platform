@@ -4,6 +4,7 @@ import { CreateOverlapReportDto, UpdateOverlapReportDto, ShareOverlapReportDto, 
 export declare class AudienceOverlapController {
     private readonly overlapService;
     constructor(overlapService: AudienceOverlapService);
+    getSharedReport(token: string): Promise<OverlapReportDetailDto>;
     createReport(userId: string, dto: CreateOverlapReportDto): Promise<{
         success: boolean;
         report: import("./entities").AudienceOverlapReport;
@@ -29,6 +30,5 @@ export declare class AudienceOverlapController {
         success: boolean;
         shareUrl?: string;
     }>;
-    getSharedReport(token: string): Promise<OverlapReportDetailDto>;
     searchInfluencers(platform: string, query: string, limit?: number): Promise<any[]>;
 }

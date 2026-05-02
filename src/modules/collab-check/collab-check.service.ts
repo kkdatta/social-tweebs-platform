@@ -12,8 +12,10 @@ import {
   SharePermission,
 } from './entities';
 import { User } from '../users/entities/user.entity';
+import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
+import { InfluencerInsight } from '../insights/entities/influencer-insight.entity';
 import { CreditsService } from '../credits/credits.service';
-import { ActionType, ModuleType } from '../../common/enums';
+import { ActionType, ModuleType, PlatformType } from '../../common/enums';
 import {
   CreateCollabCheckReportDto,
   UpdateCollabCheckReportDto,
@@ -47,6 +49,10 @@ export class CollabCheckService {
     private readonly shareRepo: Repository<CollabCheckShare>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(InfluencerProfile)
+    private readonly profileRepo: Repository<InfluencerProfile>,
+    @InjectRepository(InfluencerInsight)
+    private readonly insightRepo: Repository<InfluencerInsight>,
     private readonly creditsService: CreditsService,
     private readonly modashService: ModashService,
   ) {}
@@ -138,16 +144,7 @@ export class CollabCheckService {
 
       const report = await this.reportRepo.findOne({ where: { id: reportId } });
       if (report?.status === CollabReportStatus.COMPLETED) {
-        await this.creditsService.deductCredits(userId, {
-          actionType: ActionType.REPORT_REFRESH,
-          quantity: creditsToCharge,
-          module: ModuleType.INFLUENCER_COLLAB_CHECK,
-          resourceId: reportId,
-          resourceType: 'collab_report_retry',
-        });
-        report.creditsUsed += creditsToCharge;
-        await this.reportRepo.save(report);
-        this.logger.log(`Collab retry ${reportId}: charged ${creditsToCharge} credits after success`);
+        this.logger.log(`Collab retry ${reportId}: completed successfully (credits already charged by processReport)`);
       } else {
         this.logger.log(`Collab retry ${reportId}: NOT charging — report did not complete successfully`);
       }
@@ -225,6 +222,22 @@ export class CollabCheckService {
       totalViews += infViews;
       totalComments += infComments;
       totalShares += infShares;
+    }
+
+    totalFollowers = 0;
+    const reportPlatform = (report.platform?.toUpperCase() || 'INSTAGRAM') as PlatformType;
+    for (const influencer of report.influencers) {
+      try {
+        const modashReport = await this.modashService.getInfluencerReport(reportPlatform, influencer.influencerUsername || '', report.ownerId);
+        const profileData = (modashReport as any)?.profile || modashReport;
+        influencer.followerCount = Number(profileData?.followers) || influencer.followerCount;
+        const fc = Number(influencer.followerCount) || 0;
+        const denom = influencer.postsCount * fc;
+        influencer.avgEngagementRate = denom > 0 ? ((influencer.likesCount + influencer.commentsCount) / denom) * 100 : 0;
+        await this.influencerRepo.save(influencer);
+      } catch (err) {
+        this.logger.warn(`Failed to fetch follower count for ${influencer.influencerUsername}: ${(err as any).message}`);
+      }
       totalFollowers += Number(influencer.followerCount) || 0;
     }
 
@@ -562,7 +575,7 @@ export class CollabCheckService {
     report.isPublic = true;
     await this.reportRepo.save(report);
 
-    const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/collab-check/shared/${report.shareUrlToken}`;
+    const shareUrl = `/collab-check/shared/${report.shareUrlToken}`;
 
     return { success: true, shareUrl };
   }
@@ -640,23 +653,58 @@ export class CollabCheckService {
    * Search influencers for report creation
    */
   async searchInfluencers(platform: string, query: string, limit: number = 10): Promise<any[]> {
-    // In real implementation, this would call Modash API or query local DB
-    // For now, return dummy results
-    const dummyInfluencers = [
-      { id: '1', username: 'fashion_star', fullName: 'Fashion Star', followers: 150000, profilePicture: 'https://ui-avatars.com/api/?name=FS' },
-      { id: '2', username: 'travel_guru', fullName: 'Travel Guru', followers: 250000, profilePicture: 'https://ui-avatars.com/api/?name=TG' },
-      { id: '3', username: 'fitness_pro', fullName: 'Fitness Pro', followers: 180000, profilePicture: 'https://ui-avatars.com/api/?name=FP' },
-      { id: '4', username: 'tech_reviewer', fullName: 'Tech Reviewer', followers: 320000, profilePicture: 'https://ui-avatars.com/api/?name=TR' },
-      { id: '5', username: 'food_blogger', fullName: 'Food Blogger', followers: 95000, profilePicture: 'https://ui-avatars.com/api/?name=FB' },
-    ];
+    const safePlatform = (platform || 'INSTAGRAM').toUpperCase();
+    const likeQ = query ? `%${query.toLowerCase()}%` : null;
 
-    return dummyInfluencers
-      .filter(inf => 
-        !query || 
-        inf.username.toLowerCase().includes(query.toLowerCase()) ||
-        inf.fullName.toLowerCase().includes(query.toLowerCase())
-      )
-      .slice(0, limit);
+    const profileQb = this.profileRepo.createQueryBuilder('profile')
+      .where('profile.platform = :platform', { platform: safePlatform });
+    if (likeQ) {
+      profileQb.andWhere('(LOWER(profile.username) LIKE :query OR LOWER(profile.fullName) LIKE :query)', { query: likeQ });
+    }
+    profileQb.orderBy('profile.followerCount', 'DESC').take(limit);
+    const profiles = await profileQb.getMany();
+
+    const insightQb = this.insightRepo.createQueryBuilder('i')
+      .where('i.platform = :platform', { platform: safePlatform });
+    if (likeQ) {
+      insightQb.andWhere('(LOWER(i.username) LIKE :query OR LOWER(i.fullName) LIKE :query)', { query: likeQ });
+    }
+    insightQb.orderBy('i.followerCount', 'DESC').take(limit);
+    const insights = await insightQb.getMany();
+
+    const seen = new Set<string>();
+    const merged: any[] = [];
+
+    for (const p of profiles) {
+      const key = (p.username || '').toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push({
+        userId: p.id,
+        username: p.username || '',
+        fullName: p.fullName || undefined,
+        profilePicUrl: p.profilePictureUrl || undefined,
+        platform: p.platform,
+        followerCount: Number(p.followerCount) || 0,
+      });
+    }
+
+    for (const i of insights) {
+      const key = (i.username || '').toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push({
+        userId: i.id,
+        username: i.username || '',
+        fullName: i.fullName || undefined,
+        profilePicUrl: i.profilePictureUrl || undefined,
+        platform: i.platform,
+        followerCount: Number(i.followerCount) || 0,
+      });
+    }
+
+    merged.sort((a, b) => b.followerCount - a.followerCount);
+    return merged.slice(0, limit);
   }
 
   // =============== Helper Methods ===============

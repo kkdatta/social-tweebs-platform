@@ -12,6 +12,7 @@ import {
 } from './entities';
 import { User } from '../users/entities/user.entity';
 import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
+import { InfluencerInsight } from '../insights/entities/influencer-insight.entity';
 import { CreditsService } from '../credits/credits.service';
 import { ModashService } from '../discovery/services/modash.service';
 import { ActionType, ModuleType, PlatformType } from '../../common/enums';
@@ -45,6 +46,8 @@ export class AudienceOverlapService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(InfluencerProfile)
     private readonly profileRepo: Repository<InfluencerProfile>,
+    @InjectRepository(InfluencerInsight)
+    private readonly insightRepo: Repository<InfluencerInsight>,
     private readonly creditsService: CreditsService,
     private readonly modashService: ModashService,
   ) {}
@@ -133,8 +136,8 @@ export class AudienceOverlapService {
     try {
       await this.processReport(reportId);
 
-      // Only deduct credits AFTER successful Modash processing
-      if (creditsToCharge > 0) {
+      const updatedReport = await this.reportRepo.findOne({ where: { id: reportId } });
+      if (updatedReport?.status === OverlapReportStatus.COMPLETED && creditsToCharge > 0) {
         await this.creditsService.deductCredits(userId, {
           actionType: ActionType.REPORT_GENERATION,
           quantity: creditsToCharge,
@@ -142,6 +145,8 @@ export class AudienceOverlapService {
           resourceId: reportId,
           resourceType: 'overlap_report_creation',
         });
+      } else if (updatedReport?.status === OverlapReportStatus.FAILED) {
+        this.logger.warn(`Overlap report ${reportId} failed — NO credits charged`);
       }
     } catch (error) {
       this.logger.error(`Overlap report ${reportId} failed — NO credits charged: ${error.message}`);
@@ -247,9 +252,11 @@ export class AudienceOverlapService {
 
       if (match) {
         influencer.followerCount = match.followers;
-        influencer.uniquePercentage = Number(match.uniquePercentage.toFixed(2));
-        influencer.overlappingPercentage = Number(match.overlappingPercentage.toFixed(2));
-        influencer.uniqueFollowers = Math.floor(match.followers * (match.uniquePercentage / 100));
+        const uniquePct = match.uniquePercentage <= 1 ? match.uniquePercentage * 100 : match.uniquePercentage;
+        const overlapPct = match.overlappingPercentage <= 1 ? match.overlappingPercentage * 100 : match.overlappingPercentage;
+        influencer.uniquePercentage = Number(uniquePct.toFixed(2));
+        influencer.overlappingPercentage = Number(overlapPct.toFixed(2));
+        influencer.uniqueFollowers = Math.floor(match.followers * (uniquePct / 100));
         influencer.overlappingFollowers = match.followers - influencer.uniqueFollowers;
       }
 
@@ -499,7 +506,7 @@ export class AudienceOverlapService {
     await this.reportRepo.save(report);
 
     // Generate share URL
-    const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/audience-overlap/shared/${report.shareUrlToken}`;
+    const shareUrl = `/audience-overlap/shared/${report.shareUrlToken}`;
 
     return { success: true, shareUrl };
   }
@@ -534,9 +541,58 @@ export class AudienceOverlapService {
    * Search influencers for adding to report
    */
   async searchInfluencers(platform: string, query: string, limit: number = 10): Promise<any[]> {
-    // This would search cached_influencer_profiles
-    // For now, return mock data
-    return [];
+    const safePlatform = (platform || 'INSTAGRAM').toUpperCase();
+    const likeQ = query ? `%${query.toLowerCase()}%` : null;
+
+    const profileQb = this.profileRepo.createQueryBuilder('profile')
+      .where('profile.platform = :platform', { platform: safePlatform });
+    if (likeQ) {
+      profileQb.andWhere('(LOWER(profile.username) LIKE :query OR LOWER(profile.fullName) LIKE :query)', { query: likeQ });
+    }
+    profileQb.orderBy('profile.followerCount', 'DESC').take(limit);
+    const profiles = await profileQb.getMany();
+
+    const insightQb = this.insightRepo.createQueryBuilder('i')
+      .where('i.platform = :platform', { platform: safePlatform });
+    if (likeQ) {
+      insightQb.andWhere('(LOWER(i.username) LIKE :query OR LOWER(i.fullName) LIKE :query)', { query: likeQ });
+    }
+    insightQb.orderBy('i.followerCount', 'DESC').take(limit);
+    const insights = await insightQb.getMany();
+
+    const seen = new Set<string>();
+    const merged: any[] = [];
+
+    for (const p of profiles) {
+      const key = (p.username || '').toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push({
+        userId: p.id,
+        username: p.username || '',
+        fullName: p.fullName || undefined,
+        profilePicUrl: p.profilePictureUrl || undefined,
+        platform: p.platform,
+        followerCount: Number(p.followerCount) || 0,
+      });
+    }
+
+    for (const i of insights) {
+      const key = (i.username || '').toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push({
+        userId: i.id,
+        username: i.username || '',
+        fullName: i.fullName || undefined,
+        profilePicUrl: i.profilePictureUrl || undefined,
+        platform: i.platform,
+        followerCount: Number(i.followerCount) || 0,
+      });
+    }
+
+    merged.sort((a, b) => b.followerCount - a.followerCount);
+    return merged.slice(0, limit);
   }
 
   // Helper methods

@@ -198,14 +198,15 @@ let GeneratedReportsService = class GeneratedReportsService {
                 throw new common_1.NotFoundException('Report not found');
             }
             await this.checkReportAccess(userId, userRole, report.createdById, report.ownerId);
-            if (!report.fileUrl) {
-                throw new common_1.BadRequestException('Report file is not available');
-            }
+            const fileUrl = report.fileUrl || `/api/v1/discovery/export-download/${reportId}`;
             report.downloadedAt = new Date();
+            if (!report.fileUrl) {
+                report.fileUrl = fileUrl;
+            }
             await this.discoveryExportRepo.save(report);
             return {
                 success: true,
-                fileUrl: report.fileUrl,
+                fileUrl,
                 message: 'Your report has been downloaded.',
             };
         }
@@ -215,14 +216,15 @@ let GeneratedReportsService = class GeneratedReportsService {
                 throw new common_1.NotFoundException('Report not found');
             }
             await this.checkReportAccess(userId, userRole, report.createdById, report.ownerId);
-            if (!report.fileUrl) {
-                throw new common_1.BadRequestException('Report file is not available');
-            }
+            const fileUrl = report.fileUrl || `/api/v1/paid-collaboration/${reportId}/download`;
             report.downloadedAt = new Date();
+            if (!report.fileUrl) {
+                report.fileUrl = fileUrl;
+            }
             await this.paidCollabRepo.save(report);
             return {
                 success: true,
-                fileUrl: report.fileUrl,
+                fileUrl,
                 message: 'Your report has been downloaded.',
             };
         }

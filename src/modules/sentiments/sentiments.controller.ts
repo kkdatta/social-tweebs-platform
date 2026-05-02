@@ -35,15 +35,26 @@ import {
 } from './dto';
 
 @ApiTags('sentiments')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('sentiments')
 export class SentimentsController {
   constructor(private readonly sentimentsService: SentimentsService) {}
 
+  // ==================== Public Access ====================
+
+  @Get('shared/:token')
+  @ApiOperation({ summary: 'Get publicly shared report by token' })
+  @ApiParam({ name: 'token', description: 'Share URL token' })
+  @ApiResponse({ status: 200, type: SentimentReportDetailDto })
+  @ApiResponse({ status: 404, description: 'Report not found or not public' })
+  async getSharedReport(@Param('token') token: string): Promise<SentimentReportDetailDto> {
+    return this.sentimentsService.getReportByShareToken(token);
+  }
+
   // ==================== Report CRUD ====================
 
   @Post()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Create sentiment report(s) - 1 credit per URL' })
   @ApiResponse({ status: 201, description: 'Report(s) created successfully' })
   @ApiResponse({ status: 400, description: 'Invalid request or insufficient credits' })
@@ -55,6 +66,8 @@ export class SentimentsController {
   }
 
   @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get list of sentiment reports' })
   @ApiQuery({ name: 'platform', required: false, enum: ['INSTAGRAM', 'TIKTOK', 'ALL'] })
   @ApiQuery({ name: 'reportType', required: false, enum: ['POST', 'PROFILE'] })
@@ -72,6 +85,8 @@ export class SentimentsController {
   }
 
   @Get('dashboard')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get dashboard statistics' })
   @ApiResponse({ status: 200, type: DashboardStatsDto })
   async getDashboardStats(@CurrentUser('id') userId: string): Promise<DashboardStatsDto> {
@@ -79,6 +94,8 @@ export class SentimentsController {
   }
 
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get report details by ID' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, type: SentimentReportDetailDto })
@@ -91,6 +108,8 @@ export class SentimentsController {
   }
 
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Update report (title, visibility)' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'Report updated' })
@@ -104,6 +123,8 @@ export class SentimentsController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete report' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'Report deleted' })
@@ -116,6 +137,8 @@ export class SentimentsController {
   }
 
   @Post('bulk-delete')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Bulk delete reports' })
   @ApiResponse({ status: 200, description: 'Reports deleted' })
   async bulkDeleteReports(
@@ -128,6 +151,8 @@ export class SentimentsController {
   // ==================== Report Actions ====================
 
   @Post(':id/retry')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Retry a failed sentiment report' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'Report retry initiated' })
@@ -140,6 +165,8 @@ export class SentimentsController {
   }
 
   @Post(':id/share')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Share report with user or get shareable link' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'Report shared' })
@@ -152,6 +179,8 @@ export class SentimentsController {
   }
 
   @Get(':id/download-pdf')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Download report as PDF' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'PDF file stream' })
@@ -169,14 +198,4 @@ export class SentimentsController {
     return new StreamableFile(buffer);
   }
 
-  // ==================== Public Access ====================
-
-  @Get('shared/:token')
-  @ApiOperation({ summary: 'Get publicly shared report by token' })
-  @ApiParam({ name: 'token', description: 'Share URL token' })
-  @ApiResponse({ status: 200, type: SentimentReportDetailDto })
-  @ApiResponse({ status: 404, description: 'Report not found or not public' })
-  async getSharedReport(@Param('token') token: string): Promise<SentimentReportDetailDto> {
-    return this.sentimentsService.getReportByShareToken(token);
-  }
 }

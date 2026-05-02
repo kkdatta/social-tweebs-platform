@@ -697,7 +697,7 @@ export const campaignsApi = {
     return data;
   },
 
-  addPost: async (campaignId: string, postData: any): Promise<{ success: boolean; post: any }> => {
+  addPost: async (campaignId: string, postData: any): Promise<{ success: boolean; post: any; warning?: string }> => {
     const { data } = await api.post(`/api/v1/campaigns/${campaignId}/posts`, postData);
     return data;
   },
@@ -771,6 +771,11 @@ export const campaignsApi = {
 
   removeShare: async (campaignId: string, shareId: string): Promise<{ success: boolean }> => {
     const { data } = await api.delete(`/api/v1/campaigns/${campaignId}/share/${shareId}`);
+    return data;
+  },
+
+  process: async (campaignId: string): Promise<{ success: boolean; message: string }> => {
+    const { data } = await api.post(`/api/v1/campaigns/${campaignId}/process`);
     return data;
   },
 };

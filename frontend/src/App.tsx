@@ -31,7 +31,7 @@ import {
   SentimentsSharedPage,
 } from './pages/sentiments';
 import { CollabCheckListPage, CollabCheckCreatePage, CollabCheckDetailPage, CollabCheckSharedPage } from './pages/collab-check';
-import { PaidCollaborationListPage, PaidCollaborationCreatePage, PaidCollaborationDetailPage } from './pages/paid-collaboration';
+import { PaidCollaborationListPage, PaidCollaborationCreatePage, PaidCollaborationDetailPage, PaidCollaborationSharedPage } from './pages/paid-collaboration';
 import { GeneratedReportsListPage } from './pages/generated-reports';
 import { TieBreakerListPage, TieBreakerCreatePage, TieBreakerDetailPage } from './pages/tie-breaker';
 import { InfluencerGroupsListPage, InfluencerGroupCreatePage, InfluencerGroupDetailPage } from './pages/influencer-groups';
@@ -83,6 +83,7 @@ function App() {
             <Route path="/audience-overlap/shared/:token" element={<AudienceOverlapSharedPage />} />
             <Route path="/custom-er/shared/:token" element={<CustomErSharedPage />} />
             <Route path="/sentiments/shared/:token" element={<SentimentsSharedPage />} />
+            <Route path="/paid-collaboration/shared/:token" element={<PaidCollaborationSharedPage />} />
 
             {/* Protected Dashboard Routes */}
             <Route element={<DashboardLayout />}>

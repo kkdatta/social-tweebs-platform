@@ -49,6 +49,7 @@ export declare class InsightsService {
     private convertAudienceTypes;
     private convertGendersPerAge;
     private convertGeoWeighted;
+    private convertGeoStatesWithSubdivisions;
     private convertNotableUsers;
     private convertReachability;
     private convertLanguages;

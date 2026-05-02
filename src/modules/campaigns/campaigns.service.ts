@@ -22,6 +22,8 @@ import {
   PostType,
 } from './entities/campaign.entity';
 import { User } from '../users/entities/user.entity';
+import { InfluencerInsight } from '../insights/entities/influencer-insight.entity';
+import { ModashService } from '../discovery/services/modash.service';
 import { MailService } from '../../common/services/mail.service';
 import { CreditsService } from '../credits/credits.service';
 import { ModuleType, ActionType } from '../../common/enums';
@@ -68,6 +70,9 @@ export class CampaignsService {
     private shareRepo: Repository<CampaignShare>,
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    @InjectRepository(InfluencerInsight)
+    private insightRepo: Repository<InfluencerInsight>,
+    private modashService: ModashService,
     private creditsService: CreditsService,
     private dataSource: DataSource,
     private mailService: MailService,
@@ -147,6 +152,12 @@ export class CampaignsService {
     const saved = await this.campaignRepo.save(campaign);
     this.logger.log(`Campaign created: ${saved.id} by user ${userId}`);
 
+    if (saved.hashtags?.length || saved.mentions?.length) {
+      setTimeout(() => this.processCampaign(saved.id).catch(err =>
+        this.logger.error(`Campaign processing failed for ${saved.id}: ${err.message}`),
+      ), 2000);
+    }
+
     return saved;
   }
 
@@ -211,14 +222,17 @@ export class CampaignsService {
 
     const campaigns = await queryBuilder.getRawAndEntities();
 
+    const staleIds: string[] = [];
     const campaignSummaries: CampaignSummaryDto[] = campaigns.entities.map((campaign, index) => {
       const raw = campaigns.raw[index];
+      const liveStatus = this.computeCampaignStatus(campaign);
+      if (liveStatus !== campaign.status) staleIds.push(campaign.id);
       return {
         id: campaign.id,
         name: campaign.name,
         logoUrl: campaign.logoUrl,
         platform: campaign.platform,
-        status: campaign.status,
+        status: liveStatus,
         objective: campaign.objective,
         startDate: campaign.startDate,
         endDate: campaign.endDate,
@@ -232,6 +246,16 @@ export class CampaignsService {
         ownerName: campaign.owner?.name,
       };
     });
+
+    if (staleIds.length > 0) {
+      for (const c of campaigns.entities) {
+        const live = this.computeCampaignStatus(c);
+        if (live !== c.status) {
+          c.status = live;
+          await this.campaignRepo.save(c);
+        }
+      }
+    }
 
     return {
       campaigns: campaignSummaries,
@@ -272,13 +296,19 @@ export class CampaignsService {
       order: { postedDate: 'DESC' },
     });
 
+    const liveStatus = this.computeCampaignStatus(campaign);
+    if (liveStatus !== campaign.status) {
+      campaign.status = liveStatus;
+      await this.campaignRepo.save(campaign);
+    }
+
     return {
       id: campaign.id,
       name: campaign.name,
       logoUrl: campaign.logoUrl,
       description: campaign.description,
       platform: campaign.platform,
-      status: campaign.status,
+      status: liveStatus,
       objective: campaign.objective,
       startDate: campaign.startDate,
       endDate: campaign.endDate,
@@ -407,15 +437,62 @@ export class CampaignsService {
 
     await this.checkCampaignAccess(userId, campaign, 'edit');
 
+    const cleanUsername = (dto.influencerUsername || '').replace(/^@/, '');
     const influencer = this.influencerRepo.create({
       ...dto,
+      influencerUsername: cleanUsername,
       campaignId,
       status: InfluencerStatus.INVITED,
     });
 
     const saved = await this.influencerRepo.save(influencer);
     this.logger.log(`Influencer added to campaign ${campaignId}: ${saved.id}`);
+
+    setTimeout(() => this.enrichInfluencer(saved, campaign.platform, userId).catch(err =>
+      this.logger.warn(`Influencer enrichment failed for ${saved.id}: ${err.message}`),
+    ), 500);
+
     return saved;
+  }
+
+  private async enrichInfluencer(influencer: CampaignInfluencer, platform: string, userId: string): Promise<void> {
+    const username = (influencer.influencerUsername || '').replace(/^@/, '');
+    if (!username) return;
+
+    let enriched = false;
+    try {
+      const insight = await this.insightRepo.findOne({ where: { username } });
+      if (insight && Number(insight.followerCount) > 0) {
+        influencer.influencerName = insight.fullName || insight.username || username;
+        influencer.followerCount = Number(insight.followerCount);
+        influencer.audienceCredibility = insight.audienceCredibility
+          ? Number(insight.audienceCredibility) : (undefined as any);
+        enriched = true;
+      }
+    } catch { /* fall through to Modash */ }
+
+    if (!enriched && this.modashService.isModashEnabled()) {
+      try {
+        const platformType = (platform?.toUpperCase() || 'INSTAGRAM') as any;
+        const report = await this.modashService.getInfluencerReport(platformType, username, userId);
+        if (report) {
+          const rpt = report as any;
+          const profile = rpt.profile || rpt;
+          influencer.influencerName = profile.fullname || profile.username || username;
+          influencer.followerCount = Number(profile.followers) || 0;
+          const aud = rpt.audience;
+          const rawCred = aud?.credibility != null ? Number(aud.credibility) : NaN;
+          influencer.audienceCredibility = !isNaN(rawCred) && rawCred > 0
+            ? Math.round((rawCred <= 1 ? rawCred * 100 : rawCred) * 10) / 10
+            : (undefined as any);
+        }
+      } catch (err) {
+        this.logger.warn(`Modash profile fetch failed for "${username}": ${err.message}`);
+      }
+    }
+
+    await this.influencerRepo.save(influencer);
+    this.logger.log(`Influencer "${username}" enriched: followers=${influencer.followerCount}`);
   }
 
   async getInfluencers(userId: string, campaignId: string, filters?: InfluencerFilterDto): Promise<CampaignInfluencer[]> {
@@ -485,27 +562,159 @@ export class CampaignsService {
 
   // ============ POSTS MANAGEMENT ============
 
-  async addPost(userId: string, campaignId: string, dto: AddPostDto): Promise<CampaignPost> {
+  async addPost(userId: string, campaignId: string, dto: AddPostDto): Promise<{ post: CampaignPost; warning?: string }> {
     const campaign = await this.campaignRepo.findOne({ where: { id: campaignId } });
     if (!campaign) throw new NotFoundException('Campaign not found');
 
     await this.checkCampaignAccess(userId, campaign, 'edit');
 
+    const parsed = this.parsePostUrl(dto.postUrl);
+    let linkedInfluencerId = dto.campaignInfluencerId || null;
+
+    if (!linkedInfluencerId && parsed.username) {
+      const matchingInf = await this.influencerRepo.findOne({
+        where: { campaignId, influencerUsername: parsed.username },
+      });
+      if (matchingInf) linkedInfluencerId = matchingInf.id;
+    }
+
     const post = this.postRepo.create({
       ...dto,
       campaignId,
+      campaignInfluencerId: linkedInfluencerId,
+      influencerUsername: dto.influencerUsername || parsed.username || null,
+      influencerName: dto.influencerName || parsed.username || null,
       postedDate: dto.postedDate ? new Date(dto.postedDate) : new Date(),
       platform: dto.platform || campaign.platform,
-    });
+    } as any);
 
-    const saved = await this.postRepo.save(post);
+    const saved = await this.postRepo.save(post) as unknown as CampaignPost;
 
-    if (dto.campaignInfluencerId) {
-      await this.recalculateInfluencerMetrics(dto.campaignInfluencerId);
+    if (linkedInfluencerId) {
+      await this.recalculateInfluencerMetrics(linkedInfluencerId);
     }
 
     this.logger.log(`Post added to campaign ${campaignId}: ${saved.id}`);
-    return saved;
+
+    let warning: string | undefined;
+
+    const searchTerms = [...(campaign.hashtags || []), ...(campaign.mentions || [])];
+    if (searchTerms.length > 0) {
+      const enrichedPost = await this.enrichAndValidatePost(saved, campaign, userId);
+      if (enrichedPost?.mismatch) {
+        warning = `This post may not be related to the campaign. Campaign tracks: ${searchTerms.join(', ')}. No matching hashtags or mentions found in the post content.`;
+        this.logger.warn(`Post ${saved.id} does not match campaign keywords: ${searchTerms.join(', ')}`);
+      }
+    } else {
+      setTimeout(() => this.enrichPost(saved, campaign.platform, userId).catch(err =>
+        this.logger.warn(`Post enrichment failed for ${saved.id}: ${err.message}`),
+      ), 500);
+    }
+
+    return { post: saved, warning };
+  }
+
+  private async enrichAndValidatePost(
+    post: CampaignPost,
+    campaign: Campaign,
+    userId: string,
+  ): Promise<{ mismatch: boolean } | null> {
+    try {
+      await this.enrichPost(post, campaign.platform, userId);
+    } catch { /* enrichment is best-effort */ }
+
+    const searchTerms = [...(campaign.hashtags || []), ...(campaign.mentions || [])];
+    if (searchTerms.length === 0) return null;
+
+    const keywords = searchTerms.map(t => t.replace(/^[@#]/, '').toLowerCase());
+    const description = (post.description || '').toLowerCase();
+
+    const matches = keywords.some(kw => description.includes(kw));
+    return { mismatch: !matches };
+  }
+
+  private parsePostUrl(url: string): { postId: string | null; username: string | null; platform: string | null } {
+    if (!url) return { postId: null, username: null, platform: null };
+    try {
+      const u = new URL(url);
+      if (u.hostname.includes('instagram.com')) {
+        const match = url.match(/instagram\.com\/(?:p|reel)\/([^/?]+)/);
+        const userMatch = url.match(/instagram\.com\/([^/?]+)/);
+        return { postId: match?.[1] || null, username: null, platform: 'INSTAGRAM' };
+      }
+      if (u.hostname.includes('tiktok.com')) {
+        const match = url.match(/tiktok\.com\/@([^/?]+)\/video\/(\d+)/);
+        return { postId: match?.[2] || null, username: match?.[1] || null, platform: 'TIKTOK' };
+      }
+      if (u.hostname.includes('youtube.com') || u.hostname.includes('youtu.be')) {
+        const match = url.match(/(?:v=|youtu\.be\/)([^&?]+)/);
+        return { postId: match?.[1] || null, username: null, platform: 'YOUTUBE' };
+      }
+    } catch { /* invalid URL */ }
+    return { postId: null, username: null, platform: null };
+  }
+
+  private async enrichPost(post: CampaignPost, campaignPlatform: string, userId: string): Promise<void> {
+    if (!post.postUrl || !this.modashService.isModashEnabled()) return;
+
+    const parsed = this.parsePostUrl(post.postUrl);
+    if (!parsed.postId) return;
+
+    const username = post.influencerUsername || parsed.username;
+    if (!username) {
+      this.logger.warn(`Cannot enrich post ${post.id}: no username`);
+      return;
+    }
+
+    try {
+      const platformType = (campaignPlatform?.toUpperCase() || 'INSTAGRAM') as any;
+      const report = await this.modashService.getInfluencerReport(platformType, username, userId);
+      if (!report) return;
+
+      const rpt = report as any;
+      const profile = rpt.profile || rpt;
+      const allPosts = [
+        ...(profile.recentPosts || rpt.recentPosts || []),
+        ...(profile.topPosts || rpt.topPosts || []),
+        ...(profile.popularPosts || rpt.popularPosts || []),
+      ];
+
+      const matchedPost = allPosts.find((p: any) => {
+        const pid = p.postId || p.id || p.url || '';
+        return pid.includes(parsed.postId) || (p.url && p.url.includes(parsed.postId));
+      });
+
+      if (matchedPost) {
+        post.likesCount = matchedPost.likes || matchedPost.stat?.likes || 0;
+        post.commentsCount = matchedPost.comments || matchedPost.stat?.comments || 0;
+        post.viewsCount = matchedPost.views || matchedPost.plays || matchedPost.stat?.views || 0;
+        post.sharesCount = matchedPost.shares || matchedPost.stat?.shares || 0;
+        post.description = matchedPost.text || matchedPost.title || matchedPost.description || post.description;
+        post.postImageUrl = matchedPost.thumbnail || matchedPost.image || post.postImageUrl;
+        if (matchedPost.created) {
+          post.postedDate = new Date(matchedPost.created > 1e12 ? matchedPost.created : matchedPost.created * 1000);
+        }
+      }
+
+      post.influencerName = profile.fullname || profile.username || username;
+      post.influencerUsername = username;
+      post.followerCount = Number(profile.followers) || 0;
+
+      const fc = post.followerCount || 0;
+      if (fc > 0 && (post.likesCount || post.commentsCount)) {
+        post.engagementRate = Math.min(((post.likesCount + post.commentsCount) / fc) * 100, 999.99);
+      }
+
+      await this.postRepo.save(post);
+
+      if (post.campaignInfluencerId) {
+        await this.recalculateInfluencerMetrics(post.campaignInfluencerId);
+      }
+
+      this.logger.log(`Post ${post.id} enriched: likes=${post.likesCount}, views=${post.viewsCount}`);
+    } catch (err) {
+      this.logger.warn(`Post enrichment via Modash failed for ${post.id}: ${err.message}`);
+    }
   }
 
   async getPosts(userId: string, campaignId: string, filters?: PostFilterDto): Promise<{ posts: CampaignPost[]; total: number }> {
@@ -750,8 +959,8 @@ export class CampaignsService {
       order: { postedDate: 'ASC' },
     });
 
-    const startDate = campaign.startDate || campaign.createdAt;
-    const endDate = campaign.endDate || new Date();
+    const startDate = new Date(campaign.startDate || campaign.createdAt);
+    const endDate = new Date(campaign.endDate || new Date());
     const dateMap: Record<string, { posts: number; likes: number; views: number; comments: number; shares: number; engagement: number }> = {};
 
     let current = new Date(startDate);
@@ -784,6 +993,197 @@ export class CampaignsService {
       shares: data.shares,
       engagement: data.posts > 0 ? Math.round((data.engagement / data.posts) * 100) / 100 : 0,
     }));
+  }
+
+  // ============ CAMPAIGN PROCESSING (Modash Integration) ============
+
+  async processCampaign(campaignId: string): Promise<void> {
+    const campaign = await this.campaignRepo.findOne({ where: { id: campaignId } });
+    if (!campaign) return;
+
+    try {
+      campaign.status = CampaignStatus.ACTIVE;
+      await this.campaignRepo.save(campaign);
+      this.logger.log(`Processing campaign ${campaignId}: "${campaign.name}"`);
+
+      const platformType = (campaign.platform?.toUpperCase() || 'INSTAGRAM') as any;
+      const searchTerms = [...(campaign.hashtags || []), ...(campaign.mentions || [])];
+      const searchKeywords = searchTerms.map(t => t.replace(/^[@#]/, '').toLowerCase());
+      const startMs = campaign.startDate ? new Date(campaign.startDate).getTime() : 0;
+      const endMs = campaign.endDate ? new Date(campaign.endDate).getTime() : Date.now();
+
+      const existingInfluencers = await this.influencerRepo.find({ where: { campaignId } });
+      const existingPostUrls = new Set(
+        (await this.postRepo.find({ where: { campaignId }, select: ['postUrl'] })).map(p => p.postUrl),
+      );
+
+      for (const inf of existingInfluencers) {
+        const username = (inf.influencerUsername || '').replace(/^@/, '');
+        if (!username) continue;
+
+        this.logger.log(`Campaign ${campaignId}: processing influencer "${username}"`);
+
+        let report: any = null;
+        try {
+          const insight = await this.insightRepo.findOne({ where: { username } });
+          if (insight && Number(insight.followerCount) > 0) {
+            inf.influencerName = insight.fullName || insight.username || username;
+            inf.followerCount = Number(insight.followerCount);
+            inf.audienceCredibility = insight.audienceCredibility
+              ? Number(insight.audienceCredibility) : (undefined as any);
+          }
+        } catch { /* fall through */ }
+
+        if (this.modashService.isModashEnabled()) {
+          try {
+            report = await this.modashService.getInfluencerReport(platformType, username, campaign.ownerId);
+            if (report) {
+              const profile = report.profile || report;
+              inf.influencerName = profile.fullname || profile.username || inf.influencerName || username;
+              inf.followerCount = Number(profile.followers) || inf.followerCount || 0;
+              const aud = report.audience;
+              const rawCred = aud?.credibility != null ? Number(aud.credibility) : NaN;
+              if (!isNaN(rawCred) && rawCred > 0) {
+                inf.audienceCredibility = Math.round((rawCred <= 1 ? rawCred * 100 : rawCred) * 10) / 10;
+              }
+            }
+          } catch (err) {
+            this.logger.warn(`Campaign ${campaignId}: report fetch failed for "${username}": ${err.message}`);
+          }
+        }
+
+        const allPosts: any[] = [];
+        if (report) {
+          const profile = report.profile || report;
+          allPosts.push(
+            ...(profile.recentPosts || report.recentPosts || []),
+            ...(profile.topPosts || report.topPosts || []),
+            ...(profile.popularPosts || report.popularPosts || []),
+          );
+        }
+
+        const seenIds = new Set<string>();
+        let addedPosts = 0;
+        let totalLikes = 0, totalViews = 0, totalComments = 0, totalShares = 0;
+
+        for (const post of allPosts) {
+          const postId = post.postId || post.id || post.code || '';
+          if (!postId || seenIds.has(postId)) continue;
+          seenIds.add(postId);
+
+          const postUrl = this.constructPostUrl(postId, username, campaign.platform);
+          if (existingPostUrls.has(postUrl)) continue;
+
+          const text = (post.text || post.title || post.description || '').toLowerCase();
+          const hashtags = (post.hashtags || []).map((h: string) => h.toLowerCase().replace(/^#/, ''));
+          const mentions = (post.mentions || []).map((m: string) => m.toLowerCase().replace(/^@/, ''));
+
+          const matchesSearch = searchKeywords.length === 0 || searchKeywords.some(kw =>
+            text.includes(kw) || hashtags.includes(kw) || mentions.includes(kw),
+          );
+
+          const postCreated = post.created
+            ? (post.created > 1e12 ? post.created : post.created * 1000)
+            : 0;
+          const withinDateRange = !postCreated || (postCreated >= startMs && postCreated <= endMs);
+
+          if (!matchesSearch || !withinDateRange) continue;
+
+          const likes = post.likes || post.stat?.likes || 0;
+          const comments = post.comments || post.stat?.comments || 0;
+          const views = post.views || post.plays || post.stat?.views || 0;
+          const shares = post.shares || post.stat?.shares || 0;
+
+          try {
+            const dbPost = this.postRepo.create({
+              campaignId,
+              campaignInfluencerId: inf.id,
+              postUrl,
+              postType: PostType.POST,
+              platform: campaign.platform,
+              influencerName: inf.influencerName || username,
+              influencerUsername: username,
+              postImageUrl: post.thumbnail || post.image || '',
+              description: post.text || post.title || post.description || '',
+              postedDate: postCreated ? new Date(postCreated) : new Date(),
+              followerCount: inf.followerCount || 0,
+              likesCount: likes,
+              viewsCount: views,
+              commentsCount: comments,
+              sharesCount: shares,
+              engagementRate: undefined as any,
+              isPublished: true,
+            } as any);
+            await this.postRepo.save(dbPost);
+            existingPostUrls.add(postUrl);
+            addedPosts++;
+            totalLikes += likes;
+            totalViews += views;
+            totalComments += comments;
+            totalShares += shares;
+          } catch (postErr) {
+            this.logger.warn(`Failed to save post ${postId}: ${postErr.message}`);
+          }
+        }
+
+        inf.postsCount = (inf.postsCount || 0) + addedPosts;
+        inf.likesCount = (inf.likesCount || 0) + totalLikes;
+        inf.viewsCount = (inf.viewsCount || 0) + totalViews;
+        inf.commentsCount = (inf.commentsCount || 0) + totalComments;
+        inf.sharesCount = (inf.sharesCount || 0) + totalShares;
+        inf.status = InfluencerStatus.ACTIVE;
+
+        await this.influencerRepo.save(inf);
+        this.logger.log(`Campaign ${campaignId}: "${username}" — ${addedPosts} new posts, followers=${inf.followerCount}`);
+
+        const fc = inf.followerCount || 0;
+        if (fc > 0 && inf.postsCount > 0) {
+          const infER = Math.min(((inf.likesCount + inf.commentsCount) / (inf.postsCount * fc)) * 100, 999.99);
+          await this.postRepo
+            .createQueryBuilder()
+            .update(CampaignPost)
+            .set({ followerCount: fc, engagementRate: infER })
+            .where('campaignInfluencerId = :infId', { infId: inf.id })
+            .execute();
+        }
+      }
+
+      campaign.status = this.computeCampaignStatus(campaign);
+      await this.campaignRepo.save(campaign);
+
+      const totalInf = existingInfluencers.length;
+      const totalPosts = (await this.postRepo.count({ where: { campaignId } }));
+      this.logger.log(`Campaign ${campaignId} processed: ${totalInf} influencers, ${totalPosts} posts — status: ${campaign.status}`);
+
+      const owner = await this.userRepo.findOne({ where: { id: campaign.ownerId } });
+      if (owner?.email) {
+        await this.mailService.sendReportCompleted(owner.email, owner.name, 'Campaign', campaign.name);
+      }
+    } catch (err) {
+      this.logger.error(`Campaign processing failed for ${campaignId}: ${err.message}`, err.stack);
+      campaign.status = CampaignStatus.ACTIVE;
+      await this.campaignRepo.save(campaign);
+    }
+  }
+
+  private constructPostUrl(postId: string, username: string, platform: string): string {
+    const p = (platform || 'INSTAGRAM').toUpperCase();
+    if (p === 'YOUTUBE') return `https://www.youtube.com/watch?v=${postId}`;
+    if (p === 'TIKTOK') return `https://www.tiktok.com/@${username}/video/${postId}`;
+    return `https://www.instagram.com/p/${postId}/`;
+  }
+
+  private computeCampaignStatus(campaign: Campaign): CampaignStatus {
+    if (campaign.status === CampaignStatus.CANCELLED || campaign.status === CampaignStatus.PAUSED) {
+      return campaign.status;
+    }
+    const now = new Date();
+    const start = campaign.startDate ? new Date(campaign.startDate) : null;
+    const end = campaign.endDate ? new Date(campaign.endDate) : null;
+
+    if (end && now > end) return CampaignStatus.COMPLETED;
+    if (start && now < start) return CampaignStatus.PENDING;
+    return CampaignStatus.ACTIVE;
   }
 
   async getAnalytics(userId: string, campaignId: string): Promise<any> {
@@ -836,34 +1236,99 @@ export class CampaignsService {
       };
     });
 
+    const audienceOverview = await this.buildAudienceOverview(influencers);
+
     return {
       campaignMetrics: metrics,
-      audienceOverview: {
-        genderDistribution: { male: 55, female: 42, other: 3 },
-        ageDistribution: [
-          { range: '13-17', male: 5, female: 8 },
-          { range: '18-24', male: 25, female: 22 },
-          { range: '25-34', male: 30, female: 28 },
-          { range: '35-44', male: 18, female: 15 },
-          { range: '45-54', male: 10, female: 8 },
-          { range: '55+', male: 7, female: 5 },
-        ],
-        topCountries: [
-          { country: 'India', audience: 45, likes: 40, views: 42 },
-          { country: 'United States', audience: 15, likes: 18, views: 16 },
-          { country: 'United Kingdom', audience: 8, likes: 10, views: 9 },
-          { country: 'Canada', audience: 5, likes: 6, views: 5 },
-          { country: 'Australia', audience: 4, likes: 5, views: 4 },
-        ],
-        topCities: [
-          { city: 'Mumbai', audience: 12, likes: 11, views: 10 },
-          { city: 'Delhi', audience: 10, likes: 9, views: 8 },
-          { city: 'Bangalore', audience: 8, likes: 7, views: 7 },
-          { city: 'New York', audience: 5, likes: 6, views: 5 },
-          { city: 'London', audience: 4, likes: 5, views: 4 },
-        ],
-      },
+      audienceOverview,
       influencerAnalytics,
+    };
+  }
+
+  private async buildAudienceOverview(influencers: CampaignInfluencer[]): Promise<any> {
+    const genderAgg = { male: 0, female: 0, other: 0, count: 0 };
+    const ageAgg = new Map<string, { male: number; female: number; total: number }>();
+    const countryAgg = new Map<string, number>();
+    const cityAgg = new Map<string, number>();
+
+    for (const inf of influencers) {
+      if (!inf.influencerUsername) continue;
+      try {
+        const insight = await this.insightRepo.findOne({
+          where: { username: inf.influencerUsername },
+        });
+        if (!insight?.audienceData) continue;
+
+        const aud = insight.audienceData as any;
+        const genders = aud.genders || aud.genderSplit;
+        if (genders) {
+          if (Array.isArray(genders)) {
+            const male = genders.find((g: any) => /^male$/i.test(g.code))?.weight || 0;
+            const female = genders.find((g: any) => /^female$/i.test(g.code))?.weight || 0;
+            genderAgg.male += male * 100;
+            genderAgg.female += female * 100;
+          } else if (genders.male != null) {
+            genderAgg.male += Number(genders.male) || 0;
+            genderAgg.female += Number(genders.female) || 0;
+          }
+          genderAgg.count++;
+        }
+
+        const ages = aud.ages || aud.gendersPerAge;
+        if (Array.isArray(ages)) {
+          for (const a of ages) {
+            const range = a.code || a.range || 'unknown';
+            if (!ageAgg.has(range)) ageAgg.set(range, { male: 0, female: 0, total: 0 });
+            const entry = ageAgg.get(range)!;
+            entry.male += (a.male || a.weight * 50 || 0);
+            entry.female += (a.female || a.weight * 50 || 0);
+            entry.total++;
+          }
+        }
+
+        const countries = aud.geoCountries;
+        if (Array.isArray(countries)) {
+          for (const c of countries) {
+            const name = c.name || c.code || 'Unknown';
+            countryAgg.set(name, (countryAgg.get(name) || 0) + ((c.weight || 0) * 100));
+          }
+        }
+
+        const cities = aud.geoCities;
+        if (Array.isArray(cities)) {
+          for (const c of cities) {
+            const name = c.name || c.code || 'Unknown';
+            cityAgg.set(name, (cityAgg.get(name) || 0) + ((c.weight || 0) * 100));
+          }
+        }
+      } catch { /* skip */ }
+    }
+
+    const n = genderAgg.count || 1;
+    return {
+      genderDistribution: {
+        male: Math.round(genderAgg.male / n),
+        female: Math.round(genderAgg.female / n),
+        other: Math.max(0, 100 - Math.round(genderAgg.male / n) - Math.round(genderAgg.female / n)),
+      },
+      ageDistribution: [...ageAgg.entries()]
+        .map(([range, v]) => ({
+          range,
+          male: Math.round(v.male / (v.total || 1)),
+          female: Math.round(v.female / (v.total || 1)),
+        }))
+        .sort((a, b) => {
+          const num = (s: string) => parseInt(s.replace(/[^0-9]/g, '')) || 0;
+          return num(a.range) - num(b.range);
+        }),
+      topCountries: [...countryAgg.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([country, pct]) => ({ country, audience: Math.round(pct / n) })),
+      topCities: [...cityAgg.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([city, pct]) => ({ city, audience: Math.round(pct / n) })),
     };
   }
 

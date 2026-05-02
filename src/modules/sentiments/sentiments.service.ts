@@ -151,6 +151,15 @@ export class SentimentsService {
         return;
       }
 
+      const savedPosts = await this.postRepo.count({ where: { reportId: report.id } });
+      if (savedPosts === 0) {
+        report.status = SentimentReportStatus.FAILED;
+        report.errorMessage = 'No analyzable data found for this content';
+        await this.reportRepo.save(report);
+        this.logger.error(`Sentiment report ${reportId} failed — NO credits charged`);
+        return;
+      }
+
       report.status = SentimentReportStatus.COMPLETED;
       report.completedAt = new Date();
       await this.reportRepo.save(report);
@@ -183,10 +192,17 @@ export class SentimentsService {
       return;
     }
 
-    const comments = await this.fetchCommentsForMedia(report, mediaId);
+    let resolvedMediaId = mediaId;
+    const plat = (report.platform || '').toUpperCase();
+    if (plat === 'INSTAGRAM' || plat === 'INSTA') {
+      const mediaInfo = await this.modashRawService.getIgMediaInfo(mediaId);
+      resolvedMediaId = mediaInfo?.pk || mediaInfo?.id || mediaId;
+    }
+
+    const comments = await this.fetchCommentsForMedia(report, resolvedMediaId);
     if (report.status === SentimentReportStatus.FAILED) return;
 
-    await this.analyzeAndSaveComments(report, report.targetUrl, mediaId, comments);
+    await this.analyzeAndSaveComments(report, report.targetUrl, resolvedMediaId, comments);
   }
 
   /**
@@ -253,7 +269,15 @@ export class SentimentsService {
     let totalComments = 0;
 
     for (const rp of recentPosts) {
-      const comments = await this.fetchCommentsForMedia(report, rp.id);
+      let resolvedId = rp.id;
+      const plat = (report.platform || '').toUpperCase();
+      if ((plat === 'INSTAGRAM' || plat === 'INSTA') && rp.id && !/^\d+$/.test(rp.id)) {
+        try {
+          const info = await this.modashRawService.getIgMediaInfo(rp.id);
+          resolvedId = info?.pk || info?.id || rp.id;
+        } catch { /* use original */ }
+      }
+      const comments = await this.fetchCommentsForMedia(report, resolvedId);
       if (report.status === SentimentReportStatus.FAILED) return;
       if (comments.length === 0) continue;
 
@@ -277,6 +301,9 @@ export class SentimentsService {
       report.negativePercentage = 0;
       report.overallSentimentScore = 0;
     }
+
+    await this.saveAggregatedEmotions(report.id, totalComments);
+    await this.saveAggregatedWordCloud(report.id);
   }
 
   /**
@@ -383,7 +410,7 @@ export class SentimentsService {
       wc.postId = savedPost.id;
       wc.word = word;
       wc.frequency = count;
-      wc.sentiment = count > total * 0.1 ? 'positive' : 'neutral';
+      wc.sentiment = count > total * 0.1 ? 'POSITIVE' : 'NEUTRAL';
       await this.wordCloudRepo.save(wc);
     }
 
@@ -714,6 +741,10 @@ export class SentimentsService {
       );
     }
 
+    await this.wordCloudRepo.delete({ reportId });
+    await this.emotionRepo.delete({ reportId });
+    await this.postRepo.delete({ reportId });
+
     report.status = SentimentReportStatus.PENDING;
     report.errorMessage = undefined;
     report.completedAt = undefined;
@@ -776,11 +807,12 @@ export class SentimentsService {
       await this.shareRepo.save(share);
     }
 
-    // Make public for link sharing
-    report.isPublic = true;
+    if (!dto.sharedWithUserId) {
+      report.isPublic = true;
+    }
     await this.reportRepo.save(report);
 
-    const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/sentiments/shared/${report.shareUrlToken}`;
+    const shareUrl = `/sentiments/shared/${report.shareUrlToken}`;
 
     return { success: true, shareUrl };
   }

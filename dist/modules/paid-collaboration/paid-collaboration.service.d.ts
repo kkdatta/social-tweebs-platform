@@ -3,6 +3,7 @@ import { PaidCollabReport, PaidCollabInfluencer, PaidCollabPost, PaidCollabShare
 import { User } from '../users/entities/user.entity';
 import { CreditsService } from '../credits/credits.service';
 import { ModashService } from '../discovery/services/modash.service';
+import { GeneratedReportsService } from '../generated-reports/generated-reports.service';
 import { CreatePaidCollabReportDto, UpdatePaidCollabReportDto, SharePaidCollabReportDto, PaidCollabReportFilterDto, PaidCollabReportListResponseDto, PaidCollabReportDetailDto, PaidCollabInfluencerDto, PaidCollabPostDto, PaidCollabDashboardStatsDto, PostsChartDataDto } from './dto';
 export declare class PaidCollaborationService {
     private readonly reportRepo;
@@ -13,8 +14,9 @@ export declare class PaidCollaborationService {
     private readonly userRepo;
     private readonly creditsService;
     private readonly modashService;
+    private readonly generatedReportsService;
     private readonly logger;
-    constructor(reportRepo: Repository<PaidCollabReport>, influencerRepo: Repository<PaidCollabInfluencer>, postRepo: Repository<PaidCollabPost>, shareRepo: Repository<PaidCollabShare>, categorizationRepo: Repository<PaidCollabCategorization>, userRepo: Repository<User>, creditsService: CreditsService, modashService: ModashService);
+    constructor(reportRepo: Repository<PaidCollabReport>, influencerRepo: Repository<PaidCollabInfluencer>, postRepo: Repository<PaidCollabPost>, shareRepo: Repository<PaidCollabShare>, categorizationRepo: Repository<PaidCollabCategorization>, userRepo: Repository<User>, creditsService: CreditsService, modashService: ModashService, generatedReportsService: GeneratedReportsService);
     createReport(userId: string, dto: CreatePaidCollabReportDto): Promise<{
         success: boolean;
         report: PaidCollabReport;

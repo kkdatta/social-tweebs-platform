@@ -327,16 +327,17 @@ export class GeneratedReportsService {
 
       await this.checkReportAccess(userId, userRole, report.createdById, report.ownerId);
 
-      if (!report.fileUrl) {
-        throw new BadRequestException('Report file is not available');
-      }
+      const fileUrl = report.fileUrl || `/api/v1/discovery/export-download/${reportId}`;
 
       report.downloadedAt = new Date();
+      if (!report.fileUrl) {
+        report.fileUrl = fileUrl;
+      }
       await this.discoveryExportRepo.save(report);
 
       return {
         success: true,
-        fileUrl: report.fileUrl,
+        fileUrl,
         message: 'Your report has been downloaded.',
       };
     } else {
@@ -348,16 +349,17 @@ export class GeneratedReportsService {
 
       await this.checkReportAccess(userId, userRole, report.createdById, report.ownerId);
 
-      if (!report.fileUrl) {
-        throw new BadRequestException('Report file is not available');
-      }
+      const fileUrl = report.fileUrl || `/api/v1/paid-collaboration/${reportId}/download`;
 
       report.downloadedAt = new Date();
+      if (!report.fileUrl) {
+        report.fileUrl = fileUrl;
+      }
       await this.paidCollabRepo.save(report);
 
       return {
         success: true,
-        fileUrl: report.fileUrl,
+        fileUrl,
         message: 'Your report has been downloaded.',
       };
     }

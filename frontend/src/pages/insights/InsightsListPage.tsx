@@ -121,8 +121,9 @@ const InsightsListPage: React.FC = () => {
     setShowCreditPopup(false);
   };
 
-  const handleSearchInfluencer = async () => {
-    if (!searchUsername.trim()) {
+  const handleSearchInfluencer = async (overrideUsername?: string) => {
+    const username = (overrideUsername || searchUsername).trim();
+    if (!username) {
       setSearchError('Please enter a username');
       return;
     }
@@ -131,7 +132,7 @@ const InsightsListPage: React.FC = () => {
     setSearchError('');
 
     try {
-      const result = await insightsApi.search(searchPlatform, searchUsername.trim());
+      const result = await insightsApi.search(searchPlatform, username);
       if (result.success) {
         if (user && result.remainingBalance !== undefined) {
           updateUser({ ...user, credits: result.remainingBalance });
@@ -527,14 +528,23 @@ const InsightsListPage: React.FC = () => {
                   />
                   {typeaheadOpen && typeaheadResults.length > 0 && (
                     <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-auto">
-                      <p className="px-3 py-1.5 text-xs text-gray-400 border-b bg-gray-50">Previously discovered — click to view insights</p>
+                      <p className="px-3 py-1.5 text-xs text-gray-400 border-b bg-gray-50">Click to view insights</p>
                       {typeaheadResults.map((p) => (
-                        <button key={p.id} onClick={() => { setTypeaheadOpen(false); setShowSearchModal(false); navigate(`/insights/${p.id}`); }}
+                        <button key={p.id} onClick={() => {
+                          setTypeaheadOpen(false);
+                          if (p.source === 'modash') {
+                            setSearchUsername(p.username);
+                            handleSearchInfluencer(p.username);
+                          } else {
+                            setShowSearchModal(false);
+                            navigate(`/insights/${p.id}`);
+                          }
+                        }}
                           className="w-full px-3 py-2.5 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-50 last:border-0 transition-colors">
                           <img src={p.profilePictureUrl || `https://ui-avatars.com/api/?name=${p.username}&background=6366f1&color=fff&size=36`} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium text-gray-900 truncate">{p.fullName || p.username} {p.isVerified && <BadgeCheck className="w-3.5 h-3.5 text-blue-500 inline" />}</p>
-                            <p className="text-xs text-gray-500">@{p.username}</p>
+                            <p className="text-xs text-gray-500">@{p.username} {p.source === 'modash' && <span className="ml-1 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">NEW</span>}</p>
                           </div>
                           <span className="text-xs text-gray-400 shrink-0">{p.followerCount >= 1000000 ? (p.followerCount / 1000000).toFixed(1) + 'M' : p.followerCount >= 1000 ? (p.followerCount / 1000).toFixed(1) + 'K' : p.followerCount}</span>
                         </button>

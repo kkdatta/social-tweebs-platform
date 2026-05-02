@@ -23,9 +23,10 @@ const user_entity_1 = require("../users/entities/user.entity");
 const credits_service_1 = require("../credits/credits.service");
 const modash_service_1 = require("../discovery/services/modash.service");
 const enums_1 = require("../../common/enums");
+const generated_reports_service_1 = require("../generated-reports/generated-reports.service");
 const CREDIT_PER_INFLUENCER = 1;
 let PaidCollaborationService = PaidCollaborationService_1 = class PaidCollaborationService {
-    constructor(reportRepo, influencerRepo, postRepo, shareRepo, categorizationRepo, userRepo, creditsService, modashService) {
+    constructor(reportRepo, influencerRepo, postRepo, shareRepo, categorizationRepo, userRepo, creditsService, modashService, generatedReportsService) {
         this.reportRepo = reportRepo;
         this.influencerRepo = influencerRepo;
         this.postRepo = postRepo;
@@ -34,6 +35,7 @@ let PaidCollaborationService = PaidCollaborationService_1 = class PaidCollaborat
         this.userRepo = userRepo;
         this.creditsService = creditsService;
         this.modashService = modashService;
+        this.generatedReportsService = generatedReportsService;
         this.logger = new common_1.Logger(PaidCollaborationService_1.name);
     }
     async createReport(userId, dto) {
@@ -90,6 +92,24 @@ let PaidCollaborationService = PaidCollaborationService_1 = class PaidCollaborat
                 resourceType: 'paid_collaboration_report',
             });
             this.logger.log(`Paid collab report ${reportId}: charged ${creditsToCharge} credits (${influencerCount} influencers)`);
+            report.creditsUsed = creditsToCharge;
+            await this.reportRepo.save(report);
+            try {
+                await this.generatedReportsService.createPaidCollaborationReport(report.ownerId, {
+                    title: report.title,
+                    platform: report.platform || 'INSTAGRAM',
+                    reportType: 'PAID_COLLABORATION',
+                    exportFormat: 'REPORT',
+                    influencerCount: report.totalInfluencers || 0,
+                    fileUrl: `/api/v1/paid-collaboration/${reportId}/download`,
+                    dateRangeStart: report.dateRangeStart,
+                    dateRangeEnd: report.dateRangeEnd,
+                    creditsUsed: creditsToCharge,
+                });
+            }
+            catch (err) {
+                this.logger.warn(`Failed to record paid collab in generated reports: ${err.message}`);
+            }
         }
         catch (error) {
             report.status = entities_1.PaidCollabReportStatus.FAILED;
@@ -110,67 +130,86 @@ let PaidCollaborationService = PaidCollaborationService_1 = class PaidCollaborat
         let totalFollowers = 0;
         const influencerMap = new Map();
         for (const term of searchTerms) {
-            const identifier = term.replace(/^[@#]/, '');
-            const collabResult = await this.modashService.getCollaborationPosts(identifier, platform, {
-                limit: 20,
-                postCreationTimestampMs: {
-                    gte: new Date(report.dateRangeStart).getTime(),
-                    lte: new Date(report.dateRangeEnd).getTime(),
-                },
-            }, report.ownerId);
-            const posts = collabResult.influencer?.posts || collabResult.brand?.posts || [];
-            for (const modashPost of posts) {
-                const username = modashPost.username || modashPost.user_id || `unknown_${modashPost.post_id}`;
-                if (!influencerMap.has(username)) {
-                    const inf = new entities_1.PaidCollabInfluencer();
-                    inf.reportId = report.id;
-                    inf.influencerName = username;
-                    inf.influencerUsername = username;
-                    inf.platform = report.platform || 'INSTAGRAM';
-                    inf.profilePictureUrl = modashPost.user_picture || '';
-                    inf.followerCount = 0;
-                    inf.category = entities_1.InfluencerCategory.NANO;
-                    inf.displayOrder = influencerMap.size;
-                    const savedInf = await this.influencerRepo.save(inf);
-                    influencerMap.set(username, { inf: savedInf, likes: 0, views: 0, comments: 0, shares: 0, posts: 0 });
+            try {
+                const identifier = term.replace(/^[@#]/, '');
+                const collabResult = await this.modashService.getCollaborationPosts(identifier, platform, {
+                    limit: 20,
+                    postCreationTimestampMs: {
+                        gte: new Date(report.dateRangeStart).getTime(),
+                        lte: new Date(report.dateRangeEnd).getTime(),
+                    },
+                }, report.ownerId);
+                const posts = collabResult.influencer?.posts || collabResult.brand?.posts || [];
+                for (const modashPost of posts) {
+                    const username = modashPost.username || modashPost.user_id || `unknown_${modashPost.post_id}`;
+                    if (!influencerMap.has(username)) {
+                        const inf = new entities_1.PaidCollabInfluencer();
+                        inf.reportId = report.id;
+                        inf.influencerName = username;
+                        inf.influencerUsername = username;
+                        inf.platform = report.platform || 'INSTAGRAM';
+                        inf.profilePictureUrl = modashPost.user_picture || '';
+                        inf.followerCount = 0;
+                        inf.category = entities_1.InfluencerCategory.NANO;
+                        inf.displayOrder = influencerMap.size;
+                        const savedInf = await this.influencerRepo.save(inf);
+                        influencerMap.set(username, { inf: savedInf, likes: 0, views: 0, comments: 0, shares: 0, posts: 0 });
+                    }
+                    const entry = influencerMap.get(username);
+                    const postTimestamp = modashPost.post_timestamp
+                        ? (modashPost.post_timestamp > 1e12 ? modashPost.post_timestamp : modashPost.post_timestamp * 1000)
+                        : Date.now();
+                    const post = new entities_1.PaidCollabPost();
+                    post.reportId = report.id;
+                    post.influencerId = entry.inf.id;
+                    post.postId = modashPost.post_id;
+                    post.postType = 'IMAGE';
+                    post.thumbnailUrl = modashPost.post_thumbnail || '';
+                    post.caption = modashPost.description || modashPost.title || '';
+                    post.isSponsored = modashPost.collaboration_type === 'Paid';
+                    post.likesCount = modashPost.stats?.likes || 0;
+                    post.commentsCount = modashPost.stats?.comments || 0;
+                    post.viewsCount = modashPost.stats?.views || modashPost.stats?.plays || 0;
+                    post.sharesCount = modashPost.stats?.shares || 0;
+                    post.postDate = new Date(postTimestamp);
+                    post.postUrl = this.constructPostUrl(modashPost.post_id, username, report.platform || 'INSTAGRAM');
+                    await this.postRepo.save(post);
+                    entry.likes += post.likesCount;
+                    entry.views += post.viewsCount;
+                    entry.comments += post.commentsCount;
+                    entry.shares += post.sharesCount;
+                    entry.posts++;
+                    totalPosts++;
+                    totalLikes += post.likesCount;
+                    totalViews += post.viewsCount;
+                    totalComments += post.commentsCount;
+                    totalShares += post.sharesCount;
                 }
-                const entry = influencerMap.get(username);
-                const postTimestamp = modashPost.post_timestamp
-                    ? (modashPost.post_timestamp > 1e12 ? modashPost.post_timestamp : modashPost.post_timestamp * 1000)
-                    : Date.now();
-                const post = new entities_1.PaidCollabPost();
-                post.reportId = report.id;
-                post.influencerId = entry.inf.id;
-                post.postId = modashPost.post_id;
-                post.postType = 'IMAGE';
-                post.thumbnailUrl = modashPost.post_thumbnail || '';
-                post.caption = modashPost.description || modashPost.title || '';
-                post.isSponsored = modashPost.collaboration_type === 'Paid';
-                post.likesCount = modashPost.stats?.likes || 0;
-                post.commentsCount = modashPost.stats?.comments || 0;
-                post.viewsCount = modashPost.stats?.views || modashPost.stats?.plays || 0;
-                post.sharesCount = modashPost.stats?.shares || 0;
-                post.postDate = new Date(postTimestamp);
-                post.postUrl = this.constructPostUrl(modashPost.post_id, username, report.platform || 'INSTAGRAM');
-                await this.postRepo.save(post);
-                entry.likes += post.likesCount;
-                entry.views += post.viewsCount;
-                entry.comments += post.commentsCount;
-                entry.shares += post.sharesCount;
-                entry.posts++;
-                totalPosts++;
-                totalLikes += post.likesCount;
-                totalViews += post.viewsCount;
-                totalComments += post.commentsCount;
-                totalShares += post.sharesCount;
+            }
+            catch (err) {
+                this.logger.warn(`Failed to fetch posts for term "${term}": ${err.message}`);
             }
         }
-        for (const [, entry] of influencerMap) {
+        const infPlatform = (report.platform || 'INSTAGRAM');
+        for (const [username, entry] of influencerMap) {
             entry.inf.postsCount = entry.posts;
             entry.inf.likesCount = entry.likes;
             entry.inf.viewsCount = entry.views;
             entry.inf.commentsCount = entry.comments;
             entry.inf.sharesCount = entry.shares;
+            if (Number(entry.inf.followerCount) === 0 && this.modashService.isModashEnabled()) {
+                try {
+                    const modashReport = await this.modashService.getInfluencerReport(infPlatform, username, report.ownerId);
+                    const rpt = modashReport;
+                    const innerProfile = rpt.profile || rpt;
+                    entry.inf.followerCount = Number(innerProfile.followers) || Number(innerProfile.followerCount) || 0;
+                    entry.inf.influencerName = innerProfile.fullname || innerProfile.username || username;
+                    entry.inf.category = this.getInfluencerCategory(entry.inf.followerCount);
+                }
+                catch (err) {
+                    this.logger.warn(`Paid collab: failed to fetch follower count for ${username}: ${err.message}`);
+                }
+            }
             const fc = Number(entry.inf.followerCount) || 0;
             const denom = entry.posts * fc;
             entry.inf.engagementRate = denom > 0 ? ((entry.likes + entry.comments) / denom) * 100 : 0;
@@ -188,6 +227,35 @@ let PaidCollaborationService = PaidCollaborationService_1 = class PaidCollaborat
         const reportEngDenom = totalPosts * avgFollowersPerInf;
         report.avgEngagementRate = reportEngDenom > 0 ? ((totalLikes + totalComments) / reportEngDenom) * 100 : 0;
         report.engagementViewsRate = totalViews > 0 ? ((totalLikes + totalComments) / totalViews) * 100 : 0;
+        const categoryData = {};
+        for (const [, entry] of influencerMap) {
+            const cat = entry.inf.category || entities_1.InfluencerCategory.NANO;
+            if (!categoryData[cat])
+                categoryData[cat] = { accounts: 0, followers: 0, posts: 0, likes: 0, views: 0, comments: 0, shares: 0 };
+            categoryData[cat].accounts++;
+            categoryData[cat].followers += Number(entry.inf.followerCount) || 0;
+            categoryData[cat].posts += entry.posts;
+            categoryData[cat].likes += entry.likes;
+            categoryData[cat].views += entry.views;
+            categoryData[cat].comments += entry.comments;
+            categoryData[cat].shares += entry.shares;
+        }
+        categoryData[entities_1.InfluencerCategory.ALL] = { accounts: totalInfluencers, followers: totalFollowers, posts: totalPosts, likes: totalLikes, views: totalViews, comments: totalComments, shares: totalShares };
+        for (const [category, cData] of Object.entries(categoryData)) {
+            const cat = new entities_1.PaidCollabCategorization();
+            cat.reportId = report.id;
+            cat.category = category;
+            cat.accountsCount = cData.accounts;
+            cat.followersCount = cData.followers;
+            cat.postsCount = cData.posts;
+            cat.likesCount = cData.likes;
+            cat.viewsCount = cData.views;
+            cat.commentsCount = cData.comments;
+            cat.sharesCount = cData.shares;
+            const catDenom = cData.posts > 0 && cData.accounts > 0 ? cData.posts * (cData.followers / cData.accounts) : 0;
+            cat.engagementRate = cData.followers > 0 && catDenom > 0 ? ((cData.likes + cData.comments) / catDenom) * 100 : 0;
+            await this.categorizationRepo.save(cat);
+        }
         report.status = entities_1.PaidCollabReportStatus.COMPLETED;
         report.completedAt = new Date();
         await this.reportRepo.save(report);
@@ -273,23 +341,24 @@ let PaidCollaborationService = PaidCollaborationService_1 = class PaidCollaborat
             inf.category = this.getInfluencerCategory(followerCount);
             inf.credibilityScore = Math.floor(Math.random() * 30) + 70;
             inf.displayOrder = i;
+            let savedInf = await this.influencerRepo.save(inf);
             let infLikes = 0, infViews = 0, infComments = 0, infShares = 0;
             for (let j = 0; j < postsCount; j++) {
-                const post = await this.generateDummyPost(report, inf, j);
+                const post = await this.generateDummyPost(report, savedInf, j);
                 infLikes += Number(post.likesCount) || 0;
                 infViews += Number(post.viewsCount) || 0;
                 infComments += Number(post.commentsCount) || 0;
                 infShares += Number(post.sharesCount) || 0;
             }
-            inf.postsCount = postsCount;
-            inf.likesCount = infLikes;
-            inf.viewsCount = infViews;
-            inf.commentsCount = infComments;
-            inf.sharesCount = infShares;
+            savedInf.postsCount = postsCount;
+            savedInf.likesCount = infLikes;
+            savedInf.viewsCount = infViews;
+            savedInf.commentsCount = infComments;
+            savedInf.sharesCount = infShares;
             const infDenom = postsCount * followerCount;
-            inf.engagementRate =
+            savedInf.engagementRate =
                 followerCount > 0 && infDenom > 0 ? ((infLikes + infComments) / infDenom) * 100 : 0;
-            const savedInf = await this.influencerRepo.save(inf);
+            savedInf = await this.influencerRepo.save(savedInf);
             influencers.push(savedInf);
         }
         return influencers;
@@ -475,7 +544,7 @@ let PaidCollaborationService = PaidCollaborationService_1 = class PaidCollaborat
         }
         report.isPublic = true;
         await this.reportRepo.save(report);
-        const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/paid-collaboration/shared/${report.shareUrlToken}`;
+        const shareUrl = `/paid-collaboration/shared/${report.shareUrlToken}`;
         return { success: true, shareUrl };
     }
     async getDashboardStats(userId) {
@@ -776,6 +845,7 @@ exports.PaidCollaborationService = PaidCollaborationService = PaidCollaborationS
         typeorm_2.Repository,
         typeorm_2.Repository,
         credits_service_1.CreditsService,
-        modash_service_1.ModashService])
+        modash_service_1.ModashService,
+        generated_reports_service_1.GeneratedReportsService])
 ], PaidCollaborationService);
 //# sourceMappingURL=paid-collaboration.service.js.map

@@ -151,6 +151,26 @@ export class CampaignsController {
     return this.campaignsService.getCampaignById(userId, id);
   }
 
+  @Post(':id/process')
+  @ApiOperation({ summary: 'Trigger campaign processing (fetch posts via Modash)' })
+  @ApiParam({ name: 'id', description: 'Campaign ID' })
+  async processCampaign(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+  ) {
+    const campaign = await this.campaignsService.getCampaignById(userId, id);
+    if (!campaign) throw new BadRequestException('Campaign not found');
+
+    setTimeout(() => this.campaignsService.processCampaign(id).catch(err =>
+      console.error(`Campaign processing failed: ${err.message}`),
+    ), 500);
+
+    return {
+      success: true,
+      message: 'Campaign processing started. Data will be populated shortly.',
+    };
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Update campaign' })
   @ApiParam({ name: 'id', description: 'Campaign ID' })
@@ -269,10 +289,11 @@ export class CampaignsController {
     @Param('id') campaignId: string,
     @Body() dto: AddPostDto,
   ) {
-    const post = await this.campaignsService.addPost(userId, campaignId, dto);
+    const { post, warning } = await this.campaignsService.addPost(userId, campaignId, dto);
     return {
       success: true,
-      message: 'Post added to campaign',
+      message: warning || 'Post added to campaign',
+      warning,
       post,
     };
   }

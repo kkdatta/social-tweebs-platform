@@ -4,6 +4,7 @@ import { InfluencerCategory } from './entities';
 export declare class PaidCollaborationController {
     private readonly service;
     constructor(service: PaidCollaborationService);
+    getSharedReport(token: string): Promise<PaidCollabReportDetailDto>;
     createReport(userId: string, dto: CreatePaidCollabReportDto): Promise<{
         success: boolean;
         report: import("./entities").PaidCollabReport;
@@ -11,7 +12,6 @@ export declare class PaidCollaborationController {
     }>;
     getReports(userId: string, filters: PaidCollabReportFilterDto): Promise<PaidCollabReportListResponseDto>;
     getDashboardStats(userId: string): Promise<PaidCollabDashboardStatsDto>;
-    getSharedReport(token: string): Promise<PaidCollabReportDetailDto>;
     getReportById(userId: string, reportId: string): Promise<PaidCollabReportDetailDto>;
     getChartData(userId: string, reportId: string): Promise<PostsChartDataDto[]>;
     getPosts(userId: string, reportId: string, sponsoredOnly?: string, sortBy?: string, sortOrder?: 'ASC' | 'DESC', category?: InfluencerCategory, page?: string, limit?: string): Promise<{

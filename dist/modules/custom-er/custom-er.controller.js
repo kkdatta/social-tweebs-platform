@@ -24,6 +24,9 @@ let CustomErController = class CustomErController {
     constructor(customErService) {
         this.customErService = customErService;
     }
+    async getSharedReport(token) {
+        return this.customErService.getReportByShareToken(token);
+    }
     async createReport(userId, dto) {
         return this.customErService.createReport(userId, dto);
     }
@@ -66,16 +69,29 @@ let CustomErController = class CustomErController {
     async deleteReport(userId, reportId) {
         return this.customErService.deleteReport(userId, reportId);
     }
+    async retryReport(userId, reportId) {
+        return this.customErService.retryReport(userId, reportId);
+    }
     async shareReport(userId, reportId, dto) {
         return this.customErService.shareReport(userId, reportId, dto);
-    }
-    async getSharedReport(token) {
-        return this.customErService.getReportByShareToken(token);
     }
 };
 exports.CustomErController = CustomErController;
 __decorate([
+    (0, common_1.Get)('shared/:token'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get publicly shared report by token' }),
+    (0, swagger_1.ApiParam)({ name: 'token', description: 'Share URL token' }),
+    (0, swagger_1.ApiResponse)({ status: 200, type: dto_1.CustomErReportDetailDto }),
+    (0, swagger_1.ApiResponse)({ status: 404, description: 'Report not found or not public' }),
+    __param(0, (0, common_1.Param)('token')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], CustomErController.prototype, "getSharedReport", null);
+__decorate([
     (0, common_1.Post)(),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Create a new custom ER report (FREE - no credits)' }),
     (0, swagger_1.ApiResponse)({ status: 201, description: 'Report created successfully' }),
     (0, swagger_1.ApiResponse)({ status: 400, description: 'Invalid request' }),
@@ -87,6 +103,8 @@ __decorate([
 ], CustomErController.prototype, "createReport", null);
 __decorate([
     (0, common_1.Post)('upload'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Create reports by uploading Excel file with influencer URLs' }),
     (0, swagger_1.ApiConsumes)('multipart/form-data'),
     (0, swagger_1.ApiBody)({
@@ -114,6 +132,8 @@ __decorate([
 ], CustomErController.prototype, "uploadExcel", null);
 __decorate([
     (0, common_1.Get)('sample-file'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Download sample Excel file for bulk upload' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'Sample Excel file' }),
     __param(0, (0, common_1.Res)()),
@@ -123,6 +143,8 @@ __decorate([
 ], CustomErController.prototype, "downloadSampleFile", null);
 __decorate([
     (0, common_1.Get)(),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get list of custom ER reports' }),
     (0, swagger_1.ApiQuery)({ name: 'platform', required: false, enum: ['INSTAGRAM', 'TIKTOK', 'ALL'] }),
     (0, swagger_1.ApiQuery)({ name: 'status', required: false, enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'] }),
@@ -139,6 +161,8 @@ __decorate([
 ], CustomErController.prototype, "getReports", null);
 __decorate([
     (0, common_1.Get)('dashboard'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get dashboard statistics' }),
     (0, swagger_1.ApiResponse)({ status: 200, type: dto_1.DashboardStatsDto }),
     __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
@@ -148,6 +172,8 @@ __decorate([
 ], CustomErController.prototype, "getDashboardStats", null);
 __decorate([
     (0, common_1.Get)(':id'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get report details by ID' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiResponse)({ status: 200, type: dto_1.CustomErReportDetailDto }),
@@ -160,6 +186,8 @@ __decorate([
 ], CustomErController.prototype, "getReportById", null);
 __decorate([
     (0, common_1.Get)(':id/posts'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get posts for a report' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiQuery)({ name: 'sponsoredOnly', required: false, type: Boolean }),
@@ -173,6 +201,8 @@ __decorate([
 ], CustomErController.prototype, "getReportPosts", null);
 __decorate([
     (0, common_1.Get)(':id/download'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Download report as XLSX' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'XLSX file download' }),
@@ -185,6 +215,8 @@ __decorate([
 ], CustomErController.prototype, "downloadReport", null);
 __decorate([
     (0, common_1.Patch)(':id'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Update report (visibility)' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'Report updated' }),
@@ -198,6 +230,8 @@ __decorate([
 ], CustomErController.prototype, "updateReport", null);
 __decorate([
     (0, common_1.Delete)(':id'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Delete report' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'Report deleted' }),
@@ -209,7 +243,24 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CustomErController.prototype, "deleteReport", null);
 __decorate([
+    (0, common_1.Post)(':id/retry'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, swagger_1.ApiOperation)({ summary: 'Retry a failed report' }),
+    (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Report retry triggered' }),
+    (0, swagger_1.ApiResponse)({ status: 400, description: 'Report is not in FAILED status' }),
+    (0, swagger_1.ApiResponse)({ status: 404, description: 'Report not found' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], CustomErController.prototype, "retryReport", null);
+__decorate([
     (0, common_1.Post)(':id/share'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Share report with user or get shareable link' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'Report shared' }),
@@ -220,21 +271,8 @@ __decorate([
     __metadata("design:paramtypes", [String, String, dto_1.ShareCustomErReportDto]),
     __metadata("design:returntype", Promise)
 ], CustomErController.prototype, "shareReport", null);
-__decorate([
-    (0, common_1.Get)('shared/:token'),
-    (0, swagger_1.ApiOperation)({ summary: 'Get publicly shared report by token' }),
-    (0, swagger_1.ApiParam)({ name: 'token', description: 'Share URL token' }),
-    (0, swagger_1.ApiResponse)({ status: 200, type: dto_1.CustomErReportDetailDto }),
-    (0, swagger_1.ApiResponse)({ status: 404, description: 'Report not found or not public' }),
-    __param(0, (0, common_1.Param)('token')),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
-    __metadata("design:returntype", Promise)
-], CustomErController.prototype, "getSharedReport", null);
 exports.CustomErController = CustomErController = __decorate([
     (0, swagger_1.ApiTags)('custom-er'),
-    (0, swagger_1.ApiBearerAuth)(),
-    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Controller)('custom-er'),
     __metadata("design:paramtypes", [custom_er_service_1.CustomErService])
 ], CustomErController);

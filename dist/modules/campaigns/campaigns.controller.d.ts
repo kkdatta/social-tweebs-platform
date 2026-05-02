@@ -21,6 +21,10 @@ export declare class CampaignsController {
         logoUrl: string;
     }>;
     getCampaignById(userId: string, id: string): Promise<CampaignDetailDto>;
+    processCampaign(userId: string, id: string): Promise<{
+        success: boolean;
+        message: string;
+    }>;
     updateCampaign(userId: string, id: string, dto: UpdateCampaignDto): Promise<{
         success: boolean;
         message: string;
@@ -52,6 +56,7 @@ export declare class CampaignsController {
     addPost(userId: string, campaignId: string, dto: AddPostDto): Promise<{
         success: boolean;
         message: string;
+        warning: string | undefined;
         post: import("./entities").CampaignPost;
     }>;
     getPosts(userId: string, campaignId: string, filters: PostFilterDto): Promise<{

@@ -52,6 +52,7 @@ import {
   ExportCostEstimateDto,
   AudienceDataDto,
 } from '../dto/influencer.dto';
+import { GeneratedReportsService } from '../../generated-reports/generated-reports.service';
 
 const CREDIT_PER_UNBLUR = 0.04;
 const CREDIT_PER_INSIGHT = 1;
@@ -88,6 +89,7 @@ export class DiscoveryService {
     private dataSource: DataSource,
     @Inject(forwardRef(() => InsightsService))
     private insightsService: InsightsService,
+    private generatedReportsService: GeneratedReportsService,
   ) {}
 
   // ============ SEARCH INFLUENCERS ============
@@ -180,7 +182,9 @@ export class DiscoveryService {
       search.status = SearchStatus.COMPLETED;
       search.resultCount = modashResponse.lookalikes.length;
       search.totalAvailable = modashResponse.total;
-      search.hasMore = modashResponse.hasMore;
+      const page = dto.page || 0;
+      const computedHasMore = modashResponse.hasMore ?? (modashResponse.total > 0 && modashResponse.lookalikes.length >= RESULTS_PER_PAGE);
+      search.hasMore = computedHasMore;
       search.creditsUsed = 0;
       await this.searchRepository.save(search);
 
@@ -214,8 +218,8 @@ export class DiscoveryService {
         results,
         resultCount: modashResponse.lookalikes.length,
         totalAvailable: modashResponse.total,
-        page: dto.page || 0,
-        hasMore: modashResponse.hasMore,
+        page,
+        hasMore: computedHasMore,
         creditsUsed: 0,
         remainingBalance: balanceAfterSearch.unifiedBalance,
       };
@@ -283,7 +287,7 @@ export class DiscoveryService {
       resultCount: cachedSearch.resultCount || results.length,
       totalAvailable: cachedSearch.totalAvailable || results.length,
       page: cachedSearch.page || 0,
-      hasMore: cachedSearch.hasMore || false,
+      hasMore: cachedSearch.hasMore || (cachedSearch.totalAvailable > 0 && results.length >= RESULTS_PER_PAGE),
       creditsUsed: 0,
       remainingBalance: balance.unifiedBalance,
     };
@@ -316,12 +320,23 @@ export class DiscoveryService {
           maxFollowers: filters.followers.max,
         });
       }
-      // engagementRate is now a single number (minimum value)
-      // Frontend sends as decimal (0.02 for 2%), DB stores as percentage (2.0 for 2%)
-      if (filters.engagementRate !== undefined && filters.engagementRate !== null) {
-        queryBuilder.andWhere('profile.engagementRate >= :minEr', {
-          minEr: filters.engagementRate * 100, // Convert 0.02 to 2.0
-        });
+      if (filters.engagementRate != null) {
+        if (typeof filters.engagementRate === 'number') {
+          queryBuilder.andWhere('profile.engagementRate >= :minEr', {
+            minEr: filters.engagementRate * 100,
+          });
+        } else {
+          if (filters.engagementRate.min != null) {
+            queryBuilder.andWhere('profile.engagementRate >= :minEr', {
+              minEr: filters.engagementRate.min * 100,
+            });
+          }
+          if (filters.engagementRate.max != null) {
+            queryBuilder.andWhere('profile.engagementRate <= :maxEr', {
+              maxEr: filters.engagementRate.max * 100,
+            });
+          }
+        }
       }
       if (filters.isVerified !== undefined) {
         queryBuilder.andWhere('profile.isVerified = :isVerified', {
@@ -753,13 +768,15 @@ export class DiscoveryService {
   // ============ TYPEAHEAD ============
   async typeaheadSearch(q: string, limit: number = 8) {
     const term = q.trim();
+    if (!term || term.length < 2) return [];
+
     const likeQ = `%${term}%`;
 
     const profileQb = this.profileRepository.createQueryBuilder('p')
       .select(['p.id', 'p.username', 'p.fullName', 'p.profilePictureUrl', 'p.followerCount', 'p.platform', 'p.isVerified'])
       .orderBy('p.followerCount', 'DESC')
       .take(limit);
-    if (term) profileQb.andWhere('(p.username ILIKE :q OR p.fullName ILIKE :q)', { q: likeQ });
+    profileQb.andWhere('(p.username ILIKE :q OR p.fullName ILIKE :q)', { q: likeQ });
     const cached = await profileQb.getMany();
 
     const insightQb = this.insightsAccessRepository.manager
@@ -767,7 +784,7 @@ export class DiscoveryService {
       .select(['i.id', 'i.username', 'i.fullName', 'i.profilePictureUrl', 'i.followerCount', 'i.platform', 'i.isVerified'])
       .orderBy('i.followerCount', 'DESC')
       .take(limit);
-    if (term) insightQb.andWhere('(i.username ILIKE :q OR i.fullName ILIKE :q)', { q: likeQ });
+    insightQb.andWhere('(i.username ILIKE :q OR i.fullName ILIKE :q)', { q: likeQ });
     const insights = await insightQb.getMany();
 
     const seen = new Set<string>();
@@ -790,6 +807,40 @@ export class DiscoveryService {
 
     for (const p of cached) addItem(p, 'discovery');
     for (const i of insights) addItem(i, 'insights');
+
+    // If local results are insufficient, query Modash live (free search, 0 user credits)
+    if (results.length < limit && this.modashService.isModashEnabled()) {
+      try {
+        const modashResponse = await this.modashService.searchInfluencers({
+          platform: 'INSTAGRAM' as any,
+          influencer: { bio: term },
+          page: 0,
+        } as any);
+
+        if (modashResponse?.lookalikes) {
+          for (const inf of modashResponse.lookalikes) {
+            if (results.length >= limit) break;
+            const username = inf.profile?.username;
+            if (!username) continue;
+            const key = `instagram_${username.toLowerCase()}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            results.push({
+              id: `modash_${username}`,
+              username,
+              fullName: inf.profile?.fullname || username,
+              profilePictureUrl: inf.profile?.picture,
+              followerCount: (inf.profile as any)?.followers || inf.stats?.followers || 0,
+              platform: 'INSTAGRAM',
+              isVerified: inf.profile?.isVerified ?? false,
+              source: 'modash',
+            });
+          }
+        }
+      } catch (err) {
+        this.logger.warn(`Modash typeahead fallback failed: ${err.message}`);
+      }
+    }
 
     results.sort((a, b) => Number(b.followerCount || 0) - Number(a.followerCount || 0));
     return results.slice(0, limit);
@@ -905,6 +956,21 @@ export class DiscoveryService {
       excludedPreviouslyExported: excludePreviouslyExported || false,
     });
     await this.exportRecordRepository.save(exportRecord);
+
+    // Record in Generated Reports
+    try {
+      await this.generatedReportsService.createDiscoveryExport(userId, {
+        title: fileName || `Discovery Export - ${new Date().toLocaleDateString()}`,
+        platform: profiles[0]?.platform || 'INSTAGRAM',
+        exportFormat: format || 'CSV',
+        profileCount: profiles.length,
+        fileUrl: `/api/v1/discovery/export-download/${exportRecord.id}`,
+        exportedProfileIds: profileIds,
+        creditsUsed: creditsNeeded,
+      });
+    } catch (err) {
+      this.logger.warn(`Failed to record discovery export in generated reports: ${err.message}`);
+    }
 
     const newBalance = await this.creditsService.getBalance(userId);
 
@@ -1189,9 +1255,9 @@ export class DiscoveryService {
     profile.postCount = modash.stats?.posts || 0;
     const rawER = modash.stats?.engagementRate || profileAny?.engagementRate || null;
     profile.engagementRate = rawER != null && rawER < 1 ? rawER * 100 : rawER;
-    profile.avgLikes = modash.stats?.avgLikes || 0;
-    profile.avgComments = modash.stats?.avgComments || 0;
-    profile.avgViews = modash.stats?.avgViews || 0;
+    profile.avgLikes = modash.stats?.avgLikes || profile.avgLikes || 0;
+    profile.avgComments = modash.stats?.avgComments || profile.avgComments || 0;
+    profile.avgViews = modash.stats?.avgViews || profile.avgViews || 0;
 
     profile.audienceCredibility = modash.audience?.credibility || null;
     profile.rawModashData = modash as any;

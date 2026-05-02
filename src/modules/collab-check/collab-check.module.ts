@@ -9,6 +9,8 @@ import {
   CollabCheckShare,
 } from './entities';
 import { User } from '../users/entities/user.entity';
+import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
+import { InfluencerInsight } from '../insights/entities/influencer-insight.entity';
 import { CreditsModule } from '../credits/credits.module';
 import { DiscoveryModule } from '../discovery/discovery.module';
 
@@ -20,6 +22,8 @@ import { DiscoveryModule } from '../discovery/discovery.module';
       CollabCheckPost,
       CollabCheckShare,
       User,
+      InfluencerProfile,
+      InfluencerInsight,
     ]),
     CreditsModule,
     DiscoveryModule,

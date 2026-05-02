@@ -718,8 +718,12 @@ export class ModashService {
       filter.followers = filters.followers;
     }
 
-    if (filters.engagementRate) {
-      filter.engagementRate = filters.engagementRate;
+    if (filters.engagementRate != null) {
+      if (typeof filters.engagementRate === 'number') {
+        filter.engagementRate = { min: filters.engagementRate };
+      } else {
+        filter.engagementRate = filters.engagementRate;
+      }
     }
 
     // engagements range filter (new)
@@ -824,6 +828,10 @@ export class ModashService {
 
     if (filters.gender) {
       audienceFilter.gender = filters.gender;
+    }
+
+    if (filters.engagersGender) {
+      audienceFilter.engagersGender = filters.engagersGender;
     }
 
     if (filters.age && filters.age.length > 0) {

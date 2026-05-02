@@ -39,15 +39,26 @@ import {
 } from './dto';
 
 @ApiTags('custom-er')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('custom-er')
 export class CustomErController {
   constructor(private readonly customErService: CustomErService) {}
 
+  // ==================== Public Access ====================
+
+  @Get('shared/:token')
+  @ApiOperation({ summary: 'Get publicly shared report by token' })
+  @ApiParam({ name: 'token', description: 'Share URL token' })
+  @ApiResponse({ status: 200, type: CustomErReportDetailDto })
+  @ApiResponse({ status: 404, description: 'Report not found or not public' })
+  async getSharedReport(@Param('token') token: string): Promise<CustomErReportDetailDto> {
+    return this.customErService.getReportByShareToken(token);
+  }
+
   // ==================== Report CRUD ====================
 
   @Post()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new custom ER report (FREE - no credits)' })
   @ApiResponse({ status: 201, description: 'Report created successfully' })
   @ApiResponse({ status: 400, description: 'Invalid request' })
@@ -59,6 +70,8 @@ export class CustomErController {
   }
 
   @Post('upload')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Create reports by uploading Excel file with influencer URLs' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -86,6 +99,8 @@ export class CustomErController {
   }
 
   @Get('sample-file')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Download sample Excel file for bulk upload' })
   @ApiResponse({ status: 200, description: 'Sample Excel file' })
   async downloadSampleFile(@Res() res: Response) {
@@ -99,6 +114,8 @@ export class CustomErController {
   }
 
   @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get list of custom ER reports' })
   @ApiQuery({ name: 'platform', required: false, enum: ['INSTAGRAM', 'TIKTOK', 'ALL'] })
   @ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'] })
@@ -115,6 +132,8 @@ export class CustomErController {
   }
 
   @Get('dashboard')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get dashboard statistics' })
   @ApiResponse({ status: 200, type: DashboardStatsDto })
   async getDashboardStats(@CurrentUser('id') userId: string): Promise<DashboardStatsDto> {
@@ -122,6 +141,8 @@ export class CustomErController {
   }
 
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get report details by ID' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, type: CustomErReportDetailDto })
@@ -134,6 +155,8 @@ export class CustomErController {
   }
 
   @Get(':id/posts')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get posts for a report' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiQuery({ name: 'sponsoredOnly', required: false, type: Boolean })
@@ -147,6 +170,8 @@ export class CustomErController {
   }
 
   @Get(':id/download')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Download report as XLSX' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'XLSX file download' })
@@ -165,6 +190,8 @@ export class CustomErController {
   }
 
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Update report (visibility)' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'Report updated' })
@@ -178,6 +205,8 @@ export class CustomErController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete report' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'Report deleted' })
@@ -191,7 +220,24 @@ export class CustomErController {
 
   // ==================== Report Actions ====================
 
+  @Post(':id/retry')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Retry a failed report' })
+  @ApiParam({ name: 'id', description: 'Report ID' })
+  @ApiResponse({ status: 200, description: 'Report retry triggered' })
+  @ApiResponse({ status: 400, description: 'Report is not in FAILED status' })
+  @ApiResponse({ status: 404, description: 'Report not found' })
+  async retryReport(
+    @CurrentUser('id') userId: string,
+    @Param('id') reportId: string,
+  ) {
+    return this.customErService.retryReport(userId, reportId);
+  }
+
   @Post(':id/share')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Share report with user or get shareable link' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'Report shared' })
@@ -203,14 +249,4 @@ export class CustomErController {
     return this.customErService.shareReport(userId, reportId, dto);
   }
 
-  // ==================== Public Access ====================
-
-  @Get('shared/:token')
-  @ApiOperation({ summary: 'Get publicly shared report by token' })
-  @ApiParam({ name: 'token', description: 'Share URL token' })
-  @ApiResponse({ status: 200, type: CustomErReportDetailDto })
-  @ApiResponse({ status: 404, description: 'Report not found or not public' })
-  async getSharedReport(@Param('token') token: string): Promise<CustomErReportDetailDto> {
-    return this.customErService.getReportByShareToken(token);
-  }
 }

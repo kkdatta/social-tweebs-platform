@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Edit, Users, FileText, Calendar, TrendingUp, Eye, MessageSquare,
   Heart, Share2, MoreVertical, Download, Plus, Search, Filter, ExternalLink,
-  LayoutGrid, LayoutList, Instagram, Youtube, AlertTriangle, X, Link2
+  LayoutGrid, LayoutList, Instagram, Youtube, AlertTriangle, X, Link2, RefreshCw
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 import { campaignsApi } from '../../services/api';
@@ -53,6 +53,9 @@ export const CampaignDetailPage: React.FC = () => {
   const [postSearchQuery, setPostSearchQuery] = useState('');
   const [postSortBy, setPostSortBy] = useState('most_liked');
   const [postViewMode, setPostViewMode] = useState<'table' | 'grid'>('table');
+
+  // Processing
+  const [processing, setProcessing] = useState(false);
 
   // Add forms
   const [newInfluencer, setNewInfluencer] = useState({ influencerName: '', influencerUsername: '', platform: 'INSTAGRAM' });
@@ -125,13 +128,32 @@ export const CampaignDetailPage: React.FC = () => {
       if (newPostMetrics.viewsCount) dto.viewsCount = parseInt(newPostMetrics.viewsCount);
       if (newPostMetrics.commentsCount) dto.commentsCount = parseInt(newPostMetrics.commentsCount);
       if (newPostMetrics.sharesCount) dto.sharesCount = parseInt(newPostMetrics.sharesCount);
-      await campaignsApi.addPost(id!, dto);
+      const res = await campaignsApi.addPost(id!, dto);
+      const warning = res?.warning;
       setShowAddPost(false);
       setNewPostUrl('');
       setNewPostMetrics({ likesCount: '', viewsCount: '', commentsCount: '', sharesCount: '' });
       loadCampaign();
+      if (warning) {
+        alert(`⚠️ Warning: ${warning}`);
+      }
     } catch (err: any) {
       alert(err.response?.data?.message || 'Failed to add post');
+    }
+  };
+
+  const handleProcessCampaign = async () => {
+    if (!id) return;
+    try {
+      setProcessing(true);
+      await campaignsApi.process(id);
+      setTimeout(() => {
+        loadCampaign();
+        setProcessing(false);
+      }, 5000);
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to trigger processing');
+      setProcessing(false);
     }
   };
 
@@ -320,6 +342,19 @@ export const CampaignDetailPage: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-2 relative">
+              <button
+                onClick={handleProcessCampaign}
+                disabled={processing}
+                title="Fetch posts from Modash"
+                className={`flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  processing
+                    ? 'bg-purple-100 text-purple-400 cursor-not-allowed'
+                    : 'bg-purple-600 text-white hover:bg-purple-700'
+                }`}
+              >
+                <RefreshCw size={16} className={processing ? 'animate-spin' : ''} />
+                {processing ? 'Processing...' : 'Fetch Data'}
+              </button>
               <button onClick={() => navigate(`/campaigns/${id}/edit`)} className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg">
                 <Edit size={20} />
               </button>

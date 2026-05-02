@@ -78,7 +78,7 @@ let MentionTrackingService = MentionTrackingService_1 = class MentionTrackingSer
         setTimeout(() => this.processReport(savedReport.id), 2000);
         return { success: true, report: savedReport, creditsUsed: CREDIT_PER_REPORT };
     }
-    async processReport(reportId) {
+    async processReport(reportId, skipCredits = false) {
         const report = await this.reportRepo.findOne({ where: { id: reportId } });
         if (!report)
             return;
@@ -92,7 +92,7 @@ let MentionTrackingService = MentionTrackingService_1 = class MentionTrackingSer
                 await this.processReportSimulated(report);
             }
             const finalReport = await this.reportRepo.findOne({ where: { id: reportId } });
-            if (finalReport && finalReport.status === entities_1.MentionReportStatus.COMPLETED) {
+            if (finalReport && finalReport.status === entities_1.MentionReportStatus.COMPLETED && !skipCredits) {
                 await this.creditsService.deductCredits(finalReport.ownerId, {
                     actionType: enums_1.ActionType.REPORT_GENERATION,
                     quantity: CREDIT_PER_REPORT,
@@ -176,6 +176,10 @@ let MentionTrackingService = MentionTrackingService_1 = class MentionTrackingSer
                                 }
                             }
                         }
+                        else {
+                            failedTerms.push(`#${tag} on TIKTOK (no matching challenge)`);
+                            continue;
+                        }
                     }
                 }
                 catch (err) {
@@ -205,6 +209,39 @@ let MentionTrackingService = MentionTrackingService_1 = class MentionTrackingSer
                                 });
                             }
                         }
+                    }
+                    else if (plat === 'TIKTOK') {
+                        const feed = await this.modashRawService.getTiktokUserFeed(handle);
+                        for (const p of (feed.data || [])) {
+                            const ts = (p.createTime || 0) * 1000;
+                            if (ts >= startMs && ts <= endMs) {
+                                rawPosts.push({
+                                    platform, userId: p.author?.uniqueId || handle, username: p.author?.uniqueId || handle,
+                                    postId: p.id, description: p.desc || '',
+                                    likes: p.stats?.diggCount || 0, comments: p.stats?.commentCount || 0,
+                                    views: p.stats?.playCount || 0, shares: p.stats?.shareCount || 0,
+                                    timestamp: ts, thumbnail: p.video?.cover,
+                                });
+                            }
+                        }
+                    }
+                    else if (plat === 'YOUTUBE') {
+                        const feed = await this.modashRawService.getYoutubeUploadedVideos(handle);
+                        for (const v of (feed.data || [])) {
+                            const ts = new Date(v.publishedAt || 0).getTime();
+                            if (ts >= startMs && ts <= endMs) {
+                                rawPosts.push({
+                                    platform, userId: handle, username: handle,
+                                    postId: v.videoId, description: v.title || v.description || '',
+                                    likes: v.likeCount || 0, comments: v.commentCount || 0,
+                                    views: v.viewCount || 0, shares: 0, timestamp: ts,
+                                    thumbnail: v.thumbnail,
+                                });
+                            }
+                        }
+                    }
+                    else {
+                        failedTerms.push(`@${handle} on ${plat} (platform not supported for username search)`);
                     }
                 }
                 catch (err) {
@@ -272,8 +309,33 @@ let MentionTrackingService = MentionTrackingService_1 = class MentionTrackingSer
                             failedTerms.push(`keyword "${kw}" on TIKTOK (no matching challenge)`);
                         }
                     }
+                    else if (plat === 'YOUTUBE') {
+                        const feed = await this.modashRawService.getYoutubeUploadedVideos(kw);
+                        for (const v of (feed.data || [])) {
+                            const ts = new Date(v.publishedAt || 0).getTime();
+                            if (ts >= startMs && ts <= endMs) {
+                                rawPosts.push({
+                                    platform,
+                                    userId: kw,
+                                    username: kw,
+                                    postId: v.videoId,
+                                    description: v.title || v.description || '',
+                                    likes: v.likeCount || 0,
+                                    comments: v.commentCount || 0,
+                                    views: v.viewCount || 0,
+                                    shares: 0,
+                                    timestamp: ts,
+                                    thumbnail: v.thumbnail,
+                                });
+                            }
+                        }
+                        if (!(feed.data || []).length) {
+                            this.logger.warn(`YouTube keyword "${kw}": no videos found for channel, skipping gracefully`);
+                            failedTerms.push(`keyword "${kw}" on YOUTUBE (no results)`);
+                        }
+                    }
                     else {
-                        failedTerms.push(`keyword "${kw}" on ${plat} (not supported — use Instagram or TikTok)`);
+                        failedTerms.push(`keyword "${kw}" on ${plat} (not supported)`);
                     }
                 }
                 catch (err) {
@@ -282,7 +344,7 @@ let MentionTrackingService = MentionTrackingService_1 = class MentionTrackingSer
                 }
             }
         }
-        if (failedTerms.length > 0 && failedTerms.length === totalTerms) {
+        if (totalTerms > 0 && failedTerms.length >= totalTerms) {
             report.status = entities_1.MentionReportStatus.FAILED;
             report.errorMessage = `All search terms failed: ${failedTerms.join(', ')}`;
             await this.reportRepo.save(report);
@@ -305,6 +367,9 @@ let MentionTrackingService = MentionTrackingService_1 = class MentionTrackingSer
                 influencerMap.set(key, { inf: savedInf, likes: 0, views: 0, comments: 0, shares: 0, posts: 0 });
             }
             const entry = influencerMap.get(key);
+            const existingPost = await this.postRepo.findOne({ where: { reportId: report.id, postId: rp.postId } });
+            if (existingPost)
+                continue;
             const post = new entities_1.MentionTrackingPost();
             post.reportId = report.id;
             post.influencerId = entry.inf.id;
@@ -658,7 +723,7 @@ let MentionTrackingService = MentionTrackingService_1 = class MentionTrackingSer
         }
         report.isPublic = true;
         await this.reportRepo.save(report);
-        const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/mention-tracking/shared/${report.shareUrlToken}`;
+        const shareUrl = `/mention-tracking/shared/${report.shareUrlToken}`;
         return { success: true, shareUrl };
     }
     async getDashboardStats(userId) {
@@ -785,6 +850,27 @@ let MentionTrackingService = MentionTrackingService_1 = class MentionTrackingSer
             limit,
         };
     }
+    async autoRefreshReport(reportId) {
+        const report = await this.reportRepo.findOne({ where: { id: reportId } });
+        if (!report)
+            return;
+        this.logger.log(`Auto-refreshing mention tracking report ${reportId}`);
+        await this.postRepo.delete({ reportId });
+        await this.influencerRepo.delete({ reportId });
+        report.status = entities_1.MentionReportStatus.PENDING;
+        report.errorMessage = undefined;
+        report.totalInfluencers = 0;
+        report.totalPosts = 0;
+        report.totalLikes = 0;
+        report.totalViews = 0;
+        report.totalComments = 0;
+        report.totalShares = 0;
+        const nextRefresh = new Date();
+        nextRefresh.setDate(nextRefresh.getDate() + 1);
+        report.nextRefreshDate = nextRefresh;
+        await this.reportRepo.save(report);
+        await this.processReport(reportId, true);
+    }
     async getTeamUserIds(userId) {
         const user = await this.userRepo.findOne({ where: { id: userId } });
         if (!user)
@@ -863,7 +949,7 @@ let MentionTrackingService = MentionTrackingService_1 = class MentionTrackingSer
             engagementViewsRate: report.engagementViewsRate ? Number(report.engagementViewsRate) : undefined,
             totalFollowers: Number(report.totalFollowers) || 0,
             influencers: (report.influencers || []).map(i => this.toInfluencerDto(i)),
-            posts: (report.posts || []).slice(0, 50).map(p => this.toPostDto(p)),
+            posts: (report.posts || []).map(p => this.toPostDto(p)),
             categorization,
             isPublic: report.isPublic,
             shareUrl: report.shareUrlToken ? `/mention-tracking/shared/${report.shareUrlToken}` : undefined,

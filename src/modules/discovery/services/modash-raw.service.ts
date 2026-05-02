@@ -145,15 +145,15 @@ export class ModashRawService {
   // ============ INSTAGRAM RAW ============
 
   async getIgUserInfo(userId: string): Promise<RawIgUserInfo> {
-    return this.rawGet(`/raw/ig/user-info?user_id=${userId}`);
+    return this.rawGet(`/raw/ig/user-info?url=${encodeURIComponent(userId)}`);
   }
 
   async getIgUserFeed(
     userId: string,
     cursor?: string,
   ): Promise<PaginatedResponse<RawIgPost>> {
-    const params = [`user_id=${userId}`];
-    if (cursor) params.push(`end_cursor=${cursor}`);
+    const params = [`url=${encodeURIComponent(userId)}`];
+    if (cursor) params.push(`after=${encodeURIComponent(cursor)}`);
     return this.rawGet(`/raw/ig/user-feed?${params.join('&')}`);
   }
 
@@ -161,8 +161,8 @@ export class ModashRawService {
     userId: string,
     cursor?: string,
   ): Promise<PaginatedResponse<RawIgPost>> {
-    const params = [`user_id=${userId}`];
-    if (cursor) params.push(`end_cursor=${cursor}`);
+    const params = [`url=${encodeURIComponent(userId)}`];
+    if (cursor) params.push(`after=${encodeURIComponent(cursor)}`);
     return this.rawGet(`/raw/ig/user-reels?${params.join('&')}`);
   }
 
@@ -170,8 +170,8 @@ export class ModashRawService {
     userId: string,
     cursor?: string,
   ): Promise<PaginatedResponse<RawIgPost>> {
-    const params = [`user_id=${userId}`];
-    if (cursor) params.push(`end_cursor=${cursor}`);
+    const params = [`url=${encodeURIComponent(userId)}`];
+    if (cursor) params.push(`after=${encodeURIComponent(cursor)}`);
     return this.rawGet(`/raw/ig/user-tags-feed?${params.join('&')}`);
   }
 
@@ -180,12 +180,12 @@ export class ModashRawService {
     cursor?: string,
   ): Promise<PaginatedResponse<RawIgPost>> {
     const params = [`name=${encodeURIComponent(hashtag)}`];
-    if (cursor) params.push(`end_cursor=${cursor}`);
+    if (cursor) params.push(`after=${encodeURIComponent(cursor)}`);
     return this.rawGet(`/raw/ig/hashtag-feed?${params.join('&')}`);
   }
 
   async getIgMediaInfo(mediaId: string): Promise<any> {
-    return this.rawGet(`/raw/ig/media-info?media_id=${mediaId}`);
+    return this.rawGet(`/raw/ig/media-info?url=${encodeURIComponent(mediaId)}`);
   }
 
   async getIgMediaComments(
@@ -193,7 +193,7 @@ export class ModashRawService {
     cursor?: string,
   ): Promise<PaginatedResponse<RawIgComment>> {
     const params = [`media_id=${mediaId}`];
-    if (cursor) params.push(`end_cursor=${cursor}`);
+    if (cursor) params.push(`after=${encodeURIComponent(cursor)}`);
     return this.rawGet(`/raw/ig/media-comments?${params.join('&')}`);
   }
 
@@ -203,7 +203,7 @@ export class ModashRawService {
     cursor?: string,
   ): Promise<PaginatedResponse<RawIgComment>> {
     const params = [`comment_id=${commentId}`, `media_id=${mediaId}`];
-    if (cursor) params.push(`end_cursor=${cursor}`);
+    if (cursor) params.push(`after=${encodeURIComponent(cursor)}`);
     return this.rawGet(`/raw/ig/media-comment-replies?${params.join('&')}`);
   }
 
@@ -370,6 +370,15 @@ export class ModashRawService {
       }
 
       const data = await response.json();
+      if (data && data.items && !data.data) {
+        data.data = data.items;
+      }
+      if (data && typeof data.end_cursor === 'string') {
+        data.cursor = data.cursor || data.end_cursor;
+      }
+      if (data && typeof data.more_available === 'boolean' && data.hasMore === undefined) {
+        data.hasMore = data.more_available;
+      }
       return data as T;
     } catch (error) {
       if (error instanceof HttpException) throw error;

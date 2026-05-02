@@ -15,6 +15,7 @@ const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
 const credits_module_1 = require("../credits/credits.module");
 const discovery_module_1 = require("../discovery/discovery.module");
+const generated_reports_module_1 = require("../generated-reports/generated-reports.module");
 let PaidCollaborationModule = class PaidCollaborationModule {
 };
 exports.PaidCollaborationModule = PaidCollaborationModule;
@@ -31,6 +32,7 @@ exports.PaidCollaborationModule = PaidCollaborationModule = __decorate([
             ]),
             credits_module_1.CreditsModule,
             discovery_module_1.DiscoveryModule,
+            generated_reports_module_1.GeneratedReportsModule,
         ],
         controllers: [paid_collaboration_controller_1.PaidCollaborationController],
         providers: [paid_collaboration_service_1.PaidCollaborationService],

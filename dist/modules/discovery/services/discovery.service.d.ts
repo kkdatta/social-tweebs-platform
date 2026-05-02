@@ -8,6 +8,7 @@ import { InfluencerProfile, DiscoverySearch, SearchResult, InsightsAccess, Audie
 import { ModashService } from './modash.service';
 import { SearchInfluencersDto, SearchResponseDto, SearchHistoryResponseDto } from '../dto/search.dto';
 import { UnblurInfluencersDto, UnblurResponseDto, ViewInsightsResponseDto, RefreshInsightsResponseDto, InfluencerProfileDto, ExportInfluencersDto, ExportResponseDto, ExportHistoryResponseDto, InsightsCheckResponseDto, ExportCostEstimateDto } from '../dto/influencer.dto';
+import { GeneratedReportsService } from '../../generated-reports/generated-reports.service';
 export declare class DiscoveryService {
     private profileRepository;
     private searchRepository;
@@ -21,8 +22,9 @@ export declare class DiscoveryService {
     private creditsService;
     private dataSource;
     private insightsService;
+    private generatedReportsService;
     private readonly logger;
-    constructor(profileRepository: Repository<InfluencerProfile>, searchRepository: Repository<DiscoverySearch>, searchResultRepository: Repository<SearchResult>, insightsAccessRepository: Repository<InsightsAccess>, audienceDataRepository: Repository<AudienceData>, unlockedInfluencerRepository: Repository<UnlockedInfluencer>, exportRecordRepository: Repository<ExportRecord>, userRepository: Repository<User>, modashService: ModashService, creditsService: CreditsService, dataSource: DataSource, insightsService: InsightsService);
+    constructor(profileRepository: Repository<InfluencerProfile>, searchRepository: Repository<DiscoverySearch>, searchResultRepository: Repository<SearchResult>, insightsAccessRepository: Repository<InsightsAccess>, audienceDataRepository: Repository<AudienceData>, unlockedInfluencerRepository: Repository<UnlockedInfluencer>, exportRecordRepository: Repository<ExportRecord>, userRepository: Repository<User>, modashService: ModashService, creditsService: CreditsService, dataSource: DataSource, insightsService: InsightsService, generatedReportsService: GeneratedReportsService);
     searchInfluencers(userId: string, dto: SearchInfluencersDto): Promise<SearchResponseDto>;
     private generateSearchCacheKey;
     private searchInfluencersViaModash;

@@ -59,6 +59,16 @@ let CampaignsController = class CampaignsController {
     async getCampaignById(userId, id) {
         return this.campaignsService.getCampaignById(userId, id);
     }
+    async processCampaign(userId, id) {
+        const campaign = await this.campaignsService.getCampaignById(userId, id);
+        if (!campaign)
+            throw new common_1.BadRequestException('Campaign not found');
+        setTimeout(() => this.campaignsService.processCampaign(id).catch(err => console.error(`Campaign processing failed: ${err.message}`)), 500);
+        return {
+            success: true,
+            message: 'Campaign processing started. Data will be populated shortly.',
+        };
+    }
     async updateCampaign(userId, id, dto) {
         const campaign = await this.campaignsService.updateCampaign(userId, id, dto);
         return {
@@ -106,10 +116,11 @@ let CampaignsController = class CampaignsController {
         };
     }
     async addPost(userId, campaignId, dto) {
-        const post = await this.campaignsService.addPost(userId, campaignId, dto);
+        const { post, warning } = await this.campaignsService.addPost(userId, campaignId, dto);
         return {
             success: true,
-            message: 'Post added to campaign',
+            message: warning || 'Post added to campaign',
+            warning,
             post,
         };
     }
@@ -287,6 +298,16 @@ __decorate([
     __metadata("design:paramtypes", [String, String]),
     __metadata("design:returntype", Promise)
 ], CampaignsController.prototype, "getCampaignById", null);
+__decorate([
+    (0, common_1.Post)(':id/process'),
+    (0, swagger_1.ApiOperation)({ summary: 'Trigger campaign processing (fetch posts via Modash)' }),
+    (0, swagger_1.ApiParam)({ name: 'id', description: 'Campaign ID' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], CampaignsController.prototype, "processCampaign", null);
 __decorate([
     (0, common_1.Patch)(':id'),
     (0, swagger_1.ApiOperation)({ summary: 'Update campaign' }),

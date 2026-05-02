@@ -23,6 +23,9 @@ let SentimentsController = class SentimentsController {
     constructor(sentimentsService) {
         this.sentimentsService = sentimentsService;
     }
+    async getSharedReport(token) {
+        return this.sentimentsService.getReportByShareToken(token);
+    }
     async createReport(userId, dto) {
         return this.sentimentsService.createReport(userId, dto);
     }
@@ -58,13 +61,23 @@ let SentimentsController = class SentimentsController {
         });
         return new common_1.StreamableFile(buffer);
     }
-    async getSharedReport(token) {
-        return this.sentimentsService.getReportByShareToken(token);
-    }
 };
 exports.SentimentsController = SentimentsController;
 __decorate([
+    (0, common_1.Get)('shared/:token'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get publicly shared report by token' }),
+    (0, swagger_1.ApiParam)({ name: 'token', description: 'Share URL token' }),
+    (0, swagger_1.ApiResponse)({ status: 200, type: dto_1.SentimentReportDetailDto }),
+    (0, swagger_1.ApiResponse)({ status: 404, description: 'Report not found or not public' }),
+    __param(0, (0, common_1.Param)('token')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], SentimentsController.prototype, "getSharedReport", null);
+__decorate([
     (0, common_1.Post)(),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Create sentiment report(s) - 1 credit per URL' }),
     (0, swagger_1.ApiResponse)({ status: 201, description: 'Report(s) created successfully' }),
     (0, swagger_1.ApiResponse)({ status: 400, description: 'Invalid request or insufficient credits' }),
@@ -76,6 +89,8 @@ __decorate([
 ], SentimentsController.prototype, "createReport", null);
 __decorate([
     (0, common_1.Get)(),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get list of sentiment reports' }),
     (0, swagger_1.ApiQuery)({ name: 'platform', required: false, enum: ['INSTAGRAM', 'TIKTOK', 'ALL'] }),
     (0, swagger_1.ApiQuery)({ name: 'reportType', required: false, enum: ['POST', 'PROFILE'] }),
@@ -93,6 +108,8 @@ __decorate([
 ], SentimentsController.prototype, "getReports", null);
 __decorate([
     (0, common_1.Get)('dashboard'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get dashboard statistics' }),
     (0, swagger_1.ApiResponse)({ status: 200, type: dto_1.DashboardStatsDto }),
     __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
@@ -102,6 +119,8 @@ __decorate([
 ], SentimentsController.prototype, "getDashboardStats", null);
 __decorate([
     (0, common_1.Get)(':id'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get report details by ID' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiResponse)({ status: 200, type: dto_1.SentimentReportDetailDto }),
@@ -114,6 +133,8 @@ __decorate([
 ], SentimentsController.prototype, "getReportById", null);
 __decorate([
     (0, common_1.Patch)(':id'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Update report (title, visibility)' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'Report updated' }),
@@ -127,6 +148,8 @@ __decorate([
 ], SentimentsController.prototype, "updateReport", null);
 __decorate([
     (0, common_1.Delete)(':id'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Delete report' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'Report deleted' }),
@@ -139,6 +162,8 @@ __decorate([
 ], SentimentsController.prototype, "deleteReport", null);
 __decorate([
     (0, common_1.Post)('bulk-delete'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Bulk delete reports' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'Reports deleted' }),
     __param(0, (0, current_user_decorator_1.CurrentUser)('id')),
@@ -149,6 +174,8 @@ __decorate([
 ], SentimentsController.prototype, "bulkDeleteReports", null);
 __decorate([
     (0, common_1.Post)(':id/retry'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Retry a failed sentiment report' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'Report retry initiated' }),
@@ -161,6 +188,8 @@ __decorate([
 ], SentimentsController.prototype, "retryReport", null);
 __decorate([
     (0, common_1.Post)(':id/share'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Share report with user or get shareable link' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'Report shared' }),
@@ -173,6 +202,8 @@ __decorate([
 ], SentimentsController.prototype, "shareReport", null);
 __decorate([
     (0, common_1.Get)(':id/download-pdf'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Download report as PDF' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'PDF file stream' }),
@@ -184,21 +215,8 @@ __decorate([
     __metadata("design:paramtypes", [String, String, Object]),
     __metadata("design:returntype", Promise)
 ], SentimentsController.prototype, "downloadPdf", null);
-__decorate([
-    (0, common_1.Get)('shared/:token'),
-    (0, swagger_1.ApiOperation)({ summary: 'Get publicly shared report by token' }),
-    (0, swagger_1.ApiParam)({ name: 'token', description: 'Share URL token' }),
-    (0, swagger_1.ApiResponse)({ status: 200, type: dto_1.SentimentReportDetailDto }),
-    (0, swagger_1.ApiResponse)({ status: 404, description: 'Report not found or not public' }),
-    __param(0, (0, common_1.Param)('token')),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
-    __metadata("design:returntype", Promise)
-], SentimentsController.prototype, "getSharedReport", null);
 exports.SentimentsController = SentimentsController = __decorate([
     (0, swagger_1.ApiTags)('sentiments'),
-    (0, swagger_1.ApiBearerAuth)(),
-    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Controller)('sentiments'),
     __metadata("design:paramtypes", [sentiments_service_1.SentimentsService])
 ], SentimentsController);

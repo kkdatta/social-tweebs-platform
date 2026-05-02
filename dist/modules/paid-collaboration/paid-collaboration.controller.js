@@ -24,6 +24,9 @@ let PaidCollaborationController = class PaidCollaborationController {
     constructor(service) {
         this.service = service;
     }
+    async getSharedReport(token) {
+        return this.service.getReportByShareToken(token);
+    }
     async createReport(userId, dto) {
         return this.service.createReport(userId, dto);
     }
@@ -32,9 +35,6 @@ let PaidCollaborationController = class PaidCollaborationController {
     }
     async getDashboardStats(userId) {
         return this.service.getDashboardStats(userId);
-    }
-    async getSharedReport(token) {
-        return this.service.getReportByShareToken(token);
     }
     async getReportById(userId, reportId) {
         return this.service.getReportById(userId, reportId);
@@ -63,7 +63,18 @@ let PaidCollaborationController = class PaidCollaborationController {
 };
 exports.PaidCollaborationController = PaidCollaborationController;
 __decorate([
+    (0, common_1.Get)('shared/:token'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get public shared report' }),
+    (0, swagger_1.ApiParam)({ name: 'token', description: 'Share URL token' }),
+    __param(0, (0, common_1.Param)('token')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], PaidCollaborationController.prototype, "getSharedReport", null);
+__decorate([
     (0, common_1.Post)(),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Create a new paid collaboration report' }),
     __param(0, (0, decorators_1.CurrentUser)('id')),
     __param(1, (0, common_1.Body)()),
@@ -73,6 +84,8 @@ __decorate([
 ], PaidCollaborationController.prototype, "createReport", null);
 __decorate([
     (0, common_1.Get)(),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get list of paid collaboration reports' }),
     (0, swagger_1.ApiQuery)({ name: 'platform', required: false, description: 'Filter by platform' }),
     (0, swagger_1.ApiQuery)({ name: 'status', required: false, enum: entities_1.PaidCollabReportStatus }),
@@ -88,6 +101,8 @@ __decorate([
 ], PaidCollaborationController.prototype, "getReports", null);
 __decorate([
     (0, common_1.Get)('dashboard'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get dashboard statistics' }),
     __param(0, (0, decorators_1.CurrentUser)('id')),
     __metadata("design:type", Function),
@@ -95,16 +110,9 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], PaidCollaborationController.prototype, "getDashboardStats", null);
 __decorate([
-    (0, common_1.Get)('shared/:token'),
-    (0, swagger_1.ApiOperation)({ summary: 'Get public shared report' }),
-    (0, swagger_1.ApiParam)({ name: 'token', description: 'Share URL token' }),
-    __param(0, (0, common_1.Param)('token')),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
-    __metadata("design:returntype", Promise)
-], PaidCollaborationController.prototype, "getSharedReport", null);
-__decorate([
     (0, common_1.Get)(':id'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get report details by ID' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     __param(0, (0, decorators_1.CurrentUser)('id')),
@@ -115,6 +123,8 @@ __decorate([
 ], PaidCollaborationController.prototype, "getReportById", null);
 __decorate([
     (0, common_1.Get)(':id/chart-data'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get chart data for posts over time' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     __param(0, (0, decorators_1.CurrentUser)('id')),
@@ -125,6 +135,8 @@ __decorate([
 ], PaidCollaborationController.prototype, "getChartData", null);
 __decorate([
     (0, common_1.Get)(':id/posts'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get posts with filtering' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiQuery)({ name: 'sponsoredOnly', required: false, type: Boolean }),
@@ -147,6 +159,8 @@ __decorate([
 ], PaidCollaborationController.prototype, "getPosts", null);
 __decorate([
     (0, common_1.Get)(':id/influencers'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get influencers with filtering and sorting' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     (0, swagger_1.ApiQuery)({ name: 'category', required: false, enum: entities_1.InfluencerCategory }),
@@ -167,6 +181,8 @@ __decorate([
 ], PaidCollaborationController.prototype, "getInfluencers", null);
 __decorate([
     (0, common_1.Patch)(':id'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Update report' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     __param(0, (0, decorators_1.CurrentUser)('id')),
@@ -178,6 +194,8 @@ __decorate([
 ], PaidCollaborationController.prototype, "updateReport", null);
 __decorate([
     (0, common_1.Delete)(':id'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Delete report' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     __param(0, (0, decorators_1.CurrentUser)('id')),
@@ -188,6 +206,8 @@ __decorate([
 ], PaidCollaborationController.prototype, "deleteReport", null);
 __decorate([
     (0, common_1.Post)(':id/retry'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Retry failed report' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     __param(0, (0, decorators_1.CurrentUser)('id')),
@@ -198,6 +218,8 @@ __decorate([
 ], PaidCollaborationController.prototype, "retryReport", null);
 __decorate([
     (0, common_1.Post)(':id/share'),
+    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Share report' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Report ID' }),
     __param(0, (0, decorators_1.CurrentUser)('id')),
@@ -209,8 +231,6 @@ __decorate([
 ], PaidCollaborationController.prototype, "shareReport", null);
 exports.PaidCollaborationController = PaidCollaborationController = __decorate([
     (0, swagger_1.ApiTags)('paid-collaboration'),
-    (0, swagger_1.ApiBearerAuth)(),
-    (0, common_1.UseGuards)(guards_1.JwtAuthGuard),
     (0, common_1.Controller)('paid-collaboration'),
     __metadata("design:paramtypes", [paid_collaboration_service_1.PaidCollaborationService])
 ], PaidCollaborationController);

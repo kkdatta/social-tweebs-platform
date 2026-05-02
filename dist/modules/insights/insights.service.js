@@ -860,7 +860,7 @@ let InsightsService = InsightsService_1 = class InsightsService {
             || this.convertGeoWeighted(audience.geoCountries, 'country')
             || audience.topCountries;
         const topStates = followersData.topStates
-            || this.convertGeoWeighted(audience.geoStates || audience.geoSubdivisions, 'state')
+            || this.convertGeoStatesWithSubdivisions(audience.geoStates, audience.geoSubdivisions)
             || audience.topStates;
         const topCities = followersData.topCities
             || this.convertGeoWeighted(audience.geoCities, 'city')
@@ -929,7 +929,7 @@ let InsightsService = InsightsService_1 = class InsightsService {
                         genderSplit: engagersData.genderSplit || this.convertGenders(engagersData.genders),
                         ageGroups: engagersData.ageGroups || this.convertAgeGroups(engagersData.ages, engagersData.genders),
                         topCountries: engagersData.topCountries || this.convertGeoWeighted(engagersData.geoCountries, 'country'),
-                        topStates: engagersData.topStates || this.convertGeoWeighted(engagersData.geoStates || engagersData.geoSubdivisions, 'state'),
+                        topStates: engagersData.topStates || this.convertGeoStatesWithSubdivisions(engagersData.geoStates, engagersData.geoSubdivisions),
                         topCities: engagersData.topCities || this.convertGeoWeighted(engagersData.geoCities, 'city'),
                         audienceTypes: engagersData.audienceTypes || this.convertAudienceTypes(engagersData.types),
                         notableEngagers: engagersData.notableEngagers || this.convertNotableUsers(engagersData.notableUsers),
@@ -1045,6 +1045,44 @@ let InsightsService = InsightsService_1 = class InsightsService {
             code: item.code,
             percentage: Math.round((item.weight || 0) * 100 * 10) / 10,
         }));
+    }
+    convertGeoStatesWithSubdivisions(geoStates, geoSubdivisions) {
+        const seen = new Map();
+        if (Array.isArray(geoSubdivisions)) {
+            for (const group of geoSubdivisions) {
+                if (Array.isArray(group?.items)) {
+                    for (const item of group.items) {
+                        const name = item.name || item.code || '';
+                        if (name && !seen.has(name.toLowerCase())) {
+                            seen.set(name.toLowerCase(), {
+                                state: name,
+                                name,
+                                code: item.code,
+                                percentage: Math.round((item.weight || 0) * 100 * 10) / 10,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        if (Array.isArray(geoStates)) {
+            for (const item of geoStates) {
+                const name = item.name || item.code || '';
+                if (name && !seen.has(name.toLowerCase())) {
+                    seen.set(name.toLowerCase(), {
+                        state: name,
+                        name,
+                        code: item.code,
+                        percentage: item.percentage != null
+                            ? item.percentage
+                            : Math.round((item.weight || 0) * 100 * 10) / 10,
+                    });
+                }
+            }
+        }
+        if (seen.size === 0)
+            return undefined;
+        return [...seen.values()].sort((a, b) => b.percentage - a.percentage);
     }
     convertNotableUsers(notableUsers) {
         if (!notableUsers || !Array.isArray(notableUsers) || notableUsers.length === 0)

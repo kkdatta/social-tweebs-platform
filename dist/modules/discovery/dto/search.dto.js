@@ -213,10 +213,9 @@ __decorate([
     __metadata("design:type", RangeFilter)
 ], InfluencerFiltersDto.prototype, "followers", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ description: 'Minimum engagement rate (e.g., 0.02 for 2%)' }),
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Engagement rate: number for >= (e.g. 0.02 for 2%), or {min,max} range' }),
     (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsNumber)(),
-    __metadata("design:type", Number)
+    __metadata("design:type", Object)
 ], InfluencerFiltersDto.prototype, "engagementRate", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({ type: RangeFilter, description: 'Engagements count range (NEW)' }),
@@ -412,13 +411,23 @@ __decorate([
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({
         type: GenderFilter,
-        description: 'Audience gender with weight (default 0.5)'
+        description: 'Audience gender (followers) with weight (default 0.5)'
     }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.ValidateNested)(),
     (0, class_transformer_1.Type)(() => GenderFilter),
     __metadata("design:type", GenderFilter)
 ], AudienceFiltersDto.prototype, "gender", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        type: GenderFilter,
+        description: 'Engagers gender with weight (default 0.5)'
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.ValidateNested)(),
+    (0, class_transformer_1.Type)(() => GenderFilter),
+    __metadata("design:type", GenderFilter)
+], AudienceFiltersDto.prototype, "engagersGender", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({
         type: [AgeFilter],

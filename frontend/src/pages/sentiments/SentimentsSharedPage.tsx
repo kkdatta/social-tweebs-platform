@@ -165,7 +165,10 @@ export const SentimentsSharedPage = () => {
               <h1 className="text-2xl font-bold text-gray-900">{report.title}</h1>
               <div className="flex flex-wrap items-center gap-2 mt-1 text-sm text-gray-500">
                 <span className="flex items-center gap-1">
-                  <Instagram className="w-4 h-4 text-pink-500" />
+                  {report.platform?.toUpperCase() === 'TIKTOK'
+                    ? <span className="w-4 h-4 text-xs font-bold text-black flex items-center justify-center">T</span>
+                    : <Instagram className="w-4 h-4 text-pink-500" />
+                  }
                   {report.influencerUsername || report.influencerName || '—'}
                 </span>
                 <span className="text-gray-300">|</span>

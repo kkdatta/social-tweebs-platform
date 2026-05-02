@@ -158,64 +158,94 @@ export class CustomErService {
 
     const rawUserId = cachedProfile?.platformUserId || report.influencerUsername || '';
 
-    const rawPosts: Array<{ id: string; description: string; likes: number; comments: number; views: number; shares: number; timestamp: number; thumbnail?: string; isSponsored: boolean }> = [];
+    const rawPosts: Array<{ id: string; postUrl: string; postType: string; description: string; likes: number; comments: number; views: number; shares: number; timestamp: number; thumbnail?: string; isSponsored: boolean }> = [];
+
+    const MAX_PAGES = 5;
 
     try {
       if (plat === 'INSTAGRAM') {
-        const feed = await this.modashRawService.getIgUserFeed(rawUserId);
-        for (const p of (feed.data || [])) {
-          const ts = (p.taken_at || 0) * 1000;
-          if (ts >= rangeStart && ts <= rangeEnd) {
-            const caption = p.caption?.text || '';
-            rawPosts.push({
-              id: p.id || p.code,
-              description: caption,
-              likes: p.like_count || 0,
-              comments: p.comment_count || 0,
-              views: p.play_count || 0,
-              shares: 0,
-              timestamp: ts,
-              thumbnail: p.image_versions2?.candidates?.[0]?.url,
-              isSponsored: /\b(ad|sponsored|partner|collab)\b/i.test(caption),
-            });
+        let cursor: string | undefined;
+        let pageCount = 0;
+        let feedPage: any;
+        do {
+          feedPage = await this.modashRawService.getIgUserFeed(rawUserId, cursor) as any;
+          for (const p of (feedPage.items || feedPage.data || [])) {
+            const ts = (p.taken_at || 0) * 1000;
+            if (ts >= rangeStart && ts <= rangeEnd) {
+              const caption = p.caption?.text || '';
+              const mediaType = p.media_type;
+              rawPosts.push({
+                id: p.id || p.code,
+                postUrl: `https://www.instagram.com/p/${p.code}/`,
+                postType: mediaType === 2 ? 'VIDEO' : mediaType === 8 ? 'CAROUSEL' : 'IMAGE',
+                description: caption,
+                likes: p.like_count || 0,
+                comments: p.comment_count || 0,
+                views: p.play_count || 0,
+                shares: 0,
+                timestamp: ts,
+                thumbnail: p.image_versions2?.candidates?.[0]?.url,
+                isSponsored: /\b(ad|sponsored|partner|collab)\b/i.test(caption),
+              });
+            }
           }
-        }
+          cursor = feedPage.cursor || feedPage.end_cursor;
+          pageCount++;
+        } while (cursor && feedPage.hasMore !== false && pageCount < MAX_PAGES);
       } else if (plat === 'TIKTOK') {
-        const feed = await this.modashRawService.getTiktokUserFeed(rawUserId);
-        for (const p of (feed.data || [])) {
-          const ts = (p.createTime || 0) * 1000;
-          if (ts >= rangeStart && ts <= rangeEnd) {
-            rawPosts.push({
-              id: p.id,
-              description: p.desc || '',
-              likes: p.stats?.diggCount || 0,
-              comments: p.stats?.commentCount || 0,
-              views: p.stats?.playCount || 0,
-              shares: p.stats?.shareCount || 0,
-              timestamp: ts,
-              thumbnail: p.video?.cover,
-              isSponsored: /\b(ad|sponsored|partner|collab)\b/i.test(p.desc || ''),
-            });
+        let cursor: string | undefined;
+        let pageCount = 0;
+        let feedPage: any;
+        do {
+          feedPage = await this.modashRawService.getTiktokUserFeed(rawUserId, cursor) as any;
+          for (const p of (feedPage.items || feedPage.data || [])) {
+            const ts = (p.createTime || 0) * 1000;
+            if (ts >= rangeStart && ts <= rangeEnd) {
+              rawPosts.push({
+                id: p.id,
+                postUrl: `https://www.tiktok.com/@${rawUserId}/video/${p.id}`,
+                postType: 'VIDEO',
+                description: p.desc || '',
+                likes: p.stats?.diggCount || 0,
+                comments: p.stats?.commentCount || 0,
+                views: p.stats?.playCount || 0,
+                shares: p.stats?.shareCount || 0,
+                timestamp: ts,
+                thumbnail: p.video?.cover,
+                isSponsored: /\b(ad|sponsored|partner|collab)\b/i.test(p.desc || ''),
+              });
+            }
           }
-        }
+          cursor = feedPage.cursor || feedPage.end_cursor;
+          pageCount++;
+        } while (cursor && feedPage.hasMore !== false && pageCount < MAX_PAGES);
       } else if (plat === 'YOUTUBE') {
-        const feed = await this.modashRawService.getYoutubeUploadedVideos(rawUserId);
-        for (const p of (feed.data || [])) {
-          const ts = new Date(p.publishedAt).getTime();
-          if (ts >= rangeStart && ts <= rangeEnd) {
-            rawPosts.push({
-              id: p.videoId,
-              description: p.title || '',
-              likes: p.likeCount || 0,
-              comments: p.commentCount || 0,
-              views: p.viewCount || 0,
-              shares: 0,
-              timestamp: ts,
-              thumbnail: p.thumbnail,
-              isSponsored: /\b(ad|sponsored|partner|collab)\b/i.test(p.title || ''),
-            });
+        let cursor: string | undefined;
+        let pageCount = 0;
+        let feedPage: any;
+        do {
+          feedPage = await this.modashRawService.getYoutubeUploadedVideos(rawUserId, cursor) as any;
+          for (const p of (feedPage.items || feedPage.data || [])) {
+            const ts = new Date(p.publishedAt).getTime();
+            if (ts >= rangeStart && ts <= rangeEnd) {
+              rawPosts.push({
+                id: p.videoId,
+                postUrl: `https://www.youtube.com/watch?v=${p.videoId}`,
+                postType: 'VIDEO',
+                description: p.title || '',
+                likes: p.likeCount || 0,
+                comments: p.commentCount || 0,
+                views: p.viewCount || 0,
+                shares: 0,
+                timestamp: ts,
+                thumbnail: p.thumbnail,
+                isSponsored: /\b(ad|sponsored|partner|collab)\b/i.test(p.title || ''),
+              });
+            }
           }
-        }
+          cursor = feedPage.cursor || feedPage.end_cursor;
+          pageCount++;
+        } while (cursor && feedPage.hasMore !== false && pageCount < MAX_PAGES);
       }
     } catch (err) {
       this.logger.error(`Raw API error for custom ER report ${report.id}: ${err.message}`);
@@ -246,8 +276,8 @@ export class CustomErService {
       const post = new CustomErPost();
       post.reportId = report.id;
       post.postId = rp.id;
-      post.postUrl = '';
-      post.postType = 'IMAGE' as any;
+      post.postUrl = rp.postUrl;
+      post.postType = rp.postType as any;
       post.thumbnailUrl = rp.thumbnail || '';
       post.description = rp.description;
       post.likesCount = rp.likes;
@@ -501,6 +531,34 @@ export class CustomErService {
   }
 
   /**
+   * Retry a failed report: clears old posts, resets status, re-triggers processing
+   */
+  async retryReport(userId: string, reportId: string): Promise<{ success: boolean; report: CustomErReport }> {
+    const report = await this.reportRepo.findOne({ where: { id: reportId } });
+
+    if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+
+    await this.checkReportAccess(userId, report, 'edit');
+
+    if (report.status !== CustomErReportStatus.FAILED) {
+      throw new BadRequestException('Only FAILED reports can be retried');
+    }
+
+    await this.postRepo.delete({ reportId: report.id });
+
+    report.status = CustomErReportStatus.PENDING;
+    report.errorMessage = undefined;
+    report.completedAt = undefined;
+    const savedReport = await this.reportRepo.save(report);
+
+    setTimeout(() => this.processReport(savedReport.id), 2000);
+
+    return { success: true, report: savedReport };
+  }
+
+  /**
    * Share report
    */
   async shareReport(userId: string, reportId: string, dto: ShareCustomErReportDto): Promise<{ success: boolean; shareUrl?: string }> {
@@ -524,7 +582,7 @@ export class CustomErService {
     report.isPublic = true;
     await this.reportRepo.save(report);
 
-    const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/custom-er/shared/${report.shareUrlToken}`;
+    const shareUrl = `/custom-er/shared/${report.shareUrlToken}`;
 
     return { success: true, shareUrl };
   }

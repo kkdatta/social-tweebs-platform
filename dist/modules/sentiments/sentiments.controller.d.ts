@@ -5,6 +5,7 @@ import { CreateSentimentReportDto, UpdateSentimentReportDto, ShareSentimentRepor
 export declare class SentimentsController {
     private readonly sentimentsService;
     constructor(sentimentsService: SentimentsService);
+    getSharedReport(token: string): Promise<SentimentReportDetailDto>;
     createReport(userId: string, dto: CreateSentimentReportDto): Promise<{
         success: boolean;
         reports: import("./entities").SentimentReport[];
@@ -34,5 +35,4 @@ export declare class SentimentsController {
         shareUrl?: string;
     }>;
     downloadPdf(userId: string, reportId: string, res: Response): Promise<StreamableFile>;
-    getSharedReport(token: string): Promise<SentimentReportDetailDto>;
 }

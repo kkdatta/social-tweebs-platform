@@ -121,7 +121,7 @@ export interface SearchFilters {
   influencer?: {
     // Basic Metrics
     followers?: { min?: number; max?: number };
-    engagementRate?: number;
+    engagementRate?: number | { min?: number; max?: number };
     engagements?: { min?: number; max?: number };
     reelsPlays?: { min?: number; max?: number };
 
@@ -167,6 +167,7 @@ export interface SearchFilters {
   audience?: {
     location?: { id: number; weight?: number }[];
     gender?: { id: 'MALE' | 'FEMALE'; weight?: number };
+    engagersGender?: { id: 'MALE' | 'FEMALE'; weight?: number };
     age?: { id: '13-17' | '18-24' | '25-34' | '35-44' | '45-64' | '65-'; weight?: number }[];
     ageRange?: { min?: string; max?: string; weight?: number };
     interests?: { id: number; weight?: number }[];

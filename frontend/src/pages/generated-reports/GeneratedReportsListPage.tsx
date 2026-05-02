@@ -62,7 +62,9 @@ interface DashboardStats {
 
 export const GeneratedReportsListPage = () => {
   const { user } = useAuth();
-  const canDelete = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+  const canDeleteReport = (report: { createdById?: string }) =>
+    isAdmin || report.createdById === user?.id;
   const menuRef = useRef<HTMLDivElement>(null);
 
   // State
@@ -222,7 +224,6 @@ export const GeneratedReportsListPage = () => {
   };
 
   const handleDelete = async (id: string, title: string) => {
-    if (!canDelete) return;
     if (!confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
       return;
     }
@@ -511,7 +512,7 @@ export const GeneratedReportsListPage = () => {
               Search
             </button>
 
-            {canDelete && selectedIds.length > 0 && (
+            {selectedIds.length > 0 && (
               <button
                 onClick={handleBulkDelete}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2"
@@ -542,21 +543,19 @@ export const GeneratedReportsListPage = () => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {canDelete && (
-                  <th className="px-4 py-3 text-left">
-                    <button
-                      type="button"
-                      onClick={toggleSelectAll}
-                      className="p-1 hover:bg-gray-200 rounded"
-                    >
-                      {selectedIds.length === currentReports.length ? (
-                        <CheckSquare className="w-5 h-5 text-purple-600" />
-                      ) : (
-                        <Square className="w-5 h-5 text-gray-400" />
-                      )}
-                    </button>
-                  </th>
-                )}
+                <th className="px-4 py-3 text-left">
+                  <button
+                    type="button"
+                    onClick={toggleSelectAll}
+                    className="p-1 hover:bg-gray-200 rounded"
+                  >
+                    {selectedIds.length === currentReports.length ? (
+                      <CheckSquare className="w-5 h-5 text-purple-600" />
+                    ) : (
+                      <Square className="w-5 h-5 text-gray-400" />
+                    )}
+                  </button>
+                </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                   Platform
                 </th>
@@ -580,21 +579,19 @@ export const GeneratedReportsListPage = () => {
             <tbody className="divide-y divide-gray-200">
               {currentReports.map((report: any) => (
                 <tr key={report.id} className="hover:bg-gray-50">
-                  {canDelete && (
-                    <td className="px-4 py-4">
-                      <button
-                        type="button"
-                        onClick={() => toggleSelection(report.id)}
-                        className="p-1 hover:bg-gray-200 rounded"
-                      >
-                        {selectedIds.includes(report.id) ? (
-                          <CheckSquare className="w-5 h-5 text-purple-600" />
-                        ) : (
-                          <Square className="w-5 h-5 text-gray-400" />
-                        )}
-                      </button>
-                    </td>
-                  )}
+                  <td className="px-4 py-4">
+                    <button
+                      type="button"
+                      onClick={() => toggleSelection(report.id)}
+                      className="p-1 hover:bg-gray-200 rounded"
+                    >
+                      {selectedIds.includes(report.id) ? (
+                        <CheckSquare className="w-5 h-5 text-purple-600" />
+                      ) : (
+                        <Square className="w-5 h-5 text-gray-400" />
+                      )}
+                    </button>
+                  </td>
                   <td className="px-4 py-4">{getPlatformIcon(report.platform)}</td>
                   <td className="px-4 py-4">
                     <div>
@@ -655,7 +652,7 @@ export const GeneratedReportsListPage = () => {
                             <Pencil className="w-4 h-4 shrink-0" />
                             Rename
                           </button>
-                          {canDelete && (
+                          {canDeleteReport(report) && (
                             <button
                               type="button"
                               onClick={() => handleDelete(report.id, report.title)}

@@ -20,18 +20,22 @@ const typeorm_2 = require("typeorm");
 const uuid_1 = require("uuid");
 const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
+const influencer_profile_entity_1 = require("../discovery/entities/influencer-profile.entity");
+const influencer_insight_entity_1 = require("../insights/entities/influencer-insight.entity");
 const credits_service_1 = require("../credits/credits.service");
 const enums_1 = require("../../common/enums");
 const modash_service_1 = require("../discovery/services/modash.service");
 const CREDIT_PER_INFLUENCER = 1;
 const RETRY_CREDIT_FLAT = 1;
 let CollabCheckService = CollabCheckService_1 = class CollabCheckService {
-    constructor(reportRepo, influencerRepo, postRepo, shareRepo, userRepo, creditsService, modashService) {
+    constructor(reportRepo, influencerRepo, postRepo, shareRepo, userRepo, profileRepo, insightRepo, creditsService, modashService) {
         this.reportRepo = reportRepo;
         this.influencerRepo = influencerRepo;
         this.postRepo = postRepo;
         this.shareRepo = shareRepo;
         this.userRepo = userRepo;
+        this.profileRepo = profileRepo;
+        this.insightRepo = insightRepo;
         this.creditsService = creditsService;
         this.modashService = modashService;
         this.logger = new common_1.Logger(CollabCheckService_1.name);
@@ -105,16 +109,7 @@ let CollabCheckService = CollabCheckService_1 = class CollabCheckService {
             await this.processReport(reportId);
             const report = await this.reportRepo.findOne({ where: { id: reportId } });
             if (report?.status === entities_1.CollabReportStatus.COMPLETED) {
-                await this.creditsService.deductCredits(userId, {
-                    actionType: enums_1.ActionType.REPORT_REFRESH,
-                    quantity: creditsToCharge,
-                    module: enums_1.ModuleType.INFLUENCER_COLLAB_CHECK,
-                    resourceId: reportId,
-                    resourceType: 'collab_report_retry',
-                });
-                report.creditsUsed += creditsToCharge;
-                await this.reportRepo.save(report);
-                this.logger.log(`Collab retry ${reportId}: charged ${creditsToCharge} credits after success`);
+                this.logger.log(`Collab retry ${reportId}: completed successfully (credits already charged by processReport)`);
             }
             else {
                 this.logger.log(`Collab retry ${reportId}: NOT charging — report did not complete successfully`);
@@ -178,6 +173,22 @@ let CollabCheckService = CollabCheckService_1 = class CollabCheckService {
             totalViews += infViews;
             totalComments += infComments;
             totalShares += infShares;
+        }
+        totalFollowers = 0;
+        const reportPlatform = (report.platform?.toUpperCase() || 'INSTAGRAM');
+        for (const influencer of report.influencers) {
+            try {
+                const modashReport = await this.modashService.getInfluencerReport(reportPlatform, influencer.influencerUsername || '', report.ownerId);
+                const profileData = modashReport?.profile || modashReport;
+                influencer.followerCount = Number(profileData?.followers) || influencer.followerCount;
+                const fc = Number(influencer.followerCount) || 0;
+                const denom = influencer.postsCount * fc;
+                influencer.avgEngagementRate = denom > 0 ? ((influencer.likesCount + influencer.commentsCount) / denom) * 100 : 0;
+                await this.influencerRepo.save(influencer);
+            }
+            catch (err) {
+                this.logger.warn(`Failed to fetch follower count for ${influencer.influencerUsername}: ${err.message}`);
+            }
             totalFollowers += Number(influencer.followerCount) || 0;
         }
         report.totalPosts = totalPosts;
@@ -419,7 +430,7 @@ let CollabCheckService = CollabCheckService_1 = class CollabCheckService {
         }
         report.isPublic = true;
         await this.reportRepo.save(report);
-        const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/collab-check/shared/${report.shareUrlToken}`;
+        const shareUrl = `/collab-check/shared/${report.shareUrlToken}`;
         return { success: true, shareUrl };
     }
     async getDashboardStats(userId) {
@@ -474,18 +485,54 @@ let CollabCheckService = CollabCheckService_1 = class CollabCheckService {
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     }
     async searchInfluencers(platform, query, limit = 10) {
-        const dummyInfluencers = [
-            { id: '1', username: 'fashion_star', fullName: 'Fashion Star', followers: 150000, profilePicture: 'https://ui-avatars.com/api/?name=FS' },
-            { id: '2', username: 'travel_guru', fullName: 'Travel Guru', followers: 250000, profilePicture: 'https://ui-avatars.com/api/?name=TG' },
-            { id: '3', username: 'fitness_pro', fullName: 'Fitness Pro', followers: 180000, profilePicture: 'https://ui-avatars.com/api/?name=FP' },
-            { id: '4', username: 'tech_reviewer', fullName: 'Tech Reviewer', followers: 320000, profilePicture: 'https://ui-avatars.com/api/?name=TR' },
-            { id: '5', username: 'food_blogger', fullName: 'Food Blogger', followers: 95000, profilePicture: 'https://ui-avatars.com/api/?name=FB' },
-        ];
-        return dummyInfluencers
-            .filter(inf => !query ||
-            inf.username.toLowerCase().includes(query.toLowerCase()) ||
-            inf.fullName.toLowerCase().includes(query.toLowerCase()))
-            .slice(0, limit);
+        const safePlatform = (platform || 'INSTAGRAM').toUpperCase();
+        const likeQ = query ? `%${query.toLowerCase()}%` : null;
+        const profileQb = this.profileRepo.createQueryBuilder('profile')
+            .where('profile.platform = :platform', { platform: safePlatform });
+        if (likeQ) {
+            profileQb.andWhere('(LOWER(profile.username) LIKE :query OR LOWER(profile.fullName) LIKE :query)', { query: likeQ });
+        }
+        profileQb.orderBy('profile.followerCount', 'DESC').take(limit);
+        const profiles = await profileQb.getMany();
+        const insightQb = this.insightRepo.createQueryBuilder('i')
+            .where('i.platform = :platform', { platform: safePlatform });
+        if (likeQ) {
+            insightQb.andWhere('(LOWER(i.username) LIKE :query OR LOWER(i.fullName) LIKE :query)', { query: likeQ });
+        }
+        insightQb.orderBy('i.followerCount', 'DESC').take(limit);
+        const insights = await insightQb.getMany();
+        const seen = new Set();
+        const merged = [];
+        for (const p of profiles) {
+            const key = (p.username || '').toLowerCase();
+            if (seen.has(key))
+                continue;
+            seen.add(key);
+            merged.push({
+                userId: p.id,
+                username: p.username || '',
+                fullName: p.fullName || undefined,
+                profilePicUrl: p.profilePictureUrl || undefined,
+                platform: p.platform,
+                followerCount: Number(p.followerCount) || 0,
+            });
+        }
+        for (const i of insights) {
+            const key = (i.username || '').toLowerCase();
+            if (seen.has(key))
+                continue;
+            seen.add(key);
+            merged.push({
+                userId: i.id,
+                username: i.username || '',
+                fullName: i.fullName || undefined,
+                profilePicUrl: i.profilePictureUrl || undefined,
+                platform: i.platform,
+                followerCount: Number(i.followerCount) || 0,
+            });
+        }
+        merged.sort((a, b) => b.followerCount - a.followerCount);
+        return merged.slice(0, limit);
     }
     async getTeamUserIds(userId) {
         const user = await this.userRepo.findOne({ where: { id: userId } });
@@ -613,7 +660,11 @@ exports.CollabCheckService = CollabCheckService = CollabCheckService_1 = __decor
     __param(2, (0, typeorm_1.InjectRepository)(entities_1.CollabCheckPost)),
     __param(3, (0, typeorm_1.InjectRepository)(entities_1.CollabCheckShare)),
     __param(4, (0, typeorm_1.InjectRepository)(user_entity_1.User)),
+    __param(5, (0, typeorm_1.InjectRepository)(influencer_profile_entity_1.InfluencerProfile)),
+    __param(6, (0, typeorm_1.InjectRepository)(influencer_insight_entity_1.InfluencerInsight)),
     __metadata("design:paramtypes", [typeorm_2.Repository,
+        typeorm_2.Repository,
+        typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,
         typeorm_2.Repository,

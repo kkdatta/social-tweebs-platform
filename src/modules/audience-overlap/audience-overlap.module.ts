@@ -9,6 +9,7 @@ import {
 } from './entities';
 import { User } from '../users/entities/user.entity';
 import { InfluencerProfile } from '../discovery/entities/influencer-profile.entity';
+import { InfluencerInsight } from '../insights/entities/influencer-insight.entity';
 import { CreditsModule } from '../credits/credits.module';
 import { DiscoveryModule } from '../discovery/discovery.module';
 
@@ -20,6 +21,7 @@ import { DiscoveryModule } from '../discovery/discovery.module';
       AudienceOverlapShare,
       User,
       InfluencerProfile,
+      InfluencerInsight,
     ]),
     CreditsModule,
     DiscoveryModule,

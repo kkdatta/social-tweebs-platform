@@ -192,10 +192,9 @@ export class InfluencerFiltersDto {
   @Type(() => RangeFilter)
   followers?: RangeFilter;
 
-  @ApiPropertyOptional({ description: 'Minimum engagement rate (e.g., 0.02 for 2%)' })
+  @ApiPropertyOptional({ description: 'Engagement rate: number for >= (e.g. 0.02 for 2%), or {min,max} range' })
   @IsOptional()
-  @IsNumber()
-  engagementRate?: number;
+  engagementRate?: number | RangeFilter;
 
   @ApiPropertyOptional({ type: RangeFilter, description: 'Engagements count range (NEW)' })
   @IsOptional()
@@ -375,12 +374,21 @@ export class AudienceFiltersDto {
 
   @ApiPropertyOptional({ 
     type: GenderFilter, 
-    description: 'Audience gender with weight (default 0.5)' 
+    description: 'Audience gender (followers) with weight (default 0.5)' 
   })
   @IsOptional()
   @ValidateNested()
   @Type(() => GenderFilter)
   gender?: GenderFilter;
+
+  @ApiPropertyOptional({ 
+    type: GenderFilter, 
+    description: 'Engagers gender with weight (default 0.5)' 
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => GenderFilter)
+  engagersGender?: GenderFilter;
 
   @ApiPropertyOptional({ 
     type: [AgeFilter], 

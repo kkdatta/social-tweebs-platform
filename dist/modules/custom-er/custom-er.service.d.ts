@@ -33,6 +33,10 @@ export declare class CustomErService {
     deleteReport(userId: string, reportId: string): Promise<{
         success: boolean;
     }>;
+    retryReport(userId: string, reportId: string): Promise<{
+        success: boolean;
+        report: CustomErReport;
+    }>;
     shareReport(userId: string, reportId: string, dto: ShareCustomErReportDto): Promise<{
         success: boolean;
         shareUrl?: string;

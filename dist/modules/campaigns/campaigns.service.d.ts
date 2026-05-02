@@ -2,6 +2,8 @@ import { ConfigService } from '@nestjs/config';
 import { Repository, DataSource } from 'typeorm';
 import { Campaign, CampaignInfluencer, CampaignDeliverable, CampaignMetric, CampaignPost, CampaignShare } from './entities/campaign.entity';
 import { User } from '../users/entities/user.entity';
+import { InfluencerInsight } from '../insights/entities/influencer-insight.entity';
+import { ModashService } from '../discovery/services/modash.service';
 import { MailService } from '../../common/services/mail.service';
 import { CreditsService } from '../credits/credits.service';
 import { CreateCampaignDto, UpdateCampaignDto, AddInfluencerDto, UpdateInfluencerDto, CreateDeliverableDto, UpdateDeliverableDto, RecordMetricsDto, ShareCampaignDto, CampaignFilterDto, CampaignDetailDto, CampaignMetricsSummary, CampaignListResponseDto, AddPostDto, PostFilterDto, InfluencerFilterDto, TimelineDataPoint } from './dto/campaign.dto';
@@ -13,12 +15,14 @@ export declare class CampaignsService {
     private postRepo;
     private shareRepo;
     private userRepo;
+    private insightRepo;
+    private modashService;
     private creditsService;
     private dataSource;
     private mailService;
     private configService;
     private readonly logger;
-    constructor(campaignRepo: Repository<Campaign>, influencerRepo: Repository<CampaignInfluencer>, deliverableRepo: Repository<CampaignDeliverable>, metricRepo: Repository<CampaignMetric>, postRepo: Repository<CampaignPost>, shareRepo: Repository<CampaignShare>, userRepo: Repository<User>, creditsService: CreditsService, dataSource: DataSource, mailService: MailService, configService: ConfigService);
+    constructor(campaignRepo: Repository<Campaign>, influencerRepo: Repository<CampaignInfluencer>, deliverableRepo: Repository<CampaignDeliverable>, metricRepo: Repository<CampaignMetric>, postRepo: Repository<CampaignPost>, shareRepo: Repository<CampaignShare>, userRepo: Repository<User>, insightRepo: Repository<InfluencerInsight>, modashService: ModashService, creditsService: CreditsService, dataSource: DataSource, mailService: MailService, configService: ConfigService);
     private getClientAdminId;
     private getClientCampaignCount;
     createCampaign(userId: string, dto: CreateCampaignDto): Promise<Campaign>;
@@ -27,10 +31,17 @@ export declare class CampaignsService {
     updateCampaign(userId: string, campaignId: string, dto: UpdateCampaignDto): Promise<Campaign>;
     deleteCampaign(userId: string, campaignId: string): Promise<void>;
     addInfluencer(userId: string, campaignId: string, dto: AddInfluencerDto): Promise<CampaignInfluencer>;
+    private enrichInfluencer;
     getInfluencers(userId: string, campaignId: string, filters?: InfluencerFilterDto): Promise<CampaignInfluencer[]>;
     updateInfluencer(userId: string, campaignId: string, influencerId: string, dto: UpdateInfluencerDto): Promise<CampaignInfluencer>;
     removeInfluencer(userId: string, campaignId: string, influencerId: string): Promise<void>;
-    addPost(userId: string, campaignId: string, dto: AddPostDto): Promise<CampaignPost>;
+    addPost(userId: string, campaignId: string, dto: AddPostDto): Promise<{
+        post: CampaignPost;
+        warning?: string;
+    }>;
+    private enrichAndValidatePost;
+    private parsePostUrl;
+    private enrichPost;
     getPosts(userId: string, campaignId: string, filters?: PostFilterDto): Promise<{
         posts: CampaignPost[];
         total: number;
@@ -44,7 +55,11 @@ export declare class CampaignsService {
     recordMetrics(userId: string, campaignId: string, dto: RecordMetricsDto): Promise<CampaignMetric>;
     getCampaignMetrics(campaignId: string): Promise<CampaignMetricsSummary>;
     getTimeline(campaignId: string): Promise<TimelineDataPoint[]>;
+    processCampaign(campaignId: string): Promise<void>;
+    private constructPostUrl;
+    private computeCampaignStatus;
     getAnalytics(userId: string, campaignId: string): Promise<any>;
+    private buildAudienceOverview;
     getCreditNotification(userId: string): Promise<{
         showWarning: boolean;
         message: string;

@@ -13,6 +13,8 @@ const collab_check_controller_1 = require("./collab-check.controller");
 const collab_check_service_1 = require("./collab-check.service");
 const entities_1 = require("./entities");
 const user_entity_1 = require("../users/entities/user.entity");
+const influencer_profile_entity_1 = require("../discovery/entities/influencer-profile.entity");
+const influencer_insight_entity_1 = require("../insights/entities/influencer-insight.entity");
 const credits_module_1 = require("../credits/credits.module");
 const discovery_module_1 = require("../discovery/discovery.module");
 let CollabCheckModule = class CollabCheckModule {
@@ -27,6 +29,8 @@ exports.CollabCheckModule = CollabCheckModule = __decorate([
                 entities_1.CollabCheckPost,
                 entities_1.CollabCheckShare,
                 user_entity_1.User,
+                influencer_profile_entity_1.InfluencerProfile,
+                influencer_insight_entity_1.InfluencerInsight,
             ]),
             credits_module_1.CreditsModule,
             discovery_module_1.DiscoveryModule,

@@ -12,6 +12,7 @@ import {
 import { User } from '../users/entities/user.entity';
 import { CreditsModule } from '../credits/credits.module';
 import { DiscoveryModule } from '../discovery/discovery.module';
+import { GeneratedReportsModule } from '../generated-reports/generated-reports.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { DiscoveryModule } from '../discovery/discovery.module';
     ]),
     CreditsModule,
     DiscoveryModule,
+    GeneratedReportsModule,
   ],
   controllers: [PaidCollaborationController],
   providers: [PaidCollaborationService],

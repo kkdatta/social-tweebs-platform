@@ -47,7 +47,7 @@ declare class FilterOperationDto {
 }
 export declare class InfluencerFiltersDto {
     followers?: RangeFilter;
-    engagementRate?: number;
+    engagementRate?: number | RangeFilter;
     engagements?: RangeFilter;
     reelsPlays?: RangeFilter;
     location?: number[];
@@ -75,6 +75,7 @@ export declare class InfluencerFiltersDto {
 export declare class AudienceFiltersDto {
     location?: LocationFilter[];
     gender?: GenderFilter;
+    engagersGender?: GenderFilter;
     age?: AgeFilter[];
     ageRange?: AgeRangeFilter;
     interests?: InterestFilter[];

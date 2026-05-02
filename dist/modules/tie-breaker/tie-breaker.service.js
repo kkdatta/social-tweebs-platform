@@ -629,7 +629,7 @@ let TieBreakerService = TieBreakerService_1 = class TieBreakerService {
                 await this.shareRepo.save(share);
             }
         }
-        const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/tie-breaker/shared/${comparison.shareUrlToken}`;
+        const shareUrl = `/tie-breaker/shared/${comparison.shareUrlToken}`;
         return { success: true, shareUrl };
     }
     async getDashboardStats(userId) {

@@ -802,7 +802,7 @@ export class TieBreakerService {
       }
     }
 
-    const shareUrl = `${process.env.APP_URL || 'http://localhost:5173'}/tie-breaker/shared/${comparison.shareUrlToken}`;
+    const shareUrl = `/tie-breaker/shared/${comparison.shareUrlToken}`;
 
     return { success: true, shareUrl };
   }

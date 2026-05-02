@@ -14,6 +14,8 @@ const campaigns_service_1 = require("./campaigns.service");
 const campaign_entity_1 = require("./entities/campaign.entity");
 const user_entity_1 = require("../users/entities/user.entity");
 const credits_module_1 = require("../credits/credits.module");
+const discovery_module_1 = require("../discovery/discovery.module");
+const influencer_insight_entity_1 = require("../insights/entities/influencer-insight.entity");
 let CampaignsModule = class CampaignsModule {
 };
 exports.CampaignsModule = CampaignsModule;
@@ -28,8 +30,10 @@ exports.CampaignsModule = CampaignsModule = __decorate([
                 campaign_entity_1.CampaignPost,
                 campaign_entity_1.CampaignShare,
                 user_entity_1.User,
+                influencer_insight_entity_1.InfluencerInsight,
             ]),
             credits_module_1.CreditsModule,
+            discovery_module_1.DiscoveryModule,
         ],
         controllers: [campaigns_controller_1.CampaignsController],
         providers: [campaigns_service_1.CampaignsService],

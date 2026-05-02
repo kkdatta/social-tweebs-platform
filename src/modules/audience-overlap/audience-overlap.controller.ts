@@ -33,15 +33,26 @@ import {
 } from './dto';
 
 @ApiTags('audience-overlap')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('audience-overlap')
 export class AudienceOverlapController {
   constructor(private readonly overlapService: AudienceOverlapService) {}
 
+  // ==================== Public Access (must be first to avoid :id param catch) ====================
+
+  @Get('shared/:token')
+  @ApiOperation({ summary: 'Get publicly shared report by token' })
+  @ApiParam({ name: 'token', description: 'Share URL token' })
+  @ApiResponse({ status: 200, type: OverlapReportDetailDto })
+  @ApiResponse({ status: 404, description: 'Report not found or not public' })
+  async getSharedReport(@Param('token') token: string): Promise<OverlapReportDetailDto> {
+    return this.overlapService.getReportByShareToken(token);
+  }
+
   // ==================== Report CRUD ====================
 
   @Post()
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Create a new audience overlap report' })
   @ApiResponse({ status: 201, description: 'Report created successfully' })
   @ApiResponse({ status: 400, description: 'Invalid request' })
@@ -53,6 +64,8 @@ export class AudienceOverlapController {
   }
 
   @Get()
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get list of audience overlap reports' })
   @ApiQuery({ name: 'platform', required: false, enum: ['INSTAGRAM', 'YOUTUBE', 'ALL'] })
   @ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'IN_PROCESS', 'COMPLETED', 'FAILED'] })
@@ -69,6 +82,8 @@ export class AudienceOverlapController {
   }
 
   @Get('dashboard')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get dashboard statistics' })
   @ApiResponse({ status: 200, type: DashboardStatsDto })
   async getDashboardStats(@CurrentUser('id') userId: string): Promise<DashboardStatsDto> {
@@ -76,6 +91,8 @@ export class AudienceOverlapController {
   }
 
   @Get(':id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get report details by ID' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, type: OverlapReportDetailDto })
@@ -88,6 +105,8 @@ export class AudienceOverlapController {
   }
 
   @Get(':id/download')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Download report as XLSX' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'XLSX file download' })
@@ -106,6 +125,8 @@ export class AudienceOverlapController {
   }
 
   @Patch(':id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Update report (title, visibility)' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'Report updated' })
@@ -119,6 +140,8 @@ export class AudienceOverlapController {
   }
 
   @Delete(':id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Delete report' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'Report deleted' })
@@ -133,6 +156,8 @@ export class AudienceOverlapController {
   // ==================== Report Actions ====================
 
   @Post(':id/retry')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Retry failed report (costs 1 credit)' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'Report retry initiated' })
@@ -145,6 +170,8 @@ export class AudienceOverlapController {
   }
 
   @Post(':id/share')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Share report with user or get shareable link' })
   @ApiParam({ name: 'id', description: 'Report ID' })
   @ApiResponse({ status: 200, description: 'Report shared' })
@@ -156,20 +183,11 @@ export class AudienceOverlapController {
     return this.overlapService.shareReport(userId, reportId, dto);
   }
 
-  // ==================== Public Access ====================
-
-  @Get('shared/:token')
-  @ApiOperation({ summary: 'Get publicly shared report by token' })
-  @ApiParam({ name: 'token', description: 'Share URL token' })
-  @ApiResponse({ status: 200, type: OverlapReportDetailDto })
-  @ApiResponse({ status: 404, description: 'Report not found or not public' })
-  async getSharedReport(@Param('token') token: string): Promise<OverlapReportDetailDto> {
-    return this.overlapService.getReportByShareToken(token);
-  }
-
   // ==================== Search ====================
 
   @Get('search/influencers')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Search influencers to add to report' })
   @ApiQuery({ name: 'platform', required: true, enum: ['INSTAGRAM', 'YOUTUBE'] })
   @ApiQuery({ name: 'q', required: true, description: 'Search query' })

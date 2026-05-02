@@ -385,9 +385,10 @@ const DiscoveryPage: React.FC = () => {
 
 
   // Complete filters state
+  const DEFAULT_LOCATION = [304716]; // India (Modash location ID)
   const [filters, setFilters] = useState<SearchFilters>({
     platform: selectedPlatform,
-    influencer: {},
+    influencer: { location: DEFAULT_LOCATION },
     audience: {},
     sort: { field: 'followers', direction: 'desc' },
     page: 0,
@@ -397,27 +398,64 @@ const DiscoveryPage: React.FC = () => {
     const inf = filters.influencer || {};
     const aud = filters.audience || {};
     switch (category) {
-      case 'demographics': {
+      case 'demographics':
+      case 'location': {
+        if (inf.location?.length) return `${inf.location.length} location${inf.location.length > 1 ? 's' : ''}`;
+        return null;
+      }
+      case 'language': {
         const parts: string[] = [];
-        if (inf.location?.length) parts.push(`${inf.location.length} location${inf.location.length > 1 ? 's' : ''}`);
-        if (inf.language) parts.push(inf.language.toUpperCase());
-        if (inf.gender) parts.push(inf.gender === 'MALE' ? 'Male' : 'Female');
-        if (inf.age?.min || inf.age?.max) parts.push(`Age ${inf.age.min || '?'}-${inf.age.max || '?'}`);
+        if (inf.language) parts.push(`Inf: ${inf.language.toUpperCase()}`);
+        if (aud.language) parts.push(`Aud: ${(aud.language.id || '').toUpperCase()}`);
+        return parts.length > 0 ? parts.join(', ') : null;
+      }
+      case 'gender': {
+        const parts: string[] = [];
+        if (aud.engagersGender) parts.push(`Eng: ${aud.engagersGender.id === 'MALE' ? 'M' : 'F'}`);
+        if (aud.gender) parts.push(`Fol: ${aud.gender.id === 'MALE' ? 'M' : 'F'}`);
+        if (inf.gender) {
+          const gMap: Record<string, string> = { MALE: 'M', FEMALE: 'F', KNOWN: 'M/F', UNKNOWN: 'Neutral' };
+          parts.push(`Inf: ${gMap[inf.gender] || inf.gender}`);
+        }
+        return parts.length > 0 ? parts.join(', ') : null;
+      }
+      case 'age': {
+        const parts: string[] = [];
+        if (inf.age?.min || inf.age?.max) {
+          if (inf.age?.max) parts.push(`Inf: ${inf.age.min || '?'}-${inf.age.max}`);
+          else parts.push(`Inf: ${inf.age.min}+`);
+        }
+        if (aud.ageRange?.min || aud.ageRange?.max) {
+          if (aud.ageRange?.max) parts.push(`Aud: ${aud.ageRange.min || '?'}-${aud.ageRange.max}`);
+          else parts.push(`Aud: ${aud.ageRange.min}+`);
+        }
         return parts.length > 0 ? parts.join(', ') : null;
       }
       case 'audience': {
         const parts: string[] = [];
         if (aud.location?.length) parts.push(`${aud.location.length} loc`);
-        if (aud.gender) parts.push(aud.gender === 'MALE' ? 'Male' : 'Female');
         if (aud.age?.length) parts.push(`${aud.age.length} age group${aud.age.length > 1 ? 's' : ''}`);
         if (aud.credibility) parts.push(`${Math.round(aud.credibility * 100)}% real`);
+        return parts.length > 0 ? parts.join(', ') : null;
+      }
+      case 'engagement':
+      case 'engagements': {
+        const parts: string[] = [];
+        const er = inf.engagementRate;
+        if (er != null) {
+          if (typeof er === 'number') parts.push(`ER >= ${(er * 100).toFixed(1)}%`);
+          else if (er.min != null && er.max != null) parts.push(`ER ${(er.min * 100).toFixed(1)}-${(er.max * 100).toFixed(1)}%`);
+          else if (er.min != null) parts.push(`ER >= ${(er.min * 100).toFixed(1)}%`);
+        }
+        if (inf.engagements) {
+          if (inf.engagements.min != null && inf.engagements.max != null) parts.push(`${inf.engagements.min.toLocaleString()}-${inf.engagements.max.toLocaleString()}`);
+          else if (inf.engagements.min != null) parts.push(`>= ${inf.engagements.min.toLocaleString()}`);
+        }
         return parts.length > 0 ? parts.join(', ') : null;
       }
       case 'metrics': {
         const parts: string[] = [];
         if (inf.followers) parts.push('Followers');
-        if (inf.engagementRate) parts.push('ER');
-        if (inf.engagements) parts.push('Engagements');
         if (inf.reelsPlays) parts.push('Reels');
         return parts.length > 0 ? parts.join(', ') : null;
       }
@@ -454,9 +492,13 @@ const DiscoveryPage: React.FC = () => {
         return parts.length > 0 ? parts.join(', ') : null;
       }
       case 'brands': {
+        if (inf.brands?.length) return `${inf.brands.length} brand${inf.brands.length > 1 ? 's' : ''}`;
+        return null;
+      }
+      case 'interests': {
         const parts: string[] = [];
-        if (inf.brands?.length) parts.push(`${inf.brands.length} brand${inf.brands.length > 1 ? 's' : ''}`);
-        if (inf.interests?.length) parts.push(`${inf.interests.length} interest${inf.interests.length > 1 ? 's' : ''}`);
+        if (inf.interests?.length) parts.push(`${inf.interests.length} influencer`);
+        if (aud.interests?.length) parts.push(`${aud.interests.length} audience`);
         return parts.length > 0 ? parts.join(', ') : null;
       }
       default:
@@ -565,7 +607,6 @@ const DiscoveryPage: React.FC = () => {
     }).catch(() => {});
   }, []);
 
-  // Blur Gate: check if blurred influencers exist before allowing load more
   const hasBlurredInCurrentBatch = influencers.some((i) => i.isBlurred);
 
   const handleLoadMore = () => {
@@ -721,7 +762,7 @@ const DiscoveryPage: React.FC = () => {
   const resetFilters = () => {
     setFilters({
       platform: selectedPlatform,
-      influencer: {},
+      influencer: { location: DEFAULT_LOCATION },
       audience: {},
       sort: { field: 'followers', direction: 'desc' },
       page: 0,
@@ -841,17 +882,6 @@ const DiscoveryPage: React.FC = () => {
                   <input type="number" placeholder="Max" value={filters.influencer?.followers?.max || ''} onChange={(e) => updateInfluencerFilter('followers', { ...filters.influencer?.followers, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-gray-600 mb-1 block">Min Engagement Rate (%)</label>
-                <input type="number" step="0.1" placeholder="e.g., 2.5" value={filters.influencer?.engagementRate ? filters.influencer.engagementRate * 100 : ''} onChange={(e) => updateInfluencerFilter('engagementRate', e.target.value ? parseFloat(e.target.value) / 100 : undefined)} className="input py-1.5 text-sm w-full" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 mb-1 block">Engagements</label>
-                <div className="flex gap-2">
-                  <input type="number" placeholder="Min" value={filters.influencer?.engagements?.min || ''} onChange={(e) => updateInfluencerFilter('engagements', { ...filters.influencer?.engagements, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
-                  <input type="number" placeholder="Max" value={filters.influencer?.engagements?.max || ''} onChange={(e) => updateInfluencerFilter('engagements', { ...filters.influencer?.engagements, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
-                </div>
-              </div>
               {selectedPlatform === 'INSTAGRAM' && (
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block flex items-center gap-1"><Play className="w-3 h-3" /> Reels Plays</label>
@@ -861,6 +891,84 @@ const DiscoveryPage: React.FC = () => {
                   </div>
                 </div>
               )}
+            </div>
+          </div>}
+        </div>
+
+        {/* Engagement Rate Filter */}
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('engagement')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'engagement' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('engagement') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+            <Heart className="w-3.5 h-3.5" />
+            <span>Engagement</span>
+            {getFilterSummary('engagement') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('engagement')})</span>
+            )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'engagement' ? 'rotate-180' : ''}`} />
+          </button>
+          {openFilter === 'engagement' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Engagement Rate (%)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number" step="0.1" placeholder="From"
+                    value={(() => {
+                      const er = filters.influencer?.engagementRate;
+                      if (er == null) return '';
+                      if (typeof er === 'number') return (er * 100).toFixed(1);
+                      return er.min != null ? (er.min * 100).toFixed(1) : '';
+                    })()}
+                    onChange={(e) => {
+                      const val = e.target.value ? parseFloat(e.target.value) / 100 : undefined;
+                      const cur = filters.influencer?.engagementRate;
+                      const curMax = (cur && typeof cur === 'object') ? cur.max : undefined;
+                      if (val != null && curMax == null) {
+                        updateInfluencerFilter('engagementRate', val);
+                      } else if (val != null || curMax != null) {
+                        updateInfluencerFilter('engagementRate', { min: val, max: curMax });
+                      } else {
+                        updateInfluencerFilter('engagementRate', undefined);
+                      }
+                    }}
+                    className={`input py-1.5 text-sm flex-1 ${(() => {
+                      const er = filters.influencer?.engagementRate;
+                      const hasMin = er != null && (typeof er === 'number' || (typeof er === 'object' && er.min != null));
+                      return hasMin ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : '';
+                    })()}`}
+                  />
+                  <input
+                    type="number" step="0.1" placeholder="To"
+                    value={(() => {
+                      const er = filters.influencer?.engagementRate;
+                      if (er == null || typeof er === 'number') return '';
+                      return er.max != null ? (er.max * 100).toFixed(1) : '';
+                    })()}
+                    onChange={(e) => {
+                      const val = e.target.value ? parseFloat(e.target.value) / 100 : undefined;
+                      const cur = filters.influencer?.engagementRate;
+                      const curMin = typeof cur === 'number' ? cur : (cur && typeof cur === 'object' ? cur.min : undefined);
+                      if (curMin != null || val != null) {
+                        updateInfluencerFilter('engagementRate', { min: curMin, max: val });
+                      } else {
+                        updateInfluencerFilter('engagementRate', undefined);
+                      }
+                    }}
+                    className={`input py-1.5 text-sm flex-1 ${(() => {
+                      const er = filters.influencer?.engagementRate;
+                      return er && typeof er === 'object' && er.max != null ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : '';
+                    })()}`}
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Only "From" for &gt;= filter, or both for a range</p>
+              </div>
+              <div className="border-t border-gray-100 pt-3">
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Engagements (count)</label>
+                <div className="flex gap-2">
+                  <input type="number" placeholder="From" value={filters.influencer?.engagements?.min || ''} onChange={(e) => updateInfluencerFilter('engagements', { ...filters.influencer?.engagements, min: e.target.value ? parseInt(e.target.value) : undefined })} className={`input py-1.5 text-sm flex-1 ${filters.influencer?.engagements?.min ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : ''}`} />
+                  <input type="number" placeholder="To" value={filters.influencer?.engagements?.max || ''} onChange={(e) => updateInfluencerFilter('engagements', { ...filters.influencer?.engagements, max: e.target.value ? parseInt(e.target.value) : undefined })} className={`input py-1.5 text-sm flex-1 ${filters.influencer?.engagements?.max ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : ''}`} />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Average engagements per post</p>
+              </div>
             </div>
           </div>}
         </div>
@@ -1024,69 +1132,171 @@ const DiscoveryPage: React.FC = () => {
           </div>}
         </div>
 
+        {/* Location Filter */}
         <div className="relative">
-          <button type="button" onClick={() => toggleFilter('demographics')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'demographics' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('demographics') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
-            <Globe className="w-3.5 h-3.5" />
-            <span>Demographics</span>
-            {getFilterSummary('demographics') && (
-              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('demographics')})</span>
+          <button type="button" onClick={() => toggleFilter('location')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'location' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('location') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+            <MapPin className="w-3.5 h-3.5" />
+            <span>Location</span>
+            {getFilterSummary('location') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('location')})</span>
             )}
-            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'demographics' ? 'rotate-180' : ''}`} />
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'location' ? 'rotate-180' : ''}`} />
           </button>
-          {openFilter === 'demographics' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+          {openFilter === 'location' && <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+            <label className="text-xs text-gray-600 mb-1 block">Location</label>
+            <AsyncSelect
+              value={filters.influencer?.location || []}
+              onChange={(ids) => updateInfluencerFilter('location', ids.length > 0 ? ids : undefined)}
+              fetchOptions={async (q) => (await discoveryApi.getLocations(q)).map((l) => ({ id: l.id, name: l.name }))}
+              placeholder="Select locations..."
+            />
+          </div>}
+        </div>
+
+        {/* Language Filter */}
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('language')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'language' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('language') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+            <Globe className="w-3.5 h-3.5" />
+            <span>Language</span>
+            {getFilterSummary('language') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('language')})</span>
+            )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'language' ? 'rotate-180' : ''}`} />
+          </button>
+          {openFilter === 'language' && <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-600 mb-1 block">Location</label>
-                <AsyncSelect
-                  value={filters.influencer?.location || []}
-                  onChange={(ids) => updateInfluencerFilter('location', ids.length > 0 ? ids : undefined)}
-                  fetchOptions={async (q) => (await discoveryApi.getLocations(q)).map((l) => ({ id: l.id, name: l.name }))}
-                  placeholder="Select locations..."
-                />
+                <label className="text-xs text-gray-600 mb-1 block">Influencer Language</label>
+                <select value={filters.influencer?.language || ''} onChange={(e) => updateInfluencerFilter('language', e.target.value || undefined)} className={`input py-1.5 text-sm w-full ${filters.influencer?.language ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : ''}`}>
+                  <option value="">Any</option>
+                  <option value="en">English</option>
+                  <option value="es">Spanish</option>
+                  <option value="fr">French</option>
+                  <option value="de">German</option>
+                  <option value="pt">Portuguese</option>
+                  <option value="hi">Hindi</option>
+                  <option value="ar">Arabic</option>
+                  <option value="zh">Chinese</option>
+                  <option value="ja">Japanese</option>
+                  <option value="ko">Korean</option>
+                </select>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs text-gray-600 mb-1 block">Language</label>
-                  <select value={filters.influencer?.language || ''} onChange={(e) => updateInfluencerFilter('language', e.target.value || undefined)} className={`input py-1.5 text-sm w-full ${filters.influencer?.language ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : ''}`}>
-                    <option value="">Any</option>
-                    <option value="en">English</option>
-                    <option value="es">Spanish</option>
-                    <option value="fr">French</option>
-                    <option value="de">German</option>
-                    <option value="pt">Portuguese</option>
-                    <option value="hi">Hindi</option>
-                    <option value="ar">Arabic</option>
-                    <option value="zh">Chinese</option>
-                    <option value="ja">Japanese</option>
-                    <option value="ko">Korean</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-600 mb-1 block">Gender</label>
-                  <select value={filters.influencer?.gender || ''} onChange={(e) => updateInfluencerFilter('gender', e.target.value || undefined)} className={`input py-1.5 text-sm w-full ${filters.influencer?.gender ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : ''}`}>
-                    <option value="">Any</option>
-                    <option value="MALE">Male</option>
-                    <option value="FEMALE">Female</option>
-                  </select>
-                </div>
+              <div className="border-t border-gray-200 pt-3">
+                <label className="text-xs text-gray-600 mb-1 block">Audience Language</label>
+                <select value={filters.audience?.language?.id || ''} onChange={(e) => updateAudienceFilter('language', e.target.value ? { id: e.target.value, weight: 0.2 } : undefined)} className={`input py-1.5 text-sm w-full ${filters.audience?.language ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : ''}`}>
+                  <option value="">Any</option>
+                  <option value="en">English</option>
+                  <option value="es">Spanish</option>
+                  <option value="fr">French</option>
+                  <option value="de">German</option>
+                  <option value="pt">Portuguese</option>
+                  <option value="hi">Hindi</option>
+                  <option value="ar">Arabic</option>
+                  <option value="zh">Chinese</option>
+                  <option value="ja">Japanese</option>
+                  <option value="ko">Korean</option>
+                </select>
               </div>
+            </div>
+          </div>}
+        </div>
+
+        {/* Gender Filter */}
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('gender')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'gender' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('gender') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+            <Users className="w-3.5 h-3.5" />
+            <span>Gender</span>
+            {getFilterSummary('gender') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('gender')})</span>
+            )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'gender' ? 'rotate-180' : ''}`} />
+          </button>
+          {openFilter === 'gender' && <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-4 z-20">
+            <div className="flex gap-6">
               <div>
-                <label className="text-xs text-gray-600 mb-1 block">Age</label>
-                <div className="flex gap-2">
-                  <select value={filters.influencer?.age?.min || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, min: e.target.value ? parseInt(e.target.value) : undefined })} className={`input py-1.5 text-sm flex-1 ${filters.influencer?.age?.min ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : ''}`}>
-                    <option value="">Min</option>
-                    <option value="18">18</option>
-                    <option value="25">25</option>
-                    <option value="35">35</option>
-                    <option value="45">45</option>
-                  </select>
-                  <select value={filters.influencer?.age?.max || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, max: e.target.value ? parseInt(e.target.value) : undefined })} className={`input py-1.5 text-sm flex-1 ${filters.influencer?.age?.max ? 'ring-1 ring-primary-300 bg-primary-50 text-primary-700 font-medium' : ''}`}>
-                    <option value="">Max</option>
-                    <option value="25">25</option>
-                    <option value="35">35</option>
-                    <option value="45">45</option>
-                    <option value="65">65</option>
-                  </select>
+                <div className="flex items-center gap-1 mb-2">
+                  <Heart className="w-3.5 h-3.5 text-gray-500" />
+                  <span className="text-xs font-semibold text-gray-700">Engagers</span>
+                </div>
+                <div className="space-y-1.5">
+                  {[{ value: '', label: 'Any' }, { value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }].map((opt) => (
+                    <label key={opt.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                      <input type="radio" name="engagers-gender" checked={(filters.audience?.engagersGender?.id || '') === opt.value} onChange={() => updateAudienceFilter('engagersGender', opt.value ? { id: opt.value as any, weight: 0.5 } : undefined)} className="w-3.5 h-3.5 text-primary-600" />
+                      {opt.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="border-l border-gray-200" />
+              <div>
+                <div className="flex items-center gap-1 mb-2">
+                  <Users className="w-3.5 h-3.5 text-gray-500" />
+                  <span className="text-xs font-semibold text-gray-700">Followers</span>
+                </div>
+                <div className="space-y-1.5">
+                  {[{ value: '', label: 'Any' }, { value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }].map((opt) => (
+                    <label key={opt.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                      <input type="radio" name="audience-gender" checked={(filters.audience?.gender?.id || '') === opt.value} onChange={() => updateAudienceFilter('gender', opt.value ? { id: opt.value as any, weight: 0.5 } : undefined)} className="w-3.5 h-3.5 text-primary-600" />
+                      {opt.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="border-l border-gray-200" />
+              <div>
+                <div className="flex items-center gap-1 mb-2">
+                  <Target className="w-3.5 h-3.5 text-gray-500" />
+                  <span className="text-xs font-semibold text-gray-700">Influencer</span>
+                </div>
+                <div className="space-y-1.5">
+                  {[{ value: '', label: 'Any' }, { value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'KNOWN', label: 'Male or Female' }, { value: 'UNKNOWN', label: 'Gender Neutral' }].map((opt) => (
+                    <label key={opt.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                      <input type="radio" name="influencer-gender" checked={(filters.influencer?.gender || '') === opt.value} onChange={() => updateInfluencerFilter('gender', opt.value || undefined)} className="w-3.5 h-3.5 text-primary-600" />
+                      {opt.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>}
+        </div>
+
+        {/* Age Filter */}
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('age')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'age' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('age') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+            <Calendar className="w-3.5 h-3.5" />
+            <span>Age</span>
+            {getFilterSummary('age') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('age')})</span>
+            )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'age' ? 'rotate-180' : ''}`} />
+          </button>
+          {openFilter === 'age' && <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-2 block">Influencer Age</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[{ min: 13, max: 18, label: '13-18' }, { min: 18, max: 25, label: '18-25' }, { min: 25, max: 35, label: '25-35' }, { min: 35, max: 45, label: '35-45' }, { min: 45, max: 65, label: '45-65' }, { min: 65, max: undefined, label: '65+' }].map((range) => {
+                    const isSelected = filters.influencer?.age?.min === range.min && filters.influencer?.age?.max === range.max;
+                    return (
+                      <button key={range.label} type="button" onClick={() => updateInfluencerFilter('age', isSelected ? undefined : { min: range.min, max: range.max })} className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${isSelected ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                        {range.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="border-t border-gray-200 pt-3">
+                <label className="text-xs font-medium text-gray-700 mb-2 block">Audience Age</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[{ min: '13', max: '18', label: '13-18' }, { min: '18', max: '25', label: '18-25' }, { min: '25', max: '35', label: '25-35' }, { min: '35', max: '45', label: '35-45' }, { min: '45', max: '65', label: '45-65' }, { min: '65', max: undefined, label: '65+' }].map((range) => {
+                    const isSelected = filters.audience?.ageRange?.min === range.min && filters.audience?.ageRange?.max === range.max;
+                    return (
+                      <button key={range.label} type="button" onClick={() => updateAudienceFilter('ageRange', isSelected ? undefined : { min: range.min, max: range.max, weight: 0.2 })} className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${isSelected ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                        {range.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1102,7 +1312,7 @@ const DiscoveryPage: React.FC = () => {
             )}
             <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'audience' ? 'rotate-180' : ''}`} />
           </button>
-          {openFilter === 'audience' && <div className="absolute top-full right-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+          {openFilter === 'audience' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="bg-purple-50 p-2 rounded text-xs text-purple-700 mb-2">
               <Info className="w-3 h-3 inline mr-1" />
               Weights (0-1) set minimum thresholds. 0.3 = 30% of audience.
@@ -1116,14 +1326,6 @@ const DiscoveryPage: React.FC = () => {
                   fetchOptions={async (q) => (await discoveryApi.getLocations(q)).map((l) => ({ id: l.id, name: l.name }))}
                   placeholder="Select locations..."
                 />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 mb-1 block">Audience Gender</label>
-                <select value={filters.audience?.gender?.id || ''} onChange={(e) => updateAudienceFilter('gender', e.target.value ? { id: e.target.value as any, weight: 0.5 } : undefined)} className="input py-1.5 text-sm w-full">
-                  <option value="">Any</option>
-                  <option value="MALE">Majority Male</option>
-                  <option value="FEMALE">Majority Female</option>
-                </select>
               </div>
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Audience Age</label>
@@ -1165,7 +1367,7 @@ const DiscoveryPage: React.FC = () => {
             )}
             <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'brands' ? 'rotate-180' : ''}`} />
           </button>
-          {openFilter === 'brands' && <div className="absolute top-full right-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+          {openFilter === 'brands' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Brands Partnered With</label>
@@ -1176,8 +1378,23 @@ const DiscoveryPage: React.FC = () => {
                   placeholder="Search brands..."
                 />
               </div>
+            </div>
+          </div>}
+        </div>
+
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('interests')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'interests' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('interests') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Interests</span>
+            {getFilterSummary('interests') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('interests')})</span>
+            )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'interests' ? 'rotate-180' : ''}`} />
+          </button>
+          {openFilter === 'interests' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+            <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-600 mb-1 block">Interests</label>
+                <label className="text-xs text-gray-600 mb-1 block">Influencer Interests</label>
                 <AsyncSelect
                   value={filters.influencer?.interests || []}
                   onChange={(ids) => updateInfluencerFilter('interests', ids.length > 0 ? ids : undefined)}
@@ -1185,7 +1402,19 @@ const DiscoveryPage: React.FC = () => {
                     const results = await discoveryApi.getInterests(selectedPlatform);
                     return q ? results.filter((i) => i.name.toLowerCase().includes(q.toLowerCase())) : results;
                   }}
-                  placeholder="Select interests..."
+                  placeholder="Select influencer interests..."
+                />
+              </div>
+              <div className="border-t border-gray-200 pt-3">
+                <label className="text-xs text-gray-600 mb-1 block">Audience Interests</label>
+                <AsyncSelect
+                  value={filters.audience?.interests?.map((i) => i.id) || []}
+                  onChange={(ids) => updateAudienceFilter('interests', ids.length > 0 ? ids.map((id) => ({ id, weight: 0.3 })) : undefined)}
+                  fetchOptions={async (q) => {
+                    const results = await discoveryApi.getInterests(selectedPlatform);
+                    return q ? results.filter((i) => i.name.toLowerCase().includes(q.toLowerCase())) : results;
+                  }}
+                  placeholder="Select audience interests..."
                 />
               </div>
             </div>
@@ -1282,17 +1511,6 @@ const DiscoveryPage: React.FC = () => {
             <input type="number" placeholder="Max" value={filters.influencer?.followers?.max || ''} onChange={(e) => updateInfluencerFilter('followers', { ...filters.influencer?.followers, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm" />
           </div>
         </div>
-        <div>
-          <label className="text-xs text-gray-600 mb-1 block">Min Engagement Rate (%)</label>
-          <input type="number" step="0.1" placeholder="e.g., 2.5" value={filters.influencer?.engagementRate ? filters.influencer.engagementRate * 100 : ''} onChange={(e) => updateInfluencerFilter('engagementRate', e.target.value ? parseFloat(e.target.value) / 100 : undefined)} className="input py-1.5 text-sm" />
-        </div>
-        <div>
-          <label className="text-xs text-gray-600 mb-1 block">Engagements</label>
-          <div className="flex gap-2">
-            <input type="number" placeholder="Min" value={filters.influencer?.engagements?.min || ''} onChange={(e) => updateInfluencerFilter('engagements', { ...filters.influencer?.engagements, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm" />
-            <input type="number" placeholder="Max" value={filters.influencer?.engagements?.max || ''} onChange={(e) => updateInfluencerFilter('engagements', { ...filters.influencer?.engagements, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm" />
-          </div>
-        </div>
         {selectedPlatform === 'INSTAGRAM' && (
           <div>
             <label className="text-xs text-gray-600 mb-1 block flex items-center gap-1"><Play className="w-3 h-3" /> Reels Plays</label>
@@ -1302,6 +1520,65 @@ const DiscoveryPage: React.FC = () => {
             </div>
           </div>
         )}
+      </FilterSection>
+
+      {/* Engagement */}
+      <FilterSection title="Engagement" icon={<Heart className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">Engagement Rate (%)</label>
+          <div className="flex gap-2">
+            <input
+              type="number" step="0.1" placeholder="From"
+              value={(() => {
+                const er = filters.influencer?.engagementRate;
+                if (er == null) return '';
+                if (typeof er === 'number') return (er * 100).toFixed(1);
+                return er.min != null ? (er.min * 100).toFixed(1) : '';
+              })()}
+              onChange={(e) => {
+                const val = e.target.value ? parseFloat(e.target.value) / 100 : undefined;
+                const cur = filters.influencer?.engagementRate;
+                const curMax = (cur && typeof cur === 'object') ? cur.max : undefined;
+                if (val != null && curMax == null) {
+                  updateInfluencerFilter('engagementRate', val);
+                } else if (val != null || curMax != null) {
+                  updateInfluencerFilter('engagementRate', { min: val, max: curMax });
+                } else {
+                  updateInfluencerFilter('engagementRate', undefined);
+                }
+              }}
+              className="input py-1.5 text-sm flex-1"
+            />
+            <input
+              type="number" step="0.1" placeholder="To"
+              value={(() => {
+                const er = filters.influencer?.engagementRate;
+                if (er == null || typeof er === 'number') return '';
+                return er.max != null ? (er.max * 100).toFixed(1) : '';
+              })()}
+              onChange={(e) => {
+                const val = e.target.value ? parseFloat(e.target.value) / 100 : undefined;
+                const cur = filters.influencer?.engagementRate;
+                const curMin = typeof cur === 'number' ? cur : (cur && typeof cur === 'object' ? cur.min : undefined);
+                if (curMin != null || val != null) {
+                  updateInfluencerFilter('engagementRate', { min: curMin, max: val });
+                } else {
+                  updateInfluencerFilter('engagementRate', undefined);
+                }
+              }}
+              className="input py-1.5 text-sm flex-1"
+            />
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Only "From" for &gt;= filter, or both for a range</p>
+        </div>
+        <div className="border-t border-gray-100 pt-3">
+          <label className="text-xs font-medium text-gray-700 mb-1 block">Engagements (count)</label>
+          <div className="flex gap-2">
+            <input type="number" placeholder="From" value={filters.influencer?.engagements?.min || ''} onChange={(e) => updateInfluencerFilter('engagements', { ...filters.influencer?.engagements, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+            <input type="number" placeholder="To" value={filters.influencer?.engagements?.max || ''} onChange={(e) => updateInfluencerFilter('engagements', { ...filters.influencer?.engagements, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Average engagements per post</p>
+        </div>
       </FilterSection>
 
       {/* Content & Activity */}
@@ -1410,10 +1687,10 @@ const DiscoveryPage: React.FC = () => {
         </div>
       </FilterSection>
 
-      {/* Demographics */}
-      <FilterSection title="Demographics" icon={<Globe className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
+      {/* Location */}
+      <FilterSection title="Location" icon={<MapPin className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
         <div>
-          <label className="text-xs text-gray-600 mb-1 block">Location</label>
+          <label className="text-xs text-gray-600 mb-1 block">Influencer Location</label>
           <AsyncSelect
             value={filters.influencer?.location || []}
             onChange={(ids) => updateInfluencerFilter('location', ids.length > 0 ? ids : undefined)}
@@ -1421,8 +1698,12 @@ const DiscoveryPage: React.FC = () => {
             placeholder="Select locations..."
           />
         </div>
+      </FilterSection>
+
+      {/* Language */}
+      <FilterSection title="Language" icon={<Globe className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
         <div>
-          <label className="text-xs text-gray-600 mb-1 block">Language</label>
+          <label className="text-xs text-gray-600 mb-1 block">Influencer Language</label>
           <select value={filters.influencer?.language || ''} onChange={(e) => updateInfluencerFilter('language', e.target.value || undefined)} className="input py-1.5 text-sm">
             <option value="">Any</option>
             <option value="en">English</option>
@@ -1437,33 +1718,100 @@ const DiscoveryPage: React.FC = () => {
             <option value="ko">Korean</option>
           </select>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-xs text-gray-600 mb-1 block">Audience Language</label>
+          <select value={filters.audience?.language?.id || ''} onChange={(e) => updateAudienceFilter('language', e.target.value ? { id: e.target.value, weight: 0.2 } : undefined)} className="input py-1.5 text-sm">
+            <option value="">Any</option>
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="pt">Portuguese</option>
+            <option value="hi">Hindi</option>
+            <option value="ar">Arabic</option>
+            <option value="zh">Chinese</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+          </select>
+        </div>
+      </FilterSection>
+
+      {/* Gender */}
+      <FilterSection title="Gender" icon={<Users className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
+        <div className="flex gap-6">
           <div>
-            <label className="text-xs text-gray-600 mb-1 block">Gender</label>
-            <select value={filters.influencer?.gender || ''} onChange={(e) => updateInfluencerFilter('gender', e.target.value || undefined)} className="input py-1.5 text-sm">
-              <option value="">Any</option>
-              <option value="MALE">Male</option>
-              <option value="FEMALE">Female</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-gray-600 mb-1 block">Age</label>
-            <div className="flex gap-1">
-              <select value={filters.influencer?.age?.min || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-xs">
-                <option value="">Min</option>
-                <option value="18">18</option>
-                <option value="25">25</option>
-                <option value="35">35</option>
-                <option value="45">45</option>
-              </select>
-              <select value={filters.influencer?.age?.max || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-xs">
-                <option value="">Max</option>
-                <option value="25">25</option>
-                <option value="35">35</option>
-                <option value="45">45</option>
-                <option value="65">65</option>
-              </select>
+            <div className="flex items-center gap-1 mb-2">
+              <Heart className="w-3.5 h-3.5 text-gray-500" />
+              <span className="text-xs font-semibold text-gray-700">Engagers</span>
             </div>
+            <div className="space-y-1.5">
+              {[{ value: '', label: 'Any' }, { value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }].map((opt) => (
+                <label key={opt.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                  <input type="radio" name="drawer-engagers-gender" checked={(filters.audience?.engagersGender?.id || '') === opt.value} onChange={() => updateAudienceFilter('engagersGender', opt.value ? { id: opt.value as any, weight: 0.5 } : undefined)} className="w-3.5 h-3.5 text-primary-600" />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="border-l border-gray-200" />
+          <div>
+            <div className="flex items-center gap-1 mb-2">
+              <Users className="w-3.5 h-3.5 text-gray-500" />
+              <span className="text-xs font-semibold text-gray-700">Followers</span>
+            </div>
+            <div className="space-y-1.5">
+              {[{ value: '', label: 'Any' }, { value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }].map((opt) => (
+                <label key={opt.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                  <input type="radio" name="drawer-audience-gender" checked={(filters.audience?.gender?.id || '') === opt.value} onChange={() => updateAudienceFilter('gender', opt.value ? { id: opt.value as any, weight: 0.5 } : undefined)} className="w-3.5 h-3.5 text-primary-600" />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="border-l border-gray-200" />
+          <div>
+            <div className="flex items-center gap-1 mb-2">
+              <Target className="w-3.5 h-3.5 text-gray-500" />
+              <span className="text-xs font-semibold text-gray-700">Influencer</span>
+            </div>
+            <div className="space-y-1.5">
+              {[{ value: '', label: 'Any' }, { value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'KNOWN', label: 'Male or Female' }, { value: 'UNKNOWN', label: 'Gender Neutral' }].map((opt) => (
+                <label key={opt.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                  <input type="radio" name="drawer-influencer-gender" checked={(filters.influencer?.gender || '') === opt.value} onChange={() => updateInfluencerFilter('gender', opt.value || undefined)} className="w-3.5 h-3.5 text-primary-600" />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      </FilterSection>
+
+      {/* Age */}
+      <FilterSection title="Age" icon={<Calendar className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-2 block">Influencer Age</label>
+          <div className="flex flex-wrap gap-1.5">
+            {[{ min: 13, max: 18, label: '13-18' }, { min: 18, max: 25, label: '18-25' }, { min: 25, max: 35, label: '25-35' }, { min: 35, max: 45, label: '35-45' }, { min: 45, max: 65, label: '45-65' }, { min: 65, max: undefined, label: '65+' }].map((range) => {
+              const isSelected = filters.influencer?.age?.min === range.min && filters.influencer?.age?.max === range.max;
+              return (
+                <button key={range.label} type="button" onClick={() => updateInfluencerFilter('age', isSelected ? undefined : { min: range.min, max: range.max })} className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${isSelected ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                  {range.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-2 block">Audience Age</label>
+          <div className="flex flex-wrap gap-1.5">
+            {[{ min: '13', max: '18', label: '13-18' }, { min: '18', max: '25', label: '18-25' }, { min: '25', max: '35', label: '25-35' }, { min: '35', max: '45', label: '35-45' }, { min: '45', max: '65', label: '45-65' }, { min: '65', max: undefined, label: '65+' }].map((range) => {
+              const isSelected = filters.audience?.ageRange?.min === range.min && filters.audience?.ageRange?.max === range.max;
+              return (
+                <button key={range.label} type="button" onClick={() => updateAudienceFilter('ageRange', isSelected ? undefined : { min: range.min, max: range.max, weight: 0.2 })} className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${isSelected ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                  {range.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </FilterSection>
@@ -1482,14 +1830,6 @@ const DiscoveryPage: React.FC = () => {
             fetchOptions={async (q) => (await discoveryApi.getLocations(q)).map((l) => ({ id: l.id, name: l.name }))}
             placeholder="Select locations..."
           />
-        </div>
-        <div>
-          <label className="text-xs text-gray-600 mb-1 block">Audience Gender</label>
-          <select value={filters.audience?.gender?.id || ''} onChange={(e) => updateAudienceFilter('gender', e.target.value ? { id: e.target.value as any, weight: 0.5 } : undefined)} className="input py-1.5 text-sm">
-            <option value="">Any</option>
-            <option value="MALE">Majority Male</option>
-            <option value="FEMALE">Majority Female</option>
-          </select>
         </div>
         <div>
           <label className="text-xs text-gray-600 mb-1 block">Audience Age</label>
@@ -1520,8 +1860,8 @@ const DiscoveryPage: React.FC = () => {
         </div>
       </FilterSection>
 
-      {/* Brands & Interests */}
-      <FilterSection title="Brands & Interests" icon={<ShoppingBag className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
+      {/* Brands */}
+      <FilterSection title="Brands" icon={<ShoppingBag className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
         <div>
           <label className="text-xs text-gray-600 mb-1 block">Brands Partnered With</label>
           <AsyncSelect
@@ -1531,8 +1871,12 @@ const DiscoveryPage: React.FC = () => {
             placeholder="Search brands..."
           />
         </div>
+      </FilterSection>
+
+      {/* Interests */}
+      <FilterSection title="Interests" icon={<Sparkles className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
         <div>
-          <label className="text-xs text-gray-600 mb-1 block">Interests</label>
+          <label className="text-xs text-gray-600 mb-1 block">Influencer Interests</label>
           <AsyncSelect
             value={filters.influencer?.interests || []}
             onChange={(ids) => updateInfluencerFilter('interests', ids.length > 0 ? ids : undefined)}
@@ -1540,7 +1884,19 @@ const DiscoveryPage: React.FC = () => {
               const results = await discoveryApi.getInterests(selectedPlatform);
               return q ? results.filter((i) => i.name.toLowerCase().includes(q.toLowerCase())) : results;
             }}
-            placeholder="Select interests..."
+            placeholder="Select influencer interests..."
+          />
+        </div>
+        <div>
+          <label className="text-xs text-gray-600 mb-1 block">Audience Interests</label>
+          <AsyncSelect
+            value={filters.audience?.interests?.map((i) => i.id) || []}
+            onChange={(ids) => updateAudienceFilter('interests', ids.length > 0 ? ids.map((id) => ({ id, weight: 0.3 })) : undefined)}
+            fetchOptions={async (q) => {
+              const results = await discoveryApi.getInterests(selectedPlatform);
+              return q ? results.filter((i) => i.name.toLowerCase().includes(q.toLowerCase())) : results;
+            }}
+            placeholder="Select audience interests..."
           />
         </div>
       </FilterSection>
@@ -1750,7 +2106,7 @@ const DiscoveryPage: React.FC = () => {
             </div>
           )}
 
-          {/* Load More (no auto-scroll; disabled while any profile in the list is blurred) */}
+          {/* Load More -- only enabled once all current profiles are unblurred */}
           {hasMore && !isLoading && (
             <div className="text-center py-2">
               <button
