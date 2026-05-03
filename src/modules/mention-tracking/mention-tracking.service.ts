@@ -453,7 +453,35 @@ export class MentionTrackingService {
       entry.inf.viewsCount = entry.views;
       entry.inf.commentsCount = entry.comments;
       entry.inf.sharesCount = entry.shares;
+
+      // Enrich with follower count from Modash Raw API
+      try {
+        const username = entry.inf.influencerUsername;
+        if (username && entry.inf.platform === 'INSTAGRAM') {
+          const userInfo: any = await this.modashRawService.getIgUserInfo(username);
+          if (userInfo?.follower_count) {
+            entry.inf.followerCount = userInfo.follower_count;
+            entry.inf.influencerName = userInfo.full_name || username;
+            entry.inf.profilePictureUrl = userInfo.profile_pic_url || userInfo.hd_profile_pic_url_info?.url || '';
+          }
+        } else if (username && entry.inf.platform === 'TIKTOK') {
+          const userInfo: any = await this.modashRawService.getTiktokUserInfo(username);
+          if (userInfo?.stats?.followerCount) {
+            entry.inf.followerCount = userInfo.stats.followerCount;
+            entry.inf.influencerName = userInfo.user?.nickname || username;
+            entry.inf.profilePictureUrl = userInfo.user?.avatarThumb || '';
+          }
+        }
+      } catch (enrichErr) {
+        this.logger.warn(`Could not enrich influencer ${entry.inf.influencerUsername}: ${enrichErr.message}`);
+      }
+
       const fc = Number(entry.inf.followerCount) || 0;
+      if (fc >= 1000000) entry.inf.category = InfluencerCategory.MEGA;
+      else if (fc >= 100000) entry.inf.category = InfluencerCategory.MACRO;
+      else if (fc >= 10000) entry.inf.category = InfluencerCategory.MICRO;
+      else entry.inf.category = InfluencerCategory.NANO;
+
       const denom = entry.posts * fc;
       entry.inf.avgEngagementRate = denom > 0 ? ((entry.likes + entry.comments) / denom) * 100 : 0;
       await this.influencerRepo.save(entry.inf);
@@ -476,6 +504,8 @@ export class MentionTrackingService {
     report.completedAt = new Date();
     if (failedTerms.length > 0) {
       report.errorMessage = `Partial results: failed to fetch data for ${failedTerms.join(', ')}`;
+    } else {
+      report.errorMessage = undefined;
     }
     await this.reportRepo.save(report);
   }

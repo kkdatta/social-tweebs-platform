@@ -4,6 +4,7 @@ import { Campaign, CampaignInfluencer, CampaignDeliverable, CampaignMetric, Camp
 import { User } from '../users/entities/user.entity';
 import { InfluencerInsight } from '../insights/entities/influencer-insight.entity';
 import { ModashService } from '../discovery/services/modash.service';
+import { ModashRawService } from '../discovery/services/modash-raw.service';
 import { MailService } from '../../common/services/mail.service';
 import { CreditsService } from '../credits/credits.service';
 import { CreateCampaignDto, UpdateCampaignDto, AddInfluencerDto, UpdateInfluencerDto, CreateDeliverableDto, UpdateDeliverableDto, RecordMetricsDto, ShareCampaignDto, CampaignFilterDto, CampaignDetailDto, CampaignMetricsSummary, CampaignListResponseDto, AddPostDto, PostFilterDto, InfluencerFilterDto, TimelineDataPoint } from './dto/campaign.dto';
@@ -17,12 +18,13 @@ export declare class CampaignsService {
     private userRepo;
     private insightRepo;
     private modashService;
+    private modashRawService;
     private creditsService;
     private dataSource;
     private mailService;
     private configService;
     private readonly logger;
-    constructor(campaignRepo: Repository<Campaign>, influencerRepo: Repository<CampaignInfluencer>, deliverableRepo: Repository<CampaignDeliverable>, metricRepo: Repository<CampaignMetric>, postRepo: Repository<CampaignPost>, shareRepo: Repository<CampaignShare>, userRepo: Repository<User>, insightRepo: Repository<InfluencerInsight>, modashService: ModashService, creditsService: CreditsService, dataSource: DataSource, mailService: MailService, configService: ConfigService);
+    constructor(campaignRepo: Repository<Campaign>, influencerRepo: Repository<CampaignInfluencer>, deliverableRepo: Repository<CampaignDeliverable>, metricRepo: Repository<CampaignMetric>, postRepo: Repository<CampaignPost>, shareRepo: Repository<CampaignShare>, userRepo: Repository<User>, insightRepo: Repository<InfluencerInsight>, modashService: ModashService, modashRawService: ModashRawService, creditsService: CreditsService, dataSource: DataSource, mailService: MailService, configService: ConfigService);
     private getClientAdminId;
     private getClientCampaignCount;
     createCampaign(userId: string, dto: CreateCampaignDto): Promise<Campaign>;

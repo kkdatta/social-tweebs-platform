@@ -144,8 +144,8 @@ export class ModashRawService {
 
   // ============ INSTAGRAM RAW ============
 
-  async getIgUserInfo(userId: string): Promise<RawIgUserInfo> {
-    return this.rawGet(`/raw/ig/user-info?url=${encodeURIComponent(userId)}`);
+  async getIgUserInfo(username: string): Promise<RawIgUserInfo> {
+    return this.rawGet(`/raw/ig/user-info?url=${encodeURIComponent(username)}`);
   }
 
   async getIgUserFeed(
@@ -179,13 +179,17 @@ export class ModashRawService {
     hashtag: string,
     cursor?: string,
   ): Promise<PaginatedResponse<RawIgPost>> {
-    const params = [`name=${encodeURIComponent(hashtag)}`];
+    const params = [`hashtag=${encodeURIComponent(hashtag)}`];
     if (cursor) params.push(`after=${encodeURIComponent(cursor)}`);
-    return this.rawGet(`/raw/ig/hashtag-feed?${params.join('&')}`);
+    const raw: any = await this.rawGet(`/raw/ig/hashtag-feed?${params.join('&')}`);
+    if (!raw.data && raw.items) {
+      raw.data = raw.items;
+    }
+    return raw as PaginatedResponse<RawIgPost>;
   }
 
   async getIgMediaInfo(mediaId: string): Promise<any> {
-    return this.rawGet(`/raw/ig/media-info?url=${encodeURIComponent(mediaId)}`);
+    return this.rawGet(`/raw/ig/media-info?code=${encodeURIComponent(mediaId)}`);
   }
 
   async getIgMediaComments(

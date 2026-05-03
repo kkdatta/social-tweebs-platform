@@ -254,6 +254,10 @@ __decorate([
     __metadata("design:type", Number)
 ], CampaignInfluencer.prototype, "audienceCredibility", void 0);
 __decorate([
+    (0, typeorm_1.Column)({ name: 'profile_picture_url', type: 'text', nullable: true }),
+    __metadata("design:type", String)
+], CampaignInfluencer.prototype, "profilePictureUrl", void 0);
+__decorate([
     (0, typeorm_1.Column)({ type: 'text', nullable: true }),
     __metadata("design:type", String)
 ], CampaignInfluencer.prototype, "notes", void 0);

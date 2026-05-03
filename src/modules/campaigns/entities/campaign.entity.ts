@@ -204,6 +204,9 @@ export class CampaignInfluencer {
   @Column({ name: 'audience_credibility', type: 'decimal', precision: 5, scale: 2, nullable: true })
   audienceCredibility: number;
 
+  @Column({ name: 'profile_picture_url', type: 'text', nullable: true })
+  profilePictureUrl: string;
+
   @Column({ type: 'text', nullable: true })
   notes: string;
 

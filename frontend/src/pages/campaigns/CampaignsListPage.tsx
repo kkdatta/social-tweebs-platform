@@ -267,9 +267,9 @@ export const CampaignsListPage: React.FC = () => {
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}
                 >
-                  {tab === 'created_by_me' ? 'Created by Me' :
-                   tab === 'created_by_team' ? 'Created by Team' :
-                   tab === 'shared_with_me' ? 'Shared to Me' : 'Sample Public Report'}
+                  {tab === 'created_by_me' ? 'Tracking Report Created by Me' :
+                   tab === 'created_by_team' ? 'Tracking Report Created by Team' :
+                   tab === 'shared_with_me' ? 'Tracking Report Shared to Me' : 'Sample Public Report'}
                 </button>
               ))}
             </div>
@@ -323,6 +323,7 @@ export const CampaignsListPage: React.FC = () => {
                   <option value="INSTAGRAM">Instagram</option>
                   <option value="YOUTUBE">YouTube</option>
                   <option value="TIKTOK">TikTok</option>
+                  <option value="LINKEDIN" disabled>LinkedIn (Phase-2)</option>
                 </select>
               </div>
             </div>
@@ -350,6 +351,7 @@ export const CampaignsListPage: React.FC = () => {
                   <option value="INSTAGRAM">Instagram</option>
                   <option value="YOUTUBE">YouTube</option>
                   <option value="TIKTOK">TikTok</option>
+                  <option value="LINKEDIN" disabled>LinkedIn (Phase-2)</option>
                 </select>
               </div>
             )}
@@ -394,18 +396,27 @@ export const CampaignsListPage: React.FC = () => {
                               </span>
                             </div>
                             <h3 className="text-sm font-medium text-gray-900 truncate">{campaign.name}</h3>
+                            {(campaign.hashtags || []).length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {(campaign.hashtags || []).slice(0, 2).map((tag: string) => (
+                                  <span key={tag} className="px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded text-[10px]">{tag}</span>
+                                ))}
+                                {(campaign.hashtags || []).length > 2 && <span className="text-[10px] text-gray-400">+{campaign.hashtags.length - 2}</span>}
+                              </div>
+                            )}
                             <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
                               <span className="flex items-center gap-1">
                                 <Users size={12} />
                                 {campaign.influencerCount}
                               </span>
                               <span className="flex items-center gap-1">
-                                <Calendar size={12} />
-                                {formatDateShort(campaign.startDate)}
+                                <FileText size={12} />
+                                {campaign.postsCount || 0}
                               </span>
-                              {campaign.budget && (
-                                <span>{formatCurrency(campaign.budget, campaign.currency)}</span>
-                              )}
+                              <span className="flex items-center gap-1">
+                                <Calendar size={12} />
+                                {formatDateShort(campaign.startDate)} - {formatDateShort(campaign.endDate)}
+                              </span>
                             </div>
                           </div>
                           <div className="flex items-center gap-1">

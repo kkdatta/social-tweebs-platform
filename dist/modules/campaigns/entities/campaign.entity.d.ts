@@ -79,6 +79,7 @@ export declare class CampaignInfluencer {
     sharesCount: number;
     postsCount: number;
     audienceCredibility: number;
+    profilePictureUrl: string;
     notes: string;
     addedAt: Date;
     confirmedAt: Date;

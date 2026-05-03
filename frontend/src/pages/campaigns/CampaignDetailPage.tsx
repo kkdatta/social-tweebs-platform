@@ -275,7 +275,7 @@ export const CampaignDetailPage: React.FC = () => {
     if (postPlatformFilter) posts = posts.filter((p: any) => p.platform === postPlatformFilter);
     if (postSearchQuery) {
       const q = postSearchQuery.toLowerCase();
-      posts = posts.filter((p: any) => p.influencerName?.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q));
+      posts = posts.filter((p: any) => p.influencerName?.toLowerCase().includes(q) || p.influencerUsername?.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q));
     }
     const sortFn: Record<string, (a: any, b: any) => number> = {
       most_liked: (a, b) => (b.likesCount || 0) - (a.likesCount || 0),
@@ -395,8 +395,8 @@ export const CampaignDetailPage: React.FC = () => {
             { label: 'Total Views', value: formatNumber(m.totalViews || 0), icon: <Eye size={18} className="text-green-500" /> },
             { label: 'Total Comments', value: formatNumber(m.totalComments || 0), icon: <MessageSquare size={18} className="text-orange-500" /> },
             { label: 'Total Shares', value: formatNumber(m.totalShares || 0), icon: <Share2 size={18} className="text-indigo-500" /> },
-            { label: 'Avg Engagement', value: `${m.avgEngagementRate || 0}%`, icon: <TrendingUp size={18} className="text-emerald-500" /> },
-            { label: 'Eng/Views Ratio', value: `${m.engagementToViewsRatio || 0}%`, icon: <TrendingUp size={18} className="text-cyan-500" /> },
+            { label: 'Avg ER (%)', value: `${m.avgEngagementRate || 0}%`, icon: <TrendingUp size={18} className="text-emerald-500" /> },
+            { label: 'Engagement-to-Views Ratio (%)', value: `${m.engagementToViewsRatio || 0}%`, icon: <TrendingUp size={18} className="text-cyan-500" /> },
           ].map((card) => (
             <div key={card.label} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
               <div className="flex items-center gap-2 mb-1">{card.icon}<span className="text-xs text-gray-500">{card.label}</span></div>
@@ -483,7 +483,7 @@ export const CampaignDetailPage: React.FC = () => {
                   <Plus size={16} /> Add Influencer
                 </button>
                 <button onClick={() => setShowAddPost(true)} className="flex items-center gap-1 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-                  <Link2 size={16} /> Add Post
+                  <Link2 size={16} /> Add Posts
                 </button>
               </div>
             </div>
@@ -522,21 +522,36 @@ export const CampaignDetailPage: React.FC = () => {
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Comments</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Shares</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Credibility</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">View Post</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredInfluencers.map((inf: any) => (
+                {filteredInfluencers.map((inf: any) => {
+                  const profileUrl = inf.platform === 'TIKTOK'
+                    ? `https://www.tiktok.com/@${inf.influencerUsername}`
+                    : inf.platform === 'YOUTUBE'
+                    ? `https://www.youtube.com/@${inf.influencerUsername}`
+                    : `https://www.instagram.com/${inf.influencerUsername}/`;
+                  const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(inf.influencerName || inf.influencerUsername || '?')}&background=random&size=40&rounded=true`;
+                  const profilePic = inf.profilePictureUrl;
+                  return (
                   <tr key={inf.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        {PLATFORM_ICONS[inf.platform]}
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">{inf.influencerName}</p>
-                          {inf.influencerUsername && <p className="text-xs text-gray-500">@{inf.influencerUsername}</p>}
+                      <a href={profileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 group cursor-pointer">
+                        <img
+                          src={profilePic || fallbackAvatar}
+                          alt={inf.influencerName}
+                          className="w-9 h-9 rounded-full flex-shrink-0 border-2 border-purple-200 group-hover:border-purple-500 object-cover transition-colors"
+                          onError={(e) => { (e.target as HTMLImageElement).src = fallbackAvatar; }}
+                        />
+                        <div className="flex items-center gap-1.5">
+                          {PLATFORM_ICONS[inf.platform]}
+                          <div>
+                            <p className="text-sm font-medium text-purple-700 group-hover:text-purple-900 group-hover:underline">{inf.influencerName}</p>
+                            {inf.influencerUsername && <p className="text-xs text-gray-500">@{inf.influencerUsername}</p>}
+                          </div>
                         </div>
-                      </div>
+                      </a>
                     </td>
                     <td className="px-4 py-3 text-center text-sm">{inf.postsCount || 0}</td>
                     <td className="px-4 py-3 text-center text-sm">{formatNumber(inf.followerCount || 0)}</td>
@@ -546,21 +561,16 @@ export const CampaignDetailPage: React.FC = () => {
                     <td className="px-4 py-3 text-center text-sm">{formatNumber(inf.sharesCount || 0)}</td>
                     <td className="px-4 py-3 text-center text-sm">{inf.audienceCredibility != null ? `${inf.audienceCredibility}%` : '-'}</td>
                     <td className="px-4 py-3 text-center">
-                      {inf.latestPostUrl ? (
-                        <a href={inf.latestPostUrl} target="_blank" rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-purple-600 hover:text-purple-800 text-sm font-medium">
-                          View <ExternalLink size={12} />
-                        </a>
-                      ) : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button onClick={() => { setActiveTab('posts'); setPostSearchQuery(inf.influencerName); }}
-                        className="text-purple-600 hover:text-purple-800 text-sm font-medium">All Posts</button>
+                      <button onClick={() => { setPostSearchQuery(inf.influencerUsername || inf.influencerName); setActiveTab('posts'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                        className="text-purple-600 hover:text-purple-800 text-sm font-medium inline-flex items-center gap-1">
+                        View Posts <ExternalLink size={12} />
+                      </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {filteredInfluencers.length === 0 && (
-                  <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-500">No influencers found</td></tr>
+                  <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">No influencers found</td></tr>
                 )}
               </tbody>
             </table>
@@ -838,6 +848,173 @@ export const CampaignDetailPage: React.FC = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Content Type Breakdown */}
+                {campaign?.posts?.length > 0 && (() => {
+                  const typeCounts: Record<string, number> = {};
+                  (campaign.posts || []).forEach((p: any) => {
+                    const t = p.postType || 'POST';
+                    typeCounts[t] = (typeCounts[t] || 0) + 1;
+                  });
+                  const chartData = Object.entries(typeCounts).map(([name, value]) => ({ name, value }));
+                  return (
+                    <div>
+                      <h4 className="text-base font-semibold mb-4">Content Type Breakdown</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-gray-50 rounded-lg p-4">
+                          <ResponsiveContainer width="100%" height={220}>
+                            <PieChart>
+                              <Pie data={chartData} cx="50%" cy="50%" outerRadius={75} innerRadius={40} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                                {chartData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                              </Pie>
+                              <Tooltip />
+                              <Legend />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="flex flex-wrap gap-3 items-start content-start">
+                          {chartData.map((item, i) => (
+                            <div key={item.name} className="bg-white rounded-lg border border-gray-200 p-4 min-w-[120px]">
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                                <span className="text-xs text-gray-500">{item.name}</span>
+                              </div>
+                              <p className="text-xl font-bold text-gray-900">{item.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Platform Breakdown */}
+                {campaign?.posts?.length > 0 && (() => {
+                  const platformCounts: Record<string, number> = {};
+                  (campaign.posts || []).forEach((p: any) => {
+                    const pl = p.platform || 'UNKNOWN';
+                    platformCounts[pl] = (platformCounts[pl] || 0) + 1;
+                  });
+                  const chartData = Object.entries(platformCounts).map(([name, value]) => ({ name, value }));
+                  return (
+                    <div>
+                      <h4 className="text-base font-semibold mb-4">Platform Breakdown</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-gray-50 rounded-lg p-4">
+                          <ResponsiveContainer width="100%" height={220}>
+                            <PieChart>
+                              <Pie data={chartData} cx="50%" cy="50%" outerRadius={75} innerRadius={40} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                                {chartData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                              </Pie>
+                              <Tooltip />
+                              <Legend />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="flex flex-wrap gap-3 items-start content-start">
+                          {chartData.map((item, i) => (
+                            <div key={item.name} className="bg-white rounded-lg border border-gray-200 p-4 min-w-[120px]">
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                                <span className="text-xs text-gray-500">{item.name}</span>
+                              </div>
+                              <p className="text-xl font-bold text-gray-900">{item.value} posts</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Top Performing Influencer */}
+                {campaign?.influencers?.length > 0 && (() => {
+                  const topInf = [...campaign.influencers].sort((a: any, b: any) => {
+                    const engA = (a.likesCount || 0) + (a.commentsCount || 0) + (a.sharesCount || 0);
+                    const engB = (b.likesCount || 0) + (b.commentsCount || 0) + (b.sharesCount || 0);
+                    return engB - engA;
+                  })[0];
+                  if (!topInf) return null;
+                  const totalEng = (topInf.likesCount || 0) + (topInf.commentsCount || 0) + (topInf.sharesCount || 0);
+                  const er = topInf.followerCount ? ((totalEng / topInf.followerCount) * 100).toFixed(2) : '0';
+                  return (
+                    <div>
+                      <h4 className="text-base font-semibold mb-4">Top Performing Influencer</h4>
+                      <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-purple-200 p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                          {PLATFORM_ICONS[topInf.platform]}
+                          <div>
+                            <p className="text-lg font-bold text-gray-900">{topInf.influencerName}</p>
+                            {topInf.influencerUsername && <p className="text-sm text-gray-500">@{topInf.influencerUsername}</p>}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                          <div className="bg-white/80 rounded-lg p-3">
+                            <p className="text-xs text-gray-500">Followers</p>
+                            <p className="text-lg font-bold text-gray-900">{formatNumber(topInf.followerCount || 0)}</p>
+                          </div>
+                          <div className="bg-white/80 rounded-lg p-3">
+                            <p className="text-xs text-gray-500">Total Likes</p>
+                            <p className="text-lg font-bold text-pink-600">{formatNumber(topInf.likesCount || 0)}</p>
+                          </div>
+                          <div className="bg-white/80 rounded-lg p-3">
+                            <p className="text-xs text-gray-500">Total Views</p>
+                            <p className="text-lg font-bold text-green-600">{formatNumber(topInf.viewsCount || 0)}</p>
+                          </div>
+                          <div className="bg-white/80 rounded-lg p-3">
+                            <p className="text-xs text-gray-500">Total Comments</p>
+                            <p className="text-lg font-bold text-orange-600">{formatNumber(topInf.commentsCount || 0)}</p>
+                          </div>
+                          <div className="bg-white/80 rounded-lg p-3">
+                            <p className="text-xs text-gray-500">Engagement Rate</p>
+                            <p className="text-lg font-bold text-purple-600">{er}%</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Audience Interests */}
+                <div>
+                  <h4 className="text-base font-semibold mb-4">Audience Interests</h4>
+                  {analytics?.audienceOverview?.interests?.length > 0 ? (
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="flex flex-wrap gap-2">
+                        {analytics.audienceOverview.interests.map((interest: any, i: number) => (
+                          <span key={i} className="px-3 py-1.5 bg-white border border-gray-200 rounded-full text-sm text-gray-700">
+                            {interest.name || interest} {interest.percentage != null && <span className="text-xs text-gray-400">({interest.percentage}%)</span>}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-400 text-sm">
+                      Data not available
+                    </div>
+                  )}
+                </div>
+
+                {/* Audience Device */}
+                <div>
+                  <h4 className="text-base font-semibold mb-4">Audience Device</h4>
+                  {analytics?.audienceOverview?.devices?.length > 0 ? (
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {analytics.audienceOverview.devices.map((device: any, i: number) => (
+                          <div key={i} className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+                            <p className="text-xs text-gray-500">{device.name || device.type || 'Device'}</p>
+                            <p className="text-xl font-bold text-gray-900">{device.percentage != null ? `${device.percentage}%` : device.count || '-'}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-400 text-sm">
+                      Data not available
+                    </div>
+                  )}
+                </div>
 
                 {/* Influencer-Level Analytics */}
                 {analytics?.influencerAnalytics?.map((inf: any) => (

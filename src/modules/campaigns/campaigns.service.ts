@@ -24,6 +24,7 @@ import {
 import { User } from '../users/entities/user.entity';
 import { InfluencerInsight } from '../insights/entities/influencer-insight.entity';
 import { ModashService } from '../discovery/services/modash.service';
+import { ModashRawService } from '../discovery/services/modash-raw.service';
 import { MailService } from '../../common/services/mail.service';
 import { CreditsService } from '../credits/credits.service';
 import { ModuleType, ActionType } from '../../common/enums';
@@ -73,6 +74,7 @@ export class CampaignsService {
     @InjectRepository(InfluencerInsight)
     private insightRepo: Repository<InfluencerInsight>,
     private modashService: ModashService,
+    private modashRawService: ModashRawService,
     private creditsService: CreditsService,
     private dataSource: DataSource,
     private mailService: MailService,
@@ -334,6 +336,7 @@ export class CampaignsService {
           id: inf.id,
           influencerName: inf.influencerName,
           influencerUsername: inf.influencerUsername,
+          profilePictureUrl: inf.profilePictureUrl || null,
           platform: inf.platform,
           followerCount: inf.followerCount,
           likesCount: liveLikes || inf.likesCount || 0,
@@ -480,6 +483,7 @@ export class CampaignsService {
           const profile = rpt.profile || rpt;
           influencer.influencerName = profile.fullname || profile.username || username;
           influencer.followerCount = Number(profile.followers) || 0;
+          influencer.profilePictureUrl = profile.picture || profile.profilePicture || '';
           const aud = rpt.audience;
           const rawCred = aud?.credibility != null ? Number(aud.credibility) : NaN;
           influencer.audienceCredibility = !isNaN(rawCred) && rawCred > 0
@@ -489,6 +493,18 @@ export class CampaignsService {
       } catch (err) {
         this.logger.warn(`Modash profile fetch failed for "${username}": ${err.message}`);
       }
+    }
+
+    if (!influencer.profilePictureUrl && this.modashRawService.isRawApiEnabled()) {
+      try {
+        const userInfo: any = await this.modashRawService.getIgUserInfo(username);
+        if (userInfo?.profile_pic_url) {
+          influencer.profilePictureUrl = userInfo.profile_pic_url_hd || userInfo.profile_pic_url;
+        }
+        if (!influencer.influencerName || influencer.influencerName === username) {
+          influencer.influencerName = userInfo?.full_name || username;
+        }
+      } catch { /* best effort */ }
     }
 
     await this.influencerRepo.save(influencer);
@@ -660,7 +676,63 @@ export class CampaignsService {
     const parsed = this.parsePostUrl(post.postUrl);
     if (!parsed.postId) return;
 
-    const username = post.influencerUsername || parsed.username;
+    let username: string | null = post.influencerUsername || parsed.username;
+
+    // If no username, try Raw API to get post data directly by shortcode
+    const shortcode = parsed.postId;
+    if (!username && shortcode && this.modashRawService.isRawApiEnabled()) {
+      try {
+        const rawMedia: any = await this.modashRawService.getIgMediaInfo(shortcode);
+        const item = rawMedia?.items?.[0] || rawMedia;
+        if (item?.user?.username) {
+          username = item.user.username as string;
+          post.influencerUsername = username!;
+          post.influencerName = item.user?.full_name || username;
+          post.likesCount = item.like_count || 0;
+          post.commentsCount = item.comment_count || 0;
+          post.viewsCount = item.play_count || item.video_view_count || item.view_count || 0;
+          post.description = item.caption?.text || post.description;
+          post.postImageUrl = item.display_url || item.image_versions2?.candidates?.[0]?.url || post.postImageUrl;
+          if (item.taken_at) {
+            post.postedDate = new Date(item.taken_at * 1000);
+          }
+          post.postType = item.media_type === 2 ? PostType.POST : PostType.POST;
+
+          // Get follower count via user-info
+          try {
+            const userInfo: any = await this.modashRawService.getIgUserInfo(username!);
+            if (userInfo?.follower_count) {
+              post.followerCount = userInfo.follower_count;
+            }
+          } catch { /* fallback below */ }
+
+          const fc = post.followerCount || 0;
+          if (fc > 0 && (post.likesCount || post.commentsCount)) {
+            post.engagementRate = Math.min(((post.likesCount + post.commentsCount) / fc) * 100, 999.99);
+          }
+
+          // Link to campaign influencer if matching username exists
+          if (!post.campaignInfluencerId && username) {
+            const matchingInf = await this.influencerRepo.findOne({
+              where: { campaignId: post.campaignId, influencerUsername: username! },
+            });
+            if (matchingInf) {
+              post.campaignInfluencerId = matchingInf.id;
+            }
+          }
+
+          await this.postRepo.save(post);
+          if (post.campaignInfluencerId) {
+            await this.recalculateInfluencerMetrics(post.campaignInfluencerId);
+          }
+          this.logger.log(`Post ${post.id} enriched via Raw API: likes=${post.likesCount}, views=${post.viewsCount}, user=${username}`);
+          return;
+        }
+      } catch (rawErr) {
+        this.logger.warn(`Raw API media-info failed for ${post.id}: ${rawErr.message}`);
+      }
+    }
+
     if (!username) {
       this.logger.warn(`Cannot enrich post ${post.id}: no username`);
       return;
@@ -1148,11 +1220,134 @@ export class CampaignsService {
         }
       }
 
+      // Auto-discover posts via hashtag feed (Raw API)
+      if (this.modashRawService.isRawApiEnabled() && searchTerms.length > 0) {
+        this.logger.log(`Campaign ${campaignId}: auto-discovering posts via hashtag feed`);
+        const discoveredPosts: Array<{ username: string; postId: string; likes: number; comments: number; views: number; shares: number; text: string; thumbnail: string; timestamp: number }> = [];
+
+        for (const term of searchTerms) {
+          try {
+            if (term.startsWith('#')) {
+              const tag = term.replace(/^#/, '');
+              if (platformType === 'INSTAGRAM' || platformType === 'MULTI') {
+                const feed = await this.modashRawService.getIgHashtagFeed(tag);
+                for (const p of (feed.data || (feed as any).items || [])) {
+                  const ts = (p.taken_at || 0) * 1000;
+                  if (ts >= startMs && ts <= endMs) {
+                    const code = (p as any).code || '';
+                    const postUrl = `https://www.instagram.com/p/${code}/`;
+                    if (!existingPostUrls.has(postUrl) && code) {
+                      discoveredPosts.push({
+                        username: (p as any).user?.username || '',
+                        postId: code,
+                        likes: (p as any).like_count || 0,
+                        comments: (p as any).comment_count || 0,
+                        views: (p as any).play_count || (p as any).video_view_count || 0,
+                        shares: 0,
+                        text: (p as any).caption?.text || '',
+                        thumbnail: (p as any).display_url || (p as any).image_versions2?.candidates?.[0]?.url || '',
+                        timestamp: ts,
+                      });
+                      existingPostUrls.add(postUrl);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (termErr) {
+            this.logger.warn(`Campaign ${campaignId}: hashtag feed failed for "${term}": ${termErr.message}`);
+          }
+        }
+
+        const infMap = new Map<string, CampaignInfluencer>();
+        for (const inf of existingInfluencers) {
+          infMap.set(inf.influencerUsername?.toLowerCase() || '', inf);
+        }
+
+        for (const dp of discoveredPosts) {
+          if (!dp.username) continue;
+          const key = dp.username.toLowerCase();
+          let inf = infMap.get(key);
+
+          if (!inf) {
+            let followerCount = 0;
+            let profilePicUrl = '';
+            let displayName = dp.username;
+            try {
+              const userInfo: any = await this.modashRawService.getIgUserInfo(dp.username);
+              if (userInfo?.follower_count) followerCount = userInfo.follower_count;
+              if (userInfo?.profile_pic_url) profilePicUrl = userInfo.profile_pic_url;
+              if (userInfo?.profile_pic_url_hd) profilePicUrl = userInfo.profile_pic_url_hd;
+              if (userInfo?.full_name) displayName = userInfo.full_name;
+            } catch { /* best effort */ }
+
+            const newInf = this.influencerRepo.create({
+              campaignId,
+              influencerName: displayName,
+              influencerUsername: dp.username,
+              platform: 'INSTAGRAM',
+              status: InfluencerStatus.ACTIVE,
+              followerCount,
+              profilePictureUrl: profilePicUrl,
+              likesCount: 0, viewsCount: 0, commentsCount: 0, sharesCount: 0, postsCount: 0,
+            } as any);
+            inf = await this.influencerRepo.save(newInf) as unknown as CampaignInfluencer;
+            infMap.set(key, inf);
+          }
+
+          const postUrl = `https://www.instagram.com/p/${dp.postId}/`;
+          try {
+            const dbPost = this.postRepo.create({
+              campaignId,
+              campaignInfluencerId: inf.id,
+              postUrl,
+              postType: PostType.POST,
+              platform: campaign.platform,
+              influencerName: inf.influencerName || dp.username,
+              influencerUsername: dp.username,
+              postImageUrl: dp.thumbnail,
+              description: dp.text,
+              postedDate: dp.timestamp ? new Date(dp.timestamp) : new Date(),
+              followerCount: inf.followerCount || 0,
+              likesCount: dp.likes,
+              viewsCount: dp.views,
+              commentsCount: dp.comments,
+              sharesCount: dp.shares,
+              isPublished: true,
+            } as any);
+            await this.postRepo.save(dbPost);
+
+            inf.postsCount = (inf.postsCount || 0) + 1;
+            inf.likesCount = (inf.likesCount || 0) + dp.likes;
+            inf.viewsCount = (inf.viewsCount || 0) + dp.views;
+            inf.commentsCount = (inf.commentsCount || 0) + dp.comments;
+            inf.sharesCount = (inf.sharesCount || 0) + dp.shares;
+            await this.influencerRepo.save(inf);
+          } catch (postErr) {
+            this.logger.warn(`Campaign ${campaignId}: failed to save discovered post ${dp.postId}: ${postErr.message}`);
+          }
+        }
+
+        // Compute ER for discovered influencers
+        for (const [, inf] of infMap) {
+          const fc = Number(inf.followerCount) || 0;
+          if (fc > 0 && inf.postsCount > 0) {
+            const infER = Math.min(((inf.likesCount + inf.commentsCount) / (inf.postsCount * fc)) * 100, 999.99);
+            await this.postRepo.createQueryBuilder().update(CampaignPost)
+              .set({ followerCount: fc, engagementRate: infER })
+              .where('campaignInfluencerId = :infId AND engagementRate IS NULL', { infId: inf.id })
+              .execute();
+          }
+        }
+
+        this.logger.log(`Campaign ${campaignId}: auto-discovered ${discoveredPosts.length} posts from hashtag feeds`);
+      }
+
       campaign.status = this.computeCampaignStatus(campaign);
       await this.campaignRepo.save(campaign);
 
-      const totalInf = existingInfluencers.length;
-      const totalPosts = (await this.postRepo.count({ where: { campaignId } }));
+      const totalInf = await this.influencerRepo.count({ where: { campaignId } });
+      const totalPosts = await this.postRepo.count({ where: { campaignId } });
       this.logger.log(`Campaign ${campaignId} processed: ${totalInf} influencers, ${totalPosts} posts — status: ${campaign.status}`);
 
       const owner = await this.userRepo.findOne({ where: { id: campaign.ownerId } });

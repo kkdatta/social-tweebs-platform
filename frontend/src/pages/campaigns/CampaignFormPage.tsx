@@ -8,6 +8,7 @@ const PLATFORMS = [
   { value: 'INSTAGRAM', label: 'Instagram' },
   { value: 'YOUTUBE', label: 'YouTube' },
   { value: 'TIKTOK', label: 'TikTok' },
+  { value: 'LINKEDIN', label: 'LinkedIn (Phase-2)' },
   { value: 'MULTI', label: 'Multi-Platform' },
 ];
 const OBJECTIVES = [
