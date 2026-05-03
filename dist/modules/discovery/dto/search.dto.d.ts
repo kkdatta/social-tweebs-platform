@@ -56,7 +56,11 @@ export declare class InfluencerFiltersDto {
     age?: RangeFilter;
     lastposted?: number;
     bio?: string;
+    bioMatchType?: 'must' | 'should' | 'not';
+    excludeLocations?: boolean;
     keywords?: string;
+    excludeKeywords?: boolean;
+    textTagAction?: 'should' | 'should_not';
     textTags?: TextTagFilter[];
     relevance?: string[];
     audienceRelevance?: string[];

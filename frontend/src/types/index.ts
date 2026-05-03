@@ -136,16 +136,23 @@ export interface SearchFilters {
     // Content & Activity
     lastposted?: number;
     bio?: string;
+    bioMatchType?: 'must' | 'should' | 'not';
     keywords?: string;
+    excludeKeywords?: boolean;
     textTags?: TextTagFilter[];
+    textTagAction?: 'should' | 'should_not';
     relevance?: string[];
     audienceRelevance?: string[];
+
+    // Location
+    excludeLocations?: boolean;
 
     // Account Properties
     isVerified?: boolean;
     accountTypes?: number[];
     hasSponsoredPosts?: boolean;
     hasYouTube?: boolean;
+    categories?: string[];
 
     // Contact Details
     hasContactDetails?: ContactDetailsFilter[];
@@ -162,7 +169,6 @@ export interface SearchFilters {
 
     // Legacy fields
     username?: string;
-    categories?: string[];
   };
   audience?: {
     location?: { id: number; weight?: number }[];

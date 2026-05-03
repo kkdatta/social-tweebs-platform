@@ -326,16 +326,31 @@ let ModashService = ModashService_1 = class ModashService {
             filter.reelsPlays = filters.reelsPlays;
         }
         if (filters.location && filters.location.length > 0) {
-            filter.location = filters.location;
+            if (filters.excludeLocations) {
+                filter.locationNot = filters.location;
+            }
+            else {
+                filter.location = filters.location;
+            }
         }
         if (filters.interests && filters.interests.length > 0) {
             filter.interests = filters.interests;
         }
         if (filters.bio) {
-            filter.bio = filters.bio;
+            if (filters.bioMatchType === 'not') {
+                filter.bioNot = filters.bio;
+            }
+            else {
+                filter.bio = filters.bio;
+            }
         }
         if (filters.keywords) {
-            filter.keywords = filters.keywords;
+            if (filters.excludeKeywords) {
+                filter.keywordsNot = filters.keywords;
+            }
+            else {
+                filter.keywords = filters.keywords;
+            }
         }
         if (filters.hasContactDetails !== undefined) {
             filter.hasContactDetails = filters.hasContactDetails;
@@ -368,7 +383,8 @@ let ModashService = ModashService_1 = class ModashService {
             filter.lastposted = filters.lastposted;
         }
         if (filters.textTags && filters.textTags.length > 0) {
-            filter.textTags = filters.textTags;
+            const action = filters.textTagAction || 'should';
+            filter.textTags = filters.textTags.map((t) => ({ ...t, action }));
         }
         if (filters.relevance && filters.relevance.length > 0) {
             filter.relevance = filters.relevance;
@@ -381,6 +397,18 @@ let ModashService = ModashService_1 = class ModashService {
         }
         if (filters.username) {
             filter.username = filters.username;
+        }
+        if (filters.categories && filters.categories.length > 0) {
+            filter.accountTypes = [
+                ...(filter.accountTypes || []),
+                ...filters.categories.map((c) => {
+                    if (c === 'Creator')
+                        return 3;
+                    if (c === 'Business')
+                        return 2;
+                    return 1;
+                }),
+            ];
         }
         return filter;
     }

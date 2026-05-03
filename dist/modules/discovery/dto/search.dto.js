@@ -271,11 +271,35 @@ __decorate([
     __metadata("design:type", String)
 ], InfluencerFiltersDto.prototype, "bio", void 0);
 __decorate([
+    (0, swagger_1.ApiPropertyOptional)({ enum: ['must', 'should', 'not'], description: 'Bio match mode: must contain, should contain, does not contain' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], InfluencerFiltersDto.prototype, "bioMatchType", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Exclude selected locations instead of including them' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], InfluencerFiltersDto.prototype, "excludeLocations", void 0);
+__decorate([
     (0, swagger_1.ApiPropertyOptional)({ description: 'Keyword phrase used in post captions (NEW)' }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], InfluencerFiltersDto.prototype, "keywords", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Exclude keywords instead of including them' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], InfluencerFiltersDto.prototype, "excludeKeywords", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ enum: ['should', 'should_not'], description: 'Text tag action: include or exclude hashtags/mentions' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], InfluencerFiltersDto.prototype, "textTagAction", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({
         type: [TextTagFilter],

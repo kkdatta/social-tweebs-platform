@@ -38,6 +38,8 @@ import {
   CreditCard,
   CheckCircle2,
   Coins,
+  Tag,
+  MessageSquare,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { 
@@ -384,6 +386,9 @@ const DiscoveryPage: React.FC = () => {
   const [isCheckingInsights, setIsCheckingInsights] = useState(false);
 
 
+  // Location name tracking for display
+  const [selectedLocationNames, setSelectedLocationNames] = useState<Map<number, string>>(new Map([[304716, 'India']]));
+
   // Complete filters state
   const DEFAULT_LOCATION = [304716]; // India (Modash location ID)
   const [filters, setFilters] = useState<SearchFilters>({
@@ -400,7 +405,14 @@ const DiscoveryPage: React.FC = () => {
     switch (category) {
       case 'demographics':
       case 'location': {
-        if (inf.location?.length) return `${inf.location.length} location${inf.location.length > 1 ? 's' : ''}`;
+        if (inf.location?.length) {
+          const names = inf.location.map(id => selectedLocationNames.get(id)).filter(Boolean) as string[];
+          if (names.length > 0) {
+            const joined = names.join(', ');
+            return joined.length > 30 ? joined.slice(0, 27) + '...' : joined;
+          }
+          return `${inf.location.length} location${inf.location.length > 1 ? 's' : ''}`;
+        }
         return null;
       }
       case 'language': {
@@ -453,11 +465,31 @@ const DiscoveryPage: React.FC = () => {
         }
         return parts.length > 0 ? parts.join(', ') : null;
       }
+      case 'followers':
       case 'metrics': {
         const parts: string[] = [];
         if (inf.followers) parts.push('Followers');
-        if (inf.reelsPlays) parts.push('Reels');
         return parts.length > 0 ? parts.join(', ') : null;
+      }
+      case 'reelViews': {
+        if (inf.reelsPlays?.min || inf.reelsPlays?.max) return 'Set';
+        return null;
+      }
+      case 'keywords': {
+        if (inf.keywords) return inf.keywords.split(',')[0].trim();
+        return null;
+      }
+      case 'lastPosted': {
+        if (inf.lastposted) return `${inf.lastposted}d`;
+        return null;
+      }
+      case 'textTags': {
+        if (inf.textTags?.length) return `${inf.textTags.length} tag${inf.textTags.length > 1 ? 's' : ''}`;
+        return null;
+      }
+      case 'category': {
+        if (inf.categories?.length) return inf.categories.join(', ');
+        return null;
       }
       case 'activity': {
         const parts: string[] = [];
@@ -504,7 +536,7 @@ const DiscoveryPage: React.FC = () => {
       default:
         return null;
     }
-  }, [filters]);
+  }, [filters, selectedLocationNames]);
 
   // Helper functions
   const updateInfluencerFilter = (key: string, value: any) => {
@@ -794,41 +826,42 @@ const DiscoveryPage: React.FC = () => {
     <div className="card p-3 space-y-3">
       {/* Top Row: Platform, Bio Search, Sort, and Actions */}
       <div className="flex flex-wrap items-end gap-3">
-        {/* Platform Selection */}
-        <div className="flex items-center gap-1">
-          {platforms.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              disabled={p.disabled}
-              title={p.disabled ? 'Coming soon' : p.name}
-              onClick={() => {
-                if (p.disabled) return;
-                setSelectedPlatform(p.id as Platform);
-                setCurrentPage(0);
-              }}
-              className={`flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                p.disabled
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-70 grayscale'
-                  : selectedPlatform === p.id
-                    ? `${p.color} text-white shadow`
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              <p.icon className="w-4 h-4 shrink-0" />
-              <span className="hidden sm:inline">{p.name}</span>
-            </button>
-          ))}
+        {/* Platform Selection - Dropdown */}
+        <div className="relative">
+          <select
+            value={selectedPlatform}
+            onChange={(e) => {
+              setSelectedPlatform(e.target.value as Platform);
+              setCurrentPage(0);
+            }}
+            className="input py-2 text-sm pr-8 appearance-none bg-white min-w-[140px]"
+          >
+            {platforms.map((p) => (
+              <option key={p.id} value={p.id} disabled={p.disabled}>
+                {p.name}{p.disabled ? ' (Coming soon)' : ''}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
 
-        {/* Bio Search */}
-        <div className="flex-1 min-w-[200px]">
+        {/* Bio Search with match type */}
+        <div className="flex-1 min-w-[200px] flex gap-1">
+          <select
+            value={filters.influencer?.bioMatchType || 'must'}
+            onChange={(e) => updateInfluencerFilter('bioMatchType', e.target.value)}
+            className="input py-2 text-sm w-[130px] shrink-0"
+          >
+            <option value="must">Must contain</option>
+            <option value="should">Should contain</option>
+            <option value="not">Does not contain</option>
+          </select>
           <input
             type="text"
             placeholder="Search by bio or name..."
             value={filters.influencer?.bio || ''}
             onChange={(e) => updateInfluencerFilter('bio', e.target.value)}
-            className="input py-2 text-sm w-full"
+            className="input py-2 text-sm flex-1 min-w-0"
           />
         </div>
 
@@ -864,16 +897,17 @@ const DiscoveryPage: React.FC = () => {
 
       {/* Collapsed horizontal: category pills, click to expand */}
       <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+        {/* Followers Filter (renamed from Metrics, Reels removed) */}
         <div className="relative">
-          <button type="button" onClick={() => toggleFilter('metrics')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'metrics' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('metrics') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+          <button type="button" onClick={() => toggleFilter('followers')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'followers' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('followers') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <Users className="w-3.5 h-3.5" />
-            <span>Metrics</span>
-            {getFilterSummary('metrics') && (
-              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('metrics')})</span>
+            <span>Followers</span>
+            {getFilterSummary('followers') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('followers')})</span>
             )}
-            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'metrics' ? 'rotate-180' : ''}`} />
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'followers' ? 'rotate-180' : ''}`} />
           </button>
-          {openFilter === 'metrics' && <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+          {openFilter === 'followers' && <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Followers</label>
@@ -882,18 +916,32 @@ const DiscoveryPage: React.FC = () => {
                   <input type="number" placeholder="Max" value={filters.influencer?.followers?.max || ''} onChange={(e) => updateInfluencerFilter('followers', { ...filters.influencer?.followers, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
                 </div>
               </div>
-              {selectedPlatform === 'INSTAGRAM' && (
-                <div>
-                  <label className="text-xs text-gray-600 mb-1 block flex items-center gap-1"><Play className="w-3 h-3" /> Reels Plays</label>
-                  <div className="flex gap-2">
-                    <input type="number" placeholder="Min" value={filters.influencer?.reelsPlays?.min || ''} onChange={(e) => updateInfluencerFilter('reelsPlays', { ...filters.influencer?.reelsPlays, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
-                    <input type="number" placeholder="Max" value={filters.influencer?.reelsPlays?.max || ''} onChange={(e) => updateInfluencerFilter('reelsPlays', { ...filters.influencer?.reelsPlays, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
-                  </div>
-                </div>
-              )}
             </div>
           </div>}
         </div>
+
+        {/* Reel Views Filter (Instagram only) */}
+        {selectedPlatform === 'INSTAGRAM' && (
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('reelViews')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'reelViews' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('reelViews') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+            <Play className="w-3.5 h-3.5" />
+            <span>Reel Views</span>
+            {getFilterSummary('reelViews') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('reelViews')})</span>
+            )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'reelViews' ? 'rotate-180' : ''}`} />
+          </button>
+          {openFilter === 'reelViews' && <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+            <div>
+              <label className="text-xs text-gray-600 mb-1 block flex items-center gap-1"><Play className="w-3 h-3" /> Reels Plays</label>
+              <div className="flex gap-2">
+                <input type="number" placeholder="Min" value={filters.influencer?.reelsPlays?.min || ''} onChange={(e) => updateInfluencerFilter('reelsPlays', { ...filters.influencer?.reelsPlays, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+                <input type="number" placeholder="Max" value={filters.influencer?.reelsPlays?.max || ''} onChange={(e) => updateInfluencerFilter('reelsPlays', { ...filters.influencer?.reelsPlays, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+              </div>
+            </div>
+          </div>}
+        </div>
+        )}
 
         {/* Engagement Rate Filter */}
         <div className="relative">
@@ -973,25 +1021,76 @@ const DiscoveryPage: React.FC = () => {
           </div>}
         </div>
 
+        {/* Last Posted Filter */}
         <div className="relative">
-          <button type="button" onClick={() => toggleFilter('activity')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'activity' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('activity') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+          <button type="button" onClick={() => toggleFilter('lastPosted')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'lastPosted' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('lastPosted') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
             <Calendar className="w-3.5 h-3.5" />
-            <span>Activity</span>
-            {getFilterSummary('activity') && (
-              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('activity')})</span>
+            <span>Last Posted</span>
+            {getFilterSummary('lastPosted') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('lastPosted')})</span>
             )}
-            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'activity' ? 'rotate-180' : ''}`} />
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'lastPosted' ? 'rotate-180' : ''}`} />
           </button>
-          {openFilter === 'activity' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+          {openFilter === 'lastPosted' && <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+            <div>
+              <label className="text-xs text-gray-600 mb-1 block">Posted Within (Days)</label>
+              <input type="number" min="30" placeholder="e.g., 30, 60, 90" value={filters.influencer?.lastposted || ''} onChange={(e) => updateInfluencerFilter('lastposted', e.target.value ? parseInt(e.target.value) : undefined)} className="input py-1.5 text-sm w-full" />
+              <p className="text-xs text-gray-400 mt-1">Find active influencers (min 30 days)</p>
+            </div>
+          </div>}
+        </div>
+
+        {/* Keywords Filter */}
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('keywords')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'keywords' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('keywords') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>Keywords</span>
+            {getFilterSummary('keywords') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('keywords')})</span>
+            )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'keywords' ? 'rotate-180' : ''}`} />
+          </button>
+          {openFilter === 'keywords' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-600 mb-1 block">Posted Within (Days)</label>
-                <input type="number" min="30" placeholder="e.g., 30, 60, 90" value={filters.influencer?.lastposted || ''} onChange={(e) => updateInfluencerFilter('lastposted', e.target.value ? parseInt(e.target.value) : undefined)} className="input py-1.5 text-sm w-full" />
-                <p className="text-xs text-gray-400 mt-1">Find active influencers (min 30 days)</p>
-              </div>
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Keywords in Posts</label>
                 <input type="text" placeholder="e.g., fitness, lifestyle" value={filters.influencer?.keywords || ''} onChange={(e) => updateInfluencerFilter('keywords', e.target.value)} className="input py-1.5 text-sm w-full" />
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={filters.influencer?.excludeKeywords || false} onChange={(e) => updateInfluencerFilter('excludeKeywords', e.target.checked || undefined)} className="w-4 h-4 text-primary-600 rounded" />
+                <span className="text-sm text-gray-700">Exclude these keywords</span>
+              </label>
+            </div>
+          </div>}
+        </div>
+
+        {/* Text Tags Filter */}
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('textTags')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'textTags' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('textTags') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+            <Hash className="w-3.5 h-3.5" />
+            <span>Text Tags</span>
+            {getFilterSummary('textTags') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('textTags')})</span>
+            )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'textTags' ? 'rotate-180' : ''}`} />
+          </button>
+          {openFilter === 'textTags' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+            <div className="space-y-3">
+              <div className="flex gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => updateInfluencerFilter('textTagAction', 'should')}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${(!filters.influencer?.textTagAction || filters.influencer?.textTagAction === 'should') ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                >
+                  Include
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateInfluencerFilter('textTagAction', 'should_not')}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${filters.influencer?.textTagAction === 'should_not' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                >
+                  Exclude
+                </button>
               </div>
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Hashtags & Mentions Used</label>
@@ -1010,14 +1109,22 @@ const DiscoveryPage: React.FC = () => {
             )}
             <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'lookalike' ? 'rotate-180' : ''}`} />
           </button>
-          {openFilter === 'lookalike' && <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
-            <div className="space-y-3">
+          {openFilter === 'lookalike' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+            <div className="space-y-4">
               <div>
+                <div className="flex items-center gap-1 mb-2 pb-1 border-b border-gray-100">
+                  <Target className="w-3.5 h-3.5 text-primary-500" />
+                  <span className="text-xs font-semibold text-gray-800">Influencer Lookalike</span>
+                </div>
                 <label className="text-xs text-gray-600 mb-1 block">Similar Topics To</label>
                 <RelevanceInput values={filters.influencer?.relevance || []} onChange={(v) => updateInfluencerFilter('relevance', v)} placeholder="#hashtag or @username" />
                 <p className="text-xs text-gray-400 mt-1">Find similar content creators</p>
               </div>
               <div>
+                <div className="flex items-center gap-1 mb-2 pb-1 border-b border-gray-100">
+                  <Users className="w-3.5 h-3.5 text-purple-500" />
+                  <span className="text-xs font-semibold text-gray-800">Audience Lookalike</span>
+                </div>
                 <label className="text-xs text-gray-600 mb-1 block">Similar Audience To</label>
                 <RelevanceInput values={filters.influencer?.audienceRelevance || []} onChange={(v) => updateInfluencerFilter('audienceRelevance', v)} placeholder="@username" />
                 <p className="text-xs text-gray-400 mt-1">Audience lookalike search</p>
@@ -1143,13 +1250,40 @@ const DiscoveryPage: React.FC = () => {
             <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'location' ? 'rotate-180' : ''}`} />
           </button>
           {openFilter === 'location' && <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
-            <label className="text-xs text-gray-600 mb-1 block">Location</label>
-            <AsyncSelect
-              value={filters.influencer?.location || []}
-              onChange={(ids) => updateInfluencerFilter('location', ids.length > 0 ? ids : undefined)}
-              fetchOptions={async (q) => (await discoveryApi.getLocations(q)).map((l) => ({ id: l.id, name: l.name }))}
-              placeholder="Select locations..."
-            />
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Location</label>
+                <AsyncSelect
+                  value={filters.influencer?.location || []}
+                  onChange={(ids) => {
+                    updateInfluencerFilter('location', ids.length > 0 ? ids : undefined);
+                    setSelectedLocationNames(prev => {
+                      const next = new Map(prev);
+                      for (const key of prev.keys()) {
+                        if (!ids.includes(key)) next.delete(key);
+                      }
+                      return next;
+                    });
+                  }}
+                  fetchOptions={async (q) => {
+                    const results = (await discoveryApi.getLocations(q)).map((l) => ({ id: l.id, name: l.name }));
+                    setSelectedLocationNames(prev => {
+                      const next = new Map(prev);
+                      for (const r of results) {
+                        if (filters.influencer?.location?.includes(r.id)) next.set(r.id, r.name);
+                      }
+                      return next;
+                    });
+                    return results;
+                  }}
+                  placeholder="Select locations..."
+                />
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={filters.influencer?.excludeLocations || false} onChange={(e) => updateInfluencerFilter('excludeLocations', e.target.checked || undefined)} className="w-4 h-4 text-primary-600 rounded" />
+                <span className="text-sm text-gray-700">Exclude these locations</span>
+              </label>
+            </div>
           </div>}
         </div>
 
@@ -1271,7 +1405,7 @@ const DiscoveryPage: React.FC = () => {
             )}
             <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'age' ? 'rotate-180' : ''}`} />
           </button>
-          {openFilter === 'age' && <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+          {openFilter === 'age' && <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
               <div>
                 <label className="text-xs font-medium text-gray-700 mb-2 block">Influencer Age</label>
@@ -1285,6 +1419,11 @@ const DiscoveryPage: React.FC = () => {
                     );
                   })}
                 </div>
+                <div className="flex gap-2 mt-2">
+                  <input type="number" placeholder="Min age" value={filters.influencer?.age?.min || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+                  <input type="number" placeholder="Max age" value={filters.influencer?.age?.max || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Or enter custom range above</p>
               </div>
               <div className="border-t border-gray-200 pt-3">
                 <label className="text-xs font-medium text-gray-700 mb-2 block">Audience Age</label>
@@ -1420,6 +1559,33 @@ const DiscoveryPage: React.FC = () => {
             </div>
           </div>}
         </div>
+
+        {/* Category Filter */}
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('category')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'category' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('category') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+            <Tag className="w-3.5 h-3.5" />
+            <span>Category</span>
+            {getFilterSummary('category') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('category')})</span>
+            )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'category' ? 'rotate-180' : ''}`} />
+          </button>
+          {openFilter === 'category' && <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+            <div className="space-y-2">
+              <label className="text-xs text-gray-600 mb-1 block">Account Category</label>
+              {[{ value: 'Creator', label: 'Creator' }, { value: 'Business', label: 'Business' }, { value: 'Other', label: 'Other' }].map((cat) => (
+                <label key={cat.value} className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={filters.influencer?.categories?.includes(cat.value) || false} onChange={(e) => {
+                    const current = filters.influencer?.categories || [];
+                    const updated = e.target.checked ? [...current, cat.value] : current.filter((v) => v !== cat.value);
+                    updateInfluencerFilter('categories', updated.length > 0 ? updated : undefined);
+                  }} className="w-3.5 h-3.5 text-primary-600 rounded" />
+                  <span className="text-sm text-gray-700">{cat.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>}
+        </div>
       </div>
 
       {/* Click-away: close filter when clicking outside */}
@@ -1430,52 +1596,47 @@ const DiscoveryPage: React.FC = () => {
   // Full Filter Content (for mobile drawer)
   const FilterContent = () => (
     <div className="space-y-3">
-      {/* Platform Selection */}
+      {/* Platform Selection - Dropdown */}
       <div className="card p-3">
         <label className="text-xs font-medium text-gray-600 mb-2 block">Platform</label>
-        <div className="grid grid-cols-2 gap-2">
+        <select
+          value={selectedPlatform}
+          onChange={(e) => {
+            setSelectedPlatform(e.target.value as Platform);
+            setCurrentPage(0);
+          }}
+          className="input py-2 text-sm w-full"
+        >
           {platforms.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              disabled={p.disabled}
-              title={p.disabled ? 'Coming soon' : undefined}
-              onClick={() => {
-                if (p.disabled) return;
-                setSelectedPlatform(p.id as Platform);
-                setCurrentPage(0);
-              }}
-              className={`relative flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                p.disabled
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-70 grayscale'
-                  : selectedPlatform === p.id
-                    ? `${p.color} text-white shadow`
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              <p.icon className="w-4 h-4 shrink-0" />
-              <span className="hidden xs:inline">{p.name}</span>
-              {p.disabled && (
-                <span className="text-[10px] leading-none font-semibold uppercase tracking-wide text-gray-500">
-                  Coming soon
-                </span>
-              )}
-            </button>
+            <option key={p.id} value={p.id} disabled={p.disabled}>
+              {p.name}{p.disabled ? ' (Coming soon)' : ''}
+            </option>
           ))}
-        </div>
+        </select>
       </div>
 
       {/* Search & Sort */}
       <div className="card p-3 space-y-3">
         <div>
           <label className="text-xs font-medium text-gray-600 mb-1 block">Bio / Name Search</label>
-          <input
-            type="text"
-            placeholder="Search keywords..."
-            value={filters.influencer?.bio || ''}
-            onChange={(e) => updateInfluencerFilter('bio', e.target.value)}
-            className="input py-1.5 text-sm"
-          />
+          <div className="flex gap-1">
+            <select
+              value={filters.influencer?.bioMatchType || 'must'}
+              onChange={(e) => updateInfluencerFilter('bioMatchType', e.target.value)}
+              className="input py-1.5 text-sm w-[120px] shrink-0"
+            >
+              <option value="must">Must contain</option>
+              <option value="should">Should contain</option>
+              <option value="not">Does not contain</option>
+            </select>
+            <input
+              type="text"
+              placeholder="Search keywords..."
+              value={filters.influencer?.bio || ''}
+              onChange={(e) => updateInfluencerFilter('bio', e.target.value)}
+              className="input py-1.5 text-sm flex-1 min-w-0"
+            />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
@@ -1502,8 +1663,8 @@ const DiscoveryPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Metrics Section */}
-      <FilterSection title="Metrics" icon={<Users className="w-4 h-4 text-gray-500" />}>
+      {/* Followers Section */}
+      <FilterSection title="Followers" icon={<Users className="w-4 h-4 text-gray-500" />}>
         <div>
           <label className="text-xs text-gray-600 mb-1 block">Followers</label>
           <div className="flex gap-2">
@@ -1511,7 +1672,11 @@ const DiscoveryPage: React.FC = () => {
             <input type="number" placeholder="Max" value={filters.influencer?.followers?.max || ''} onChange={(e) => updateInfluencerFilter('followers', { ...filters.influencer?.followers, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm" />
           </div>
         </div>
-        {selectedPlatform === 'INSTAGRAM' && (
+      </FilterSection>
+
+      {/* Reel Views (Instagram only) */}
+      {selectedPlatform === 'INSTAGRAM' && (
+        <FilterSection title="Reel Views" icon={<Play className="w-4 h-4 text-gray-500" />}>
           <div>
             <label className="text-xs text-gray-600 mb-1 block flex items-center gap-1"><Play className="w-3 h-3" /> Reels Plays</label>
             <div className="flex gap-2">
@@ -1519,8 +1684,8 @@ const DiscoveryPage: React.FC = () => {
               <input type="number" placeholder="Max" value={filters.influencer?.reelsPlays?.max || ''} onChange={(e) => updateInfluencerFilter('reelsPlays', { ...filters.influencer?.reelsPlays, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm" />
             </div>
           </div>
-        )}
-      </FilterSection>
+        </FilterSection>
+      )}
 
       {/* Engagement */}
       <FilterSection title="Engagement" icon={<Heart className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
@@ -1581,16 +1746,44 @@ const DiscoveryPage: React.FC = () => {
         </div>
       </FilterSection>
 
-      {/* Content & Activity */}
-      <FilterSection title="Content & Activity" icon={<Calendar className="w-4 h-4 text-gray-500" />}>
+      {/* Last Posted */}
+      <FilterSection title="Last Posted" icon={<Calendar className="w-4 h-4 text-gray-500" />}>
         <div>
           <label className="text-xs text-gray-600 mb-1 block">Posted Within (Days)</label>
           <input type="number" min="30" placeholder="e.g., 30, 60, 90" value={filters.influencer?.lastposted || ''} onChange={(e) => updateInfluencerFilter('lastposted', e.target.value ? parseInt(e.target.value) : undefined)} className="input py-1.5 text-sm" />
           <p className="text-xs text-gray-400 mt-1">Find active influencers (min 30 days)</p>
         </div>
+      </FilterSection>
+
+      {/* Keywords */}
+      <FilterSection title="Keywords" icon={<MessageSquare className="w-4 h-4 text-gray-500" />}>
         <div>
           <label className="text-xs text-gray-600 mb-1 block">Keywords in Posts</label>
           <input type="text" placeholder="e.g., fitness, lifestyle" value={filters.influencer?.keywords || ''} onChange={(e) => updateInfluencerFilter('keywords', e.target.value)} className="input py-1.5 text-sm" />
+        </div>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={filters.influencer?.excludeKeywords || false} onChange={(e) => updateInfluencerFilter('excludeKeywords', e.target.checked || undefined)} className="w-4 h-4 text-primary-600 rounded" />
+          <span className="text-sm text-gray-700">Exclude these keywords</span>
+        </label>
+      </FilterSection>
+
+      {/* Text Tags */}
+      <FilterSection title="Text Tags" icon={<Hash className="w-4 h-4 text-gray-500" />}>
+        <div className="flex gap-2 mb-2">
+          <button
+            type="button"
+            onClick={() => updateInfluencerFilter('textTagAction', 'should')}
+            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${(!filters.influencer?.textTagAction || filters.influencer?.textTagAction === 'should') ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+          >
+            Include
+          </button>
+          <button
+            type="button"
+            onClick={() => updateInfluencerFilter('textTagAction', 'should_not')}
+            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${filters.influencer?.textTagAction === 'should_not' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+          >
+            Exclude
+          </button>
         </div>
         <div>
           <label className="text-xs text-gray-600 mb-1 block">Hashtags & Mentions Used</label>
@@ -1601,11 +1794,19 @@ const DiscoveryPage: React.FC = () => {
       {/* Lookalike Search */}
       <FilterSection title="Lookalike Search" icon={<Target className="w-4 h-4 text-gray-500" />}>
         <div>
+          <div className="flex items-center gap-1 mb-2 pb-1 border-b border-gray-100">
+            <Target className="w-3.5 h-3.5 text-primary-500" />
+            <span className="text-xs font-semibold text-gray-800">Influencer Lookalike</span>
+          </div>
           <label className="text-xs text-gray-600 mb-1 block">Similar Topics To</label>
           <RelevanceInput values={filters.influencer?.relevance || []} onChange={(v) => updateInfluencerFilter('relevance', v)} placeholder="#hashtag or @username" />
           <p className="text-xs text-gray-400 mt-1">Find similar content creators</p>
         </div>
         <div>
+          <div className="flex items-center gap-1 mb-2 pb-1 border-b border-gray-100">
+            <Users className="w-3.5 h-3.5 text-purple-500" />
+            <span className="text-xs font-semibold text-gray-800">Audience Lookalike</span>
+          </div>
           <label className="text-xs text-gray-600 mb-1 block">Similar Audience To</label>
           <RelevanceInput values={filters.influencer?.audienceRelevance || []} onChange={(v) => updateInfluencerFilter('audienceRelevance', v)} placeholder="@username" />
           <p className="text-xs text-gray-400 mt-1">Audience lookalike search</p>
@@ -1693,11 +1894,34 @@ const DiscoveryPage: React.FC = () => {
           <label className="text-xs text-gray-600 mb-1 block">Influencer Location</label>
           <AsyncSelect
             value={filters.influencer?.location || []}
-            onChange={(ids) => updateInfluencerFilter('location', ids.length > 0 ? ids : undefined)}
-            fetchOptions={async (q) => (await discoveryApi.getLocations(q)).map((l) => ({ id: l.id, name: l.name }))}
+            onChange={(ids) => {
+              updateInfluencerFilter('location', ids.length > 0 ? ids : undefined);
+              setSelectedLocationNames(prev => {
+                const next = new Map(prev);
+                for (const key of prev.keys()) {
+                  if (!ids.includes(key)) next.delete(key);
+                }
+                return next;
+              });
+            }}
+            fetchOptions={async (q) => {
+              const results = (await discoveryApi.getLocations(q)).map((l) => ({ id: l.id, name: l.name }));
+              setSelectedLocationNames(prev => {
+                const next = new Map(prev);
+                for (const r of results) {
+                  if (filters.influencer?.location?.includes(r.id)) next.set(r.id, r.name);
+                }
+                return next;
+              });
+              return results;
+            }}
             placeholder="Select locations..."
           />
         </div>
+        <label className="flex items-center gap-2 cursor-pointer mt-2">
+          <input type="checkbox" checked={filters.influencer?.excludeLocations || false} onChange={(e) => updateInfluencerFilter('excludeLocations', e.target.checked || undefined)} className="w-4 h-4 text-primary-600 rounded" />
+          <span className="text-sm text-gray-700">Exclude these locations</span>
+        </label>
       </FilterSection>
 
       {/* Language */}
@@ -1800,6 +2024,11 @@ const DiscoveryPage: React.FC = () => {
               );
             })}
           </div>
+          <div className="flex gap-2 mt-2">
+            <input type="number" placeholder="Min age" value={filters.influencer?.age?.min || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, min: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+            <input type="number" placeholder="Max age" value={filters.influencer?.age?.max || ''} onChange={(e) => updateInfluencerFilter('age', { ...filters.influencer?.age, max: e.target.value ? parseInt(e.target.value) : undefined })} className="input py-1.5 text-sm flex-1" />
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Or enter custom range above</p>
         </div>
         <div>
           <label className="text-xs font-medium text-gray-700 mb-2 block">Audience Age</label>
@@ -1898,6 +2127,23 @@ const DiscoveryPage: React.FC = () => {
             }}
             placeholder="Select audience interests..."
           />
+        </div>
+      </FilterSection>
+
+      {/* Category */}
+      <FilterSection title="Category" icon={<Tag className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
+        <div className="space-y-2">
+          <label className="text-xs text-gray-600 mb-1 block">Account Category</label>
+          {[{ value: 'Creator', label: 'Creator' }, { value: 'Business', label: 'Business' }, { value: 'Other', label: 'Other' }].map((cat) => (
+            <label key={cat.value} className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={filters.influencer?.categories?.includes(cat.value) || false} onChange={(e) => {
+                const current = filters.influencer?.categories || [];
+                const updated = e.target.checked ? [...current, cat.value] : current.filter((v) => v !== cat.value);
+                updateInfluencerFilter('categories', updated.length > 0 ? updated : undefined);
+              }} className="w-3.5 h-3.5 text-primary-600 rounded" />
+              <span className="text-sm text-gray-700">{cat.label}</span>
+            </label>
+          ))}
         </div>
       </FilterSection>
 

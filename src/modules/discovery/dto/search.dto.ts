@@ -244,10 +244,30 @@ export class InfluencerFiltersDto {
   @IsString()
   bio?: string;
 
+  @ApiPropertyOptional({ enum: ['must', 'should', 'not'], description: 'Bio match mode: must contain, should contain, does not contain' })
+  @IsOptional()
+  @IsString()
+  bioMatchType?: 'must' | 'should' | 'not';
+
+  @ApiPropertyOptional({ description: 'Exclude selected locations instead of including them' })
+  @IsOptional()
+  @IsBoolean()
+  excludeLocations?: boolean;
+
   @ApiPropertyOptional({ description: 'Keyword phrase used in post captions (NEW)' })
   @IsOptional()
   @IsString()
   keywords?: string;
+
+  @ApiPropertyOptional({ description: 'Exclude keywords instead of including them' })
+  @IsOptional()
+  @IsBoolean()
+  excludeKeywords?: boolean;
+
+  @ApiPropertyOptional({ enum: ['should', 'should_not'], description: 'Text tag action: include or exclude hashtags/mentions' })
+  @IsOptional()
+  @IsString()
+  textTagAction?: 'should' | 'should_not';
 
   @ApiPropertyOptional({ 
     type: [TextTagFilter], 

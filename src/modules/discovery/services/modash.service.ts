@@ -737,7 +737,11 @@ export class ModashService {
     }
 
     if (filters.location && filters.location.length > 0) {
-      filter.location = filters.location;
+      if (filters.excludeLocations) {
+        filter.locationNot = filters.location;
+      } else {
+        filter.location = filters.location;
+      }
     }
 
     if (filters.interests && filters.interests.length > 0) {
@@ -745,12 +749,19 @@ export class ModashService {
     }
 
     if (filters.bio) {
-      filter.bio = filters.bio;
+      if (filters.bioMatchType === 'not') {
+        filter.bioNot = filters.bio;
+      } else {
+        filter.bio = filters.bio;
+      }
     }
 
-    // keywords filter (new)
     if (filters.keywords) {
-      filter.keywords = filters.keywords;
+      if (filters.excludeKeywords) {
+        filter.keywordsNot = filters.keywords;
+      } else {
+        filter.keywords = filters.keywords;
+      }
     }
 
     if (filters.hasContactDetails !== undefined) {
@@ -797,7 +808,8 @@ export class ModashService {
     }
 
     if (filters.textTags && filters.textTags.length > 0) {
-      filter.textTags = filters.textTags;
+      const action = filters.textTagAction || 'should';
+      filter.textTags = filters.textTags.map((t) => ({ ...t, action }));
     }
 
     if (filters.relevance && filters.relevance.length > 0) {
@@ -814,6 +826,17 @@ export class ModashService {
 
     if (filters.username) {
       filter.username = filters.username;
+    }
+
+    if (filters.categories && filters.categories.length > 0) {
+      filter.accountTypes = [
+        ...(filter.accountTypes || []),
+        ...filters.categories.map((c) => {
+          if (c === 'Creator') return 3;
+          if (c === 'Business') return 2;
+          return 1;
+        }),
+      ];
     }
 
     return filter;
