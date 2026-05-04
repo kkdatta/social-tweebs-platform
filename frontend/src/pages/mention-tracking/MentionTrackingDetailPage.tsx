@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useReportPolling } from '../../hooks/useReportPolling';
 import {
   ArrowLeft, Share2, Download, RefreshCw, Hash, AtSign,
-  Users, FileText, Heart, Eye, MessageCircle, Share,
+  Users, FileText, Heart, Eye, MessageCircle,
   Calendar, Clock, CheckCircle, AlertCircle, Loader,
   TrendingUp, ChevronDown, Instagram, Youtube, ChevronLeft, ChevronRight
 } from 'lucide-react';
@@ -33,7 +33,6 @@ interface Report {
   totalLikes: number;
   totalViews: number;
   totalComments: number;
-  totalShares: number;
   avgEngagementRate?: number;
   engagementViewsRate?: number;
   totalFollowers: number;
@@ -76,7 +75,6 @@ export const MentionTrackingDetailPage = () => {
     | 'likes'
     | 'views'
     | 'comments'
-    | 'shares'
     | 'er';
 
   // Influencer tab state
@@ -164,7 +162,6 @@ export const MentionTrackingDetailPage = () => {
         TotalLikes: report.totalLikes,
         TotalViews: report.totalViews,
         TotalComments: report.totalComments,
-        TotalShares: report.totalShares,
         AvgEngagementRate: report.avgEngagementRate,
         EngagementViewsRate: report.engagementViewsRate,
         TotalFollowers: report.totalFollowers,
@@ -188,7 +185,6 @@ export const MentionTrackingDetailPage = () => {
         Likes: c.likesCount,
         Views: c.viewsCount,
         Comments: c.commentsCount,
-        Shares: c.sharesCount ?? 0,
         ERPercent: c.engagementRate,
       }));
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(catRows), 'Categorization');
@@ -204,7 +200,6 @@ export const MentionTrackingDetailPage = () => {
       Likes: inf.likesCount,
       Views: inf.viewsCount,
       Comments: inf.commentsCount,
-      Shares: inf.sharesCount ?? 0,
       Credibility: inf.audienceCredibility,
       ERPercent: inf.avgEngagementRate,
     }));
@@ -216,7 +211,6 @@ export const MentionTrackingDetailPage = () => {
       Likes: p.likesCount,
       Views: p.viewsCount,
       Comments: p.commentsCount,
-      Shares: p.sharesCount ?? 0,
       Sponsored: p.isSponsored,
       Description: p.description,
       MatchedHashtags: (p.matchedHashtags || []).join('; '),
@@ -322,7 +316,6 @@ export const MentionTrackingDetailPage = () => {
     if (k === 'likes') return m * (a.likesCount - b.likesCount);
     if (k === 'views') return m * (a.viewsCount - b.viewsCount);
     if (k === 'comments') return m * (a.commentsCount - b.commentsCount);
-    if (k === 'shares') return m * ((a.sharesCount || 0) - (b.sharesCount || 0));
     if (k === 'er') return m * (a.engagementRate - b.engagementRate);
     return 0;
   });
@@ -345,8 +338,6 @@ export const MentionTrackingDetailPage = () => {
           return m * (a.viewsCount - b.viewsCount);
         case 'comments':
           return m * (a.commentsCount - b.commentsCount);
-        case 'shares':
-          return m * ((a.sharesCount || 0) - (b.sharesCount || 0));
         case 'credibility':
           return m * ((a.audienceCredibility || 0) - (b.audienceCredibility || 0));
         case 'engagement':
@@ -374,7 +365,6 @@ export const MentionTrackingDetailPage = () => {
         case 'likes': return m * (a.likesCount - b.likesCount);
         case 'views': return m * (a.viewsCount - b.viewsCount);
         case 'comments': return m * (a.commentsCount - b.commentsCount);
-        case 'shares': return m * ((a.sharesCount || 0) - (b.sharesCount || 0));
         case 'recent': return m * (new Date(a.postDate || 0).getTime() - new Date(b.postDate || 0).getTime());
         default: return 0;
       }
@@ -560,13 +550,6 @@ export const MentionTrackingDetailPage = () => {
             <div className="text-sm text-gray-500">Comments</div>
           </div>
           <div className="bg-white rounded-xl p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-green-600 mb-2">
-              <Share className="w-5 h-5" />
-            </div>
-            <div className="text-2xl font-bold text-gray-900">{formatNumber(report.totalShares)}</div>
-            <div className="text-sm text-gray-500">Shares</div>
-          </div>
-          <div className="bg-white rounded-xl p-4 shadow-sm">
             <div className="flex items-center gap-2 text-indigo-600 mb-2">
               <TrendingUp className="w-5 h-5" />
             </div>
@@ -638,7 +621,7 @@ export const MentionTrackingDetailPage = () => {
                 </div>
               )}
 
-              {/* Categorization Table (with Shares column) */}
+              {/* Categorization Table */}
               <div>
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Influencer Categorization</h3>
                 <div className="overflow-x-auto">
@@ -702,14 +685,6 @@ export const MentionTrackingDetailPage = () => {
                         </SortableTh>
                         <SortableTh
                           align="right"
-                          active={overviewCatSort.key === 'shares'}
-                          direction={overviewCatSort.key === 'shares' ? overviewCatSort.dir : 'desc'}
-                          onClick={() => toggleOverviewCatSort('shares')}
-                        >
-                          Shares
-                        </SortableTh>
-                        <SortableTh
-                          align="right"
                           active={overviewCatSort.key === 'er'}
                           direction={overviewCatSort.key === 'er' ? overviewCatSort.dir : 'desc'}
                           onClick={() => toggleOverviewCatSort('er')}
@@ -732,7 +707,6 @@ export const MentionTrackingDetailPage = () => {
                           <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(cat.likesCount)}</td>
                           <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(cat.viewsCount)}</td>
                           <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(cat.commentsCount)}</td>
-                          <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(cat.sharesCount || 0)}</td>
                           <td className="px-4 py-3 text-right text-sm font-medium text-purple-600">{cat.engagementRate.toFixed(2)}%</td>
                         </tr>
                       ))}
@@ -823,14 +797,6 @@ export const MentionTrackingDetailPage = () => {
                       </SortableTh>
                       <SortableTh
                         align="right"
-                        active={infSortBy === 'shares'}
-                        direction={infSortBy === 'shares' ? infSortOrder : 'desc'}
-                        onClick={() => toggleInfSort('shares')}
-                      >
-                        Shares
-                      </SortableTh>
-                      <SortableTh
-                        align="right"
                         active={infSortBy === 'credibility'}
                         direction={infSortBy === 'credibility' ? infSortOrder : 'desc'}
                         onClick={() => toggleInfSort('credibility')}
@@ -876,7 +842,6 @@ export const MentionTrackingDetailPage = () => {
                         <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(inf.likesCount)}</td>
                         <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(inf.viewsCount)}</td>
                         <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(inf.commentsCount)}</td>
-                        <td className="px-4 py-3 text-right text-sm text-gray-600">{formatNumber(inf.sharesCount || 0)}</td>
                         <td className="px-4 py-3 text-right text-sm text-gray-600">{inf.audienceCredibility?.toFixed(0)}%</td>
                         <td className="px-4 py-3 text-right text-sm font-medium text-purple-600">{inf.avgEngagementRate?.toFixed(2)}%</td>
                       </tr>
@@ -910,7 +875,6 @@ export const MentionTrackingDetailPage = () => {
                   <option value="likes">Sort by Likes</option>
                   <option value="views">Sort by Views</option>
                   <option value="comments">Sort by Comments</option>
-                  <option value="shares">Sort by Shares</option>
                   <option value="recent">Sort by Date</option>
                 </select>
                 <button
@@ -957,10 +921,6 @@ export const MentionTrackingDetailPage = () => {
                         <span className="flex items-center gap-1">
                           <MessageCircle className="w-3 h-3" />
                           {formatNumber(post.commentsCount)}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Share className="w-3 h-3" />
-                          {formatNumber(post.sharesCount || 0)}
                         </span>
                       </div>
                       {post.matchedHashtags?.length > 0 && (

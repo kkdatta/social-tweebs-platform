@@ -21,7 +21,6 @@ interface Report {
   totalLikes: number;
   totalViews: number;
   totalComments: number;
-  totalShares: number;
   avgEngagementRate?: number;
   engagementViewsRate?: number;
   influencers: any[];
@@ -188,8 +187,6 @@ export const MentionTrackingSharedPage = () => {
             <div className="flex items-center gap-2 text-green-600 mb-2">
               <Share className="w-5 h-5" />
             </div>
-            <div className="text-2xl font-bold text-gray-900">{formatNumber(report.totalShares)}</div>
-            <div className="text-sm text-gray-500">Shares</div>
           </div>
           <div className="bg-white rounded-xl p-4 shadow-sm">
             <div className="flex items-center gap-2 text-indigo-600 mb-2">

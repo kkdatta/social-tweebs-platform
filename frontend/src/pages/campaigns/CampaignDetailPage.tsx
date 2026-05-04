@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Edit, Users, FileText, Calendar, TrendingUp, Eye, MessageSquare,
-  Heart, Share2, MoreVertical, Download, Plus, Search, Filter, ExternalLink,
+  Heart, MoreVertical, Download, Plus, Search, Filter, ExternalLink,
   LayoutGrid, LayoutList, Instagram, Youtube, AlertTriangle, X, Link2, RefreshCw
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -60,7 +60,7 @@ export const CampaignDetailPage: React.FC = () => {
   // Add forms
   const [newInfluencer, setNewInfluencer] = useState({ influencerName: '', influencerUsername: '', platform: 'INSTAGRAM' });
   const [newPostUrl, setNewPostUrl] = useState('');
-  const [newPostMetrics, setNewPostMetrics] = useState({ likesCount: '', viewsCount: '', commentsCount: '', sharesCount: '' });
+  const [newPostMetrics, setNewPostMetrics] = useState({ likesCount: '', viewsCount: '', commentsCount: '' });
 
   useEffect(() => {
     if (id) loadCampaign();
@@ -127,12 +127,11 @@ export const CampaignDetailPage: React.FC = () => {
       if (newPostMetrics.likesCount) dto.likesCount = parseInt(newPostMetrics.likesCount);
       if (newPostMetrics.viewsCount) dto.viewsCount = parseInt(newPostMetrics.viewsCount);
       if (newPostMetrics.commentsCount) dto.commentsCount = parseInt(newPostMetrics.commentsCount);
-      if (newPostMetrics.sharesCount) dto.sharesCount = parseInt(newPostMetrics.sharesCount);
       const res = await campaignsApi.addPost(id!, dto);
       const warning = res?.warning;
       setShowAddPost(false);
       setNewPostUrl('');
-      setNewPostMetrics({ likesCount: '', viewsCount: '', commentsCount: '', sharesCount: '' });
+      setNewPostMetrics({ likesCount: '', viewsCount: '', commentsCount: '' });
       loadCampaign();
       if (warning) {
         alert(`⚠️ Warning: ${warning}`);
@@ -192,7 +191,6 @@ export const CampaignDetailPage: React.FC = () => {
       ['Total Likes', formatNumber(data.metrics.totalLikes)],
       ['Total Views', formatNumber(data.metrics.totalViews)],
       ['Total Comments', formatNumber(data.metrics.totalComments)],
-      ['Total Shares', formatNumber(data.metrics.totalShares)],
       ['Avg Engagement Rate', `${data.metrics.avgEngagementRate}%`],
       ['Engagement/Views Ratio', `${data.metrics.engagementToViewsRatio}%`],
     ];
@@ -200,12 +198,12 @@ export const CampaignDetailPage: React.FC = () => {
 
     doc.setFontSize(14);
     doc.text('Influencer Performance', 14, (doc as any).lastAutoTable.finalY + 12);
-    const infHeaders = ['Name', 'Platform', 'Posts', 'Followers', 'Likes', 'Views', 'Comments', 'Shares', 'Credibility'];
+    const infHeaders = ['Name', 'Platform', 'Posts', 'Followers', 'Likes', 'Views', 'Comments', 'Credibility'];
     const infBody = (data.influencers || []).map((inf: any) => [
       inf.influencerName, inf.platform, String(inf.postsCount || 0),
       formatNumber(inf.followerCount || 0), formatNumber(inf.likesCount || 0),
       formatNumber(inf.viewsCount || 0), formatNumber(inf.commentsCount || 0),
-      formatNumber(inf.sharesCount || 0), inf.audienceCredibility ? `${inf.audienceCredibility}%` : '-',
+      inf.audienceCredibility ? `${inf.audienceCredibility}%` : '-',
     ]);
     autoTable(doc, { startY: (doc as any).lastAutoTable.finalY + 16, head: [infHeaders], body: infBody, styles: { fontSize: 8 } });
 
@@ -229,7 +227,6 @@ export const CampaignDetailPage: React.FC = () => {
       ['Total Likes', data.metrics.totalLikes],
       ['Total Views', data.metrics.totalViews],
       ['Total Comments', data.metrics.totalComments],
-      ['Total Shares', data.metrics.totalShares],
       ['Avg Engagement Rate', `${data.metrics.avgEngagementRate}%`],
       ['Engagement/Views Ratio', `${data.metrics.engagementToViewsRatio}%`],
     ]);
@@ -238,7 +235,7 @@ export const CampaignDetailPage: React.FC = () => {
     const infData = (data.influencers || []).map((inf: any) => ({
       Name: inf.influencerName, Platform: inf.platform, Posts: inf.postsCount || 0,
       Followers: inf.followerCount || 0, Likes: inf.likesCount || 0, Views: inf.viewsCount || 0,
-      Comments: inf.commentsCount || 0, Shares: inf.sharesCount || 0,
+      Comments: inf.commentsCount || 0,
       'Audience Credibility': inf.audienceCredibility ? `${inf.audienceCredibility}%` : '-',
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(infData), 'Influencers');
@@ -246,7 +243,7 @@ export const CampaignDetailPage: React.FC = () => {
     const postData = (data.posts || []).map((p: any) => ({
       Influencer: p.influencerName || '-', 'Posted Date': formatDate(p.postedDate),
       Platform: p.platform, Followers: p.followerCount || 0, Likes: p.likesCount || 0,
-      Views: p.viewsCount || 0, Comments: p.commentsCount || 0, Shares: p.sharesCount || 0,
+      Views: p.viewsCount || 0, Comments: p.commentsCount || 0,
       'Engagement Rate': p.engagementRate ? `${p.engagementRate}%` : '-', 'Post URL': p.postUrl || '-',
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(postData), 'Posts');
@@ -394,7 +391,6 @@ export const CampaignDetailPage: React.FC = () => {
             { label: 'Total Likes', value: formatNumber(m.totalLikes || 0), icon: <Heart size={18} className="text-pink-500" /> },
             { label: 'Total Views', value: formatNumber(m.totalViews || 0), icon: <Eye size={18} className="text-green-500" /> },
             { label: 'Total Comments', value: formatNumber(m.totalComments || 0), icon: <MessageSquare size={18} className="text-orange-500" /> },
-            { label: 'Total Shares', value: formatNumber(m.totalShares || 0), icon: <Share2 size={18} className="text-indigo-500" /> },
             { label: 'Avg ER (%)', value: `${m.avgEngagementRate || 0}%`, icon: <TrendingUp size={18} className="text-emerald-500" /> },
             { label: 'Engagement-to-Views Ratio (%)', value: `${m.engagementToViewsRatio || 0}%`, icon: <TrendingUp size={18} className="text-cyan-500" /> },
           ].map((card) => (
@@ -418,7 +414,6 @@ export const CampaignDetailPage: React.FC = () => {
                   { key: 'likes', label: 'Likes', color: '#ec4899' },
                   { key: 'views', label: 'Views', color: '#10b981' },
                   { key: 'comments', label: 'Comments', color: '#f59e0b' },
-                  { key: 'shares', label: 'Shares', color: '#6366f1' },
                 ].map((metric) => (
                   <button
                     key={metric.key}
@@ -461,9 +456,6 @@ export const CampaignDetailPage: React.FC = () => {
                 )}
                 {timelineMetrics.includes('comments') && (
                   <Line type="monotone" dataKey="comments" stroke="#f59e0b" strokeWidth={2} dot={false} name="Comments" />
-                )}
-                {timelineMetrics.includes('shares') && (
-                  <Line type="monotone" dataKey="shares" stroke="#6366f1" strokeWidth={2} dot={false} name="Shares" />
                 )}
               </LineChart>
             </ResponsiveContainer>
@@ -520,7 +512,6 @@ export const CampaignDetailPage: React.FC = () => {
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Likes</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Views</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Comments</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Shares</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Credibility</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
@@ -558,7 +549,6 @@ export const CampaignDetailPage: React.FC = () => {
                     <td className="px-4 py-3 text-center text-sm">{formatNumber(inf.likesCount || 0)}</td>
                     <td className="px-4 py-3 text-center text-sm">{formatNumber(inf.viewsCount || 0)}</td>
                     <td className="px-4 py-3 text-center text-sm">{formatNumber(inf.commentsCount || 0)}</td>
-                    <td className="px-4 py-3 text-center text-sm">{formatNumber(inf.sharesCount || 0)}</td>
                     <td className="px-4 py-3 text-center text-sm">{inf.audienceCredibility != null ? `${inf.audienceCredibility}%` : '-'}</td>
                     <td className="px-4 py-3 text-center">
                       <button onClick={() => { setPostSearchQuery(inf.influencerUsername || inf.influencerName); setActiveTab('posts'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
@@ -637,7 +627,6 @@ export const CampaignDetailPage: React.FC = () => {
                           <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Likes</th>
                           <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Comments</th>
                           <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Views</th>
-                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Shares</th>
                           <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Eng. Rate</th>
                           <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
                         </tr>
@@ -656,7 +645,6 @@ export const CampaignDetailPage: React.FC = () => {
                             <td className="px-4 py-3 text-center text-sm">{formatNumber(post.likesCount || 0)}</td>
                             <td className="px-4 py-3 text-center text-sm">{formatNumber(post.commentsCount || 0)}</td>
                             <td className="px-4 py-3 text-center text-sm">{formatNumber(post.viewsCount || 0)}</td>
-                            <td className="px-4 py-3 text-center text-sm">{formatNumber(post.sharesCount || 0)}</td>
                             <td className="px-4 py-3 text-center text-sm">{post.engagementRate != null ? `${post.engagementRate}%` : '-'}</td>
                             <td className="px-4 py-3 text-center">
                               {post.postUrl ? (
@@ -719,7 +707,6 @@ export const CampaignDetailPage: React.FC = () => {
                         <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Likes</th>
                         <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Views</th>
                         <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Comments</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Shares</th>
                         <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Credibility</th>
                       </tr>
                     </thead>
@@ -737,7 +724,6 @@ export const CampaignDetailPage: React.FC = () => {
                           <td className="px-4 py-3 text-center text-sm">{formatNumber(post.likesCount || 0)}</td>
                           <td className="px-4 py-3 text-center text-sm">{formatNumber(post.viewsCount || 0)}</td>
                           <td className="px-4 py-3 text-center text-sm">{formatNumber(post.commentsCount || 0)}</td>
-                          <td className="px-4 py-3 text-center text-sm">{formatNumber(post.sharesCount || 0)}</td>
                           <td className="px-4 py-3 text-center text-sm">{post.audienceCredibility != null ? `${post.audienceCredibility}%` : '-'}</td>
                         </tr>
                       )) : (
@@ -767,7 +753,6 @@ export const CampaignDetailPage: React.FC = () => {
                         {timelineMetrics.includes('likes') && <Line type="monotone" dataKey="likes" stroke="#ec4899" strokeWidth={2} dot={false} name="Likes" />}
                         {timelineMetrics.includes('views') && <Line type="monotone" dataKey="views" stroke="#10b981" strokeWidth={2} dot={false} name="Views" />}
                         {timelineMetrics.includes('comments') && <Line type="monotone" dataKey="comments" stroke="#f59e0b" strokeWidth={2} dot={false} name="Comments" />}
-                        {timelineMetrics.includes('shares') && <Line type="monotone" dataKey="shares" stroke="#6366f1" strokeWidth={2} dot={false} name="Shares" />}
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -930,12 +915,12 @@ export const CampaignDetailPage: React.FC = () => {
                 {/* Top Performing Influencer */}
                 {campaign?.influencers?.length > 0 && (() => {
                   const topInf = [...campaign.influencers].sort((a: any, b: any) => {
-                    const engA = (a.likesCount || 0) + (a.commentsCount || 0) + (a.sharesCount || 0);
-                    const engB = (b.likesCount || 0) + (b.commentsCount || 0) + (b.sharesCount || 0);
+                    const engA = (a.likesCount || 0) + (a.commentsCount || 0);
+                    const engB = (b.likesCount || 0) + (b.commentsCount || 0);
                     return engB - engA;
                   })[0];
                   if (!topInf) return null;
-                  const totalEng = (topInf.likesCount || 0) + (topInf.commentsCount || 0) + (topInf.sharesCount || 0);
+                  const totalEng = (topInf.likesCount || 0) + (topInf.commentsCount || 0);
                   const er = topInf.followerCount ? ((totalEng / topInf.followerCount) * 100).toFixed(2) : '0';
                   return (
                     <div>
@@ -1155,9 +1140,6 @@ export const CampaignDetailPage: React.FC = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="0" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Shares</label>
-                  <input type="number" min="0" value={newPostMetrics.sharesCount} onChange={(e) => setNewPostMetrics(p => ({ ...p, sharesCount: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="0" />
                 </div>
               </div>
               <p className="text-xs text-gray-400">Metrics are optional. Add them now or update later.</p>
