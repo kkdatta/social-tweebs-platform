@@ -107,9 +107,9 @@ let TieBreakerService = TieBreakerService_1 = class TieBreakerService {
                 influencer.followerCount = profile.followerCount || 0;
                 influencer.followingCount = profile.followingCount;
                 influencer.avgLikes = profile.avgLikes || 0;
-                influencer.avgViews = profile.avgViews || 0;
+                influencer.avgViews = profile.avgViews || profile.avgReelViews || 0;
                 influencer.avgComments = profile.avgComments || 0;
-                influencer.avgReelViews = 0;
+                influencer.avgReelViews = profile.avgReelViews || 0;
                 influencer.engagementRate = Number(profile.engagementRate) || 0;
                 influencer.isVerified = profile.isVerified || false;
             }
@@ -123,7 +123,7 @@ let TieBreakerService = TieBreakerService_1 = class TieBreakerService {
                     influencer.followerCount = Number(insight.followerCount) || 0;
                     influencer.followingCount = Number(insight.followingCount) || 0;
                     influencer.avgLikes = Number(insight.avgLikes) || 0;
-                    influencer.avgViews = Number(insight.avgViews) || 0;
+                    influencer.avgViews = Number(insight.avgViews) || Number(insight.avgReelViews) || 0;
                     influencer.avgComments = Number(insight.avgComments) || 0;
                     influencer.avgReelViews = Number(insight.avgReelViews) || 0;
                     influencer.engagementRate = Number(insight.engagementRate) || 0;
@@ -225,7 +225,8 @@ let TieBreakerService = TieBreakerService_1 = class TieBreakerService {
         influencer.followingCount = Number(profile.followingCount) || influencer.followingCount;
         influencer.avgLikes = Number(profile.avgLikes) || influencer.avgLikes;
         influencer.avgComments = Number(profile.avgComments) || influencer.avgComments;
-        influencer.avgViews = Number(profile.avgViews) || influencer.avgViews;
+        influencer.avgViews = Number(profile.avgViews) || Number(profile.avgReelViews) || influencer.avgViews;
+        influencer.avgReelViews = Number(profile.avgReelViews) || influencer.avgReelViews;
         influencer.engagementRate = Number(profile.engagementRate) || influencer.engagementRate;
         influencer.isVerified = profile.isVerified ?? influencer.isVerified;
         const cacheCredibility = Number(profile.audienceCredibility) || null;
@@ -327,7 +328,7 @@ let TieBreakerService = TieBreakerService_1 = class TieBreakerService {
         influencer.followingCount = Number(insight.followingCount) || influencer.followingCount;
         influencer.avgLikes = Number(insight.avgLikes) || influencer.avgLikes;
         influencer.avgComments = Number(insight.avgComments) || influencer.avgComments;
-        influencer.avgViews = Number(insight.avgViews) || influencer.avgViews;
+        influencer.avgViews = Number(insight.avgViews) || Number(insight.avgReelViews) || influencer.avgViews;
         influencer.avgReelViews = Number(insight.avgReelViews) || influencer.avgReelViews;
         influencer.engagementRate = Number(insight.engagementRate) || influencer.engagementRate;
         influencer.isVerified = insight.isVerified ?? influencer.isVerified;
@@ -469,8 +470,8 @@ let TieBreakerService = TieBreakerService_1 = class TieBreakerService {
                 influencer.followingCount = this.extractStat(report.stats.following, influencer.followingCount);
                 influencer.avgLikes = this.extractStat(report.stats.avgLikes, influencer.avgLikes);
                 influencer.avgComments = this.extractStat(report.stats.avgComments, influencer.avgComments);
-                influencer.avgViews = this.extractStat(report.stats.avgViews, influencer.avgViews);
                 influencer.avgReelViews = this.extractStat(report.stats.avgReelPlays, influencer.avgReelViews);
+                influencer.avgViews = this.extractStat(report.stats.avgViews, 0) || influencer.avgReelViews || influencer.avgViews;
                 influencer.engagementRate = this.extractStat(report.stats.engagementRate, influencer.engagementRate);
             }
             if (report?.audience) {

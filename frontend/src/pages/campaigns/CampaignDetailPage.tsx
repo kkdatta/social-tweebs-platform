@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Edit, Users, FileText, Calendar, TrendingUp, Eye, MessageSquare,
   Heart, MoreVertical, Download, Plus, Search, Filter, ExternalLink,
-  LayoutGrid, LayoutList, Instagram, Youtube, AlertTriangle, X, Link2, RefreshCw
+  LayoutGrid, LayoutList, Instagram, Youtube, AlertTriangle, X, Link2, RefreshCw,
+  ChevronUp, ChevronDown, ChevronsUpDown
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 import { campaignsApi } from '../../services/api';
@@ -54,11 +55,24 @@ export const CampaignDetailPage: React.FC = () => {
   const [postSortBy, setPostSortBy] = useState('most_liked');
   const [postViewMode, setPostViewMode] = useState<'table' | 'grid'>('table');
 
+  // Column sort state for influencer table
+  const [infSortCol, setInfSortCol] = useState<string>('');
+  const [infSortDir, setInfSortDir] = useState<'asc' | 'desc'>('desc');
+
+  // Column sort state for posts table
+  const [postSortCol, setPostSortCol] = useState<string>('');
+  const [postSortDir, setPostSortDir] = useState<'asc' | 'desc'>('desc');
+
+  // Column sort state for stories table
+  const [storySortCol, setStorySortCol] = useState<string>('');
+  const [storySortDir, setStorySortDir] = useState<'asc' | 'desc'>('desc');
+
   // Processing
   const [processing, setProcessing] = useState(false);
 
   // Add forms
-  const [newInfluencer, setNewInfluencer] = useState({ influencerName: '', influencerUsername: '', platform: 'INSTAGRAM' });
+  const [newInfluencer, setNewInfluencer] = useState({ profileInput: '', platform: 'INSTAGRAM' });
+  const postsSectionRef = React.useRef<HTMLDivElement>(null);
   const [newPostUrl, setNewPostUrl] = useState('');
   const [newPostMetrics, setNewPostMetrics] = useState({ likesCount: '', viewsCount: '', commentsCount: '' });
 
@@ -104,16 +118,33 @@ export const CampaignDetailPage: React.FC = () => {
     return num.toString();
   };
 
+  const parseProfileInput = (input: string): { username: string; platform: string } | null => {
+    const trimmed = input.trim().replace(/^@/, '');
+    if (!trimmed) return null;
+
+    const igMatch = trimmed.match(/(?:instagram\.com|instagr\.am)\/([^/?#]+)/i);
+    if (igMatch) return { username: igMatch[1], platform: 'INSTAGRAM' };
+
+    const ytMatch = trimmed.match(/(?:youtube\.com\/@?|youtu\.be\/)([^/?#]+)/i);
+    if (ytMatch) return { username: ytMatch[1], platform: 'YOUTUBE' };
+
+    const ttMatch = trimmed.match(/tiktok\.com\/@([^/?#]+)/i);
+    if (ttMatch) return { username: ttMatch[1], platform: 'TIKTOK' };
+
+    return { username: trimmed, platform: newInfluencer.platform };
+  };
+
   const handleAddInfluencer = async () => {
-    if (!newInfluencer.influencerName.trim()) return;
+    const parsed = parseProfileInput(newInfluencer.profileInput);
+    if (!parsed) return;
     try {
       await campaignsApi.addInfluencer(id!, {
-        influencerName: newInfluencer.influencerName,
-        influencerUsername: newInfluencer.influencerUsername,
-        platform: newInfluencer.platform,
+        influencerName: parsed.username,
+        influencerUsername: parsed.username,
+        platform: parsed.platform,
       });
       setShowAddInfluencer(false);
-      setNewInfluencer({ influencerName: '', influencerUsername: '', platform: 'INSTAGRAM' });
+      setNewInfluencer({ profileInput: '', platform: 'INSTAGRAM' });
       loadCampaign();
     } catch (err: any) {
       alert(err.response?.data?.message || 'Failed to add influencer');
@@ -252,9 +283,41 @@ export const CampaignDetailPage: React.FC = () => {
     saveAs(new Blob([buf], { type: 'application/octet-stream' }), `${data.campaign.name}_${reportType}_report.xlsx`);
   };
 
+  const SortIcon = ({ col, activeCol, dir }: { col: string; activeCol: string; dir: 'asc' | 'desc' }) => {
+    if (col !== activeCol) return <ChevronsUpDown size={12} className="text-gray-400" />;
+    return dir === 'asc' ? <ChevronUp size={12} className="text-purple-600" /> : <ChevronDown size={12} className="text-purple-600" />;
+  };
+
+  const toggleSort = (
+    col: string,
+    currentCol: string,
+    currentDir: 'asc' | 'desc',
+    setCol: (c: string) => void,
+    setDir: (d: 'asc' | 'desc') => void,
+  ) => {
+    if (currentCol === col) {
+      setDir(currentDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setCol(col);
+      setDir('desc');
+    }
+  };
+
+  const colSort = (items: any[], col: string, dir: 'asc' | 'desc') => {
+    if (!col) return items;
+    const sorted = [...items].sort((a, b) => {
+      let va = a[col], vb = b[col];
+      if (col === 'postedDate') { va = new Date(va || 0).getTime(); vb = new Date(vb || 0).getTime(); }
+      else if (typeof va === 'string') return dir === 'asc' ? va.localeCompare(vb || '') : (vb || '').localeCompare(va);
+      else { va = Number(va) || 0; vb = Number(vb) || 0; }
+      return dir === 'asc' ? va - vb : vb - va;
+    });
+    return sorted;
+  };
+
   const filteredInfluencers = useMemo(() => {
     if (!campaign?.influencers) return [];
-    return campaign.influencers.filter((inf: any) => {
+    let result = campaign.influencers.filter((inf: any) => {
       if (infPlatformFilter && inf.platform !== infPlatformFilter) return false;
       if (infPublishFilter === 'published' && (!inf.postsCount || inf.postsCount === 0)) return false;
       if (infPublishFilter === 'unpublished' && inf.postsCount > 0) return false;
@@ -264,7 +327,9 @@ export const CampaignDetailPage: React.FC = () => {
       }
       return true;
     });
-  }, [campaign?.influencers, infPlatformFilter, infPublishFilter, infSearchQuery]);
+    if (infSortCol) result = colSort(result, infSortCol, infSortDir);
+    return result;
+  }, [campaign?.influencers, infPlatformFilter, infPublishFilter, infSearchQuery, infSortCol, infSortDir]);
 
   const filteredPosts = useMemo(() => {
     if (!campaign?.posts) return [];
@@ -282,14 +347,20 @@ export const CampaignDetailPage: React.FC = () => {
       recent: (a, b) => new Date(b.postedDate || 0).getTime() - new Date(a.postedDate || 0).getTime(),
       oldest: (a, b) => new Date(a.postedDate || 0).getTime() - new Date(b.postedDate || 0).getTime(),
     };
-    if (sortFn[postSortBy]) posts.sort(sortFn[postSortBy]);
+    if (postSortCol) {
+      posts = colSort(posts, postSortCol, postSortDir);
+    } else if (sortFn[postSortBy]) {
+      posts.sort(sortFn[postSortBy]);
+    }
     return posts;
-  }, [campaign?.posts, postPlatformFilter, postSearchQuery, postSortBy]);
+  }, [campaign?.posts, postPlatformFilter, postSearchQuery, postSortBy, postSortCol, postSortDir]);
 
-  const storyPosts = useMemo(() => {
+  const sortedStoryPosts = useMemo(() => {
     if (!campaign?.posts) return [];
-    return campaign.posts.filter((p: any) => p.postType === 'STORY');
-  }, [campaign?.posts]);
+    let stories = campaign.posts.filter((p: any) => p.postType === 'STORY');
+    if (storySortCol) stories = colSort(stories, storySortCol, storySortDir);
+    return stories;
+  }, [campaign?.posts, storySortCol, storySortDir]);
 
   const showStoriesTab = campaign?.platform === 'INSTAGRAM' || campaign?.platform === 'MULTI';
 
@@ -506,13 +577,23 @@ export const CampaignDetailPage: React.FC = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Influencer</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Posts</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Followers</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Likes</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Views</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Comments</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Credibility</th>
+                  {[
+                    { key: 'influencerName', label: 'Influencer', align: 'left' },
+                    { key: 'postsCount', label: 'Posts' },
+                    { key: 'followerCount', label: 'Followers' },
+                    { key: 'likesCount', label: 'Likes' },
+                    { key: 'viewsCount', label: 'Views' },
+                    { key: 'commentsCount', label: 'Comments' },
+                    { key: 'audienceCredibility', label: 'Credibility' },
+                  ].map((h) => (
+                    <th key={h.key}
+                      onClick={() => toggleSort(h.key, infSortCol, infSortDir, setInfSortCol, setInfSortDir)}
+                      className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${h.align === 'left' ? 'text-left' : 'text-center'}`}>
+                      <span className="inline-flex items-center gap-1">
+                        {h.label} <SortIcon col={h.key} activeCol={infSortCol} dir={infSortDir} />
+                      </span>
+                    </th>
+                  ))}
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
@@ -551,7 +632,12 @@ export const CampaignDetailPage: React.FC = () => {
                     <td className="px-4 py-3 text-center text-sm">{formatNumber(inf.commentsCount || 0)}</td>
                     <td className="px-4 py-3 text-center text-sm">{inf.audienceCredibility != null ? `${inf.audienceCredibility}%` : '-'}</td>
                     <td className="px-4 py-3 text-center">
-                      <button onClick={() => { setPostSearchQuery(inf.influencerUsername || inf.influencerName); setActiveTab('posts'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                      <button onClick={() => {
+                          const username = inf.influencerUsername || inf.influencerName || '';
+                          setPostSearchQuery(username);
+                          setActiveTab('posts');
+                          setTimeout(() => postsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+                        }}
                         className="text-purple-600 hover:text-purple-800 text-sm font-medium inline-flex items-center gap-1">
                         View Posts <ExternalLink size={12} />
                       </button>
@@ -569,7 +655,7 @@ export const CampaignDetailPage: React.FC = () => {
       </div>
 
       {/* Report Tabs: Posts / Stories / Analytics */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-6">
+      <div ref={postsSectionRef} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-6">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="flex border-b border-gray-200">
             {(['posts', ...(showStoriesTab ? ['stories'] : []), 'analytics'] as const).map((tab) => (
@@ -621,24 +707,54 @@ export const CampaignDetailPage: React.FC = () => {
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Influencer</th>
-                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Posted Date</th>
-                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Followers</th>
-                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Likes</th>
-                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Comments</th>
-                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Views</th>
-                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Eng. Rate</th>
+                          {[
+                            { key: 'influencerName', label: 'Influencer', align: 'left' },
+                            { key: 'postedDate', label: 'Posted Date' },
+                            { key: 'followerCount', label: 'Followers' },
+                            { key: 'likesCount', label: 'Likes' },
+                            { key: 'commentsCount', label: 'Comments' },
+                            { key: 'viewsCount', label: 'Views' },
+                            { key: 'engagementRate', label: 'Eng. Rate' },
+                          ].map((h) => (
+                            <th key={h.key}
+                              onClick={() => { setPostSortCol(h.key); setPostSortDir(postSortCol === h.key && postSortDir === 'desc' ? 'asc' : 'desc'); }}
+                              className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${h.align === 'left' ? 'text-left' : 'text-center'}`}>
+                              <span className="inline-flex items-center gap-1">
+                                {h.label} <SortIcon col={h.key} activeCol={postSortCol} dir={postSortDir} />
+                              </span>
+                            </th>
+                          ))}
                           <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {filteredPosts.map((post: any) => (
+                        {filteredPosts.map((post: any) => {
+                          const postProfileUrl = post.platform === 'TIKTOK'
+                            ? `https://www.tiktok.com/@${post.influencerUsername}`
+                            : post.platform === 'YOUTUBE'
+                            ? `https://www.youtube.com/@${post.influencerUsername}`
+                            : `https://www.instagram.com/${post.influencerUsername}/`;
+                          const matchingInf = campaign?.influencers?.find((i: any) => i.influencerUsername?.toLowerCase() === post.influencerUsername?.toLowerCase());
+                          const postProfilePic = matchingInf?.profilePictureUrl || '';
+                          const postFallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(post.influencerName || post.influencerUsername || '?')}&background=random&size=40&rounded=true`;
+                          return (
                           <tr key={post.id} className="hover:bg-gray-50">
                             <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
-                                {PLATFORM_ICONS[post.platform]}
-                                <span className="text-sm font-medium">{post.influencerName || '-'}</span>
-                              </div>
+                              <a href={postProfileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 group cursor-pointer">
+                                <img
+                                  src={postProfilePic || postFallbackAvatar}
+                                  alt={post.influencerName}
+                                  className="w-8 h-8 rounded-full flex-shrink-0 border-2 border-purple-200 group-hover:border-purple-500 object-cover transition-colors"
+                                  onError={(e) => { (e.target as HTMLImageElement).src = postFallbackAvatar; }}
+                                />
+                                <div className="flex items-center gap-1.5">
+                                  {PLATFORM_ICONS[post.platform]}
+                                  <div>
+                                    <p className="text-sm font-medium text-purple-700 group-hover:text-purple-900 group-hover:underline">{post.influencerName || post.influencerUsername || '-'}</p>
+                                    {post.influencerUsername && <p className="text-xs text-gray-500">@{post.influencerUsername}</p>}
+                                  </div>
+                                </div>
+                              </a>
                             </td>
                             <td className="px-4 py-3 text-center text-sm text-gray-500">{formatDate(post.postedDate)}</td>
                             <td className="px-4 py-3 text-center text-sm">{formatNumber(post.followerCount || 0)}</td>
@@ -654,7 +770,8 @@ export const CampaignDetailPage: React.FC = () => {
                               ) : '-'}
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                         {filteredPosts.length === 0 && (
                           <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">No posts found</td></tr>
                         )}
@@ -701,17 +818,26 @@ export const CampaignDetailPage: React.FC = () => {
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Influencer</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Posts</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Followers</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Likes</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Views</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Comments</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Credibility</th>
+                        {[
+                          { key: 'influencerName', label: 'Influencer', align: 'left' },
+                          { key: 'followerCount', label: 'Followers' },
+                          { key: 'likesCount', label: 'Likes' },
+                          { key: 'viewsCount', label: 'Views' },
+                          { key: 'commentsCount', label: 'Comments' },
+                          { key: 'audienceCredibility', label: 'Credibility' },
+                        ].map((h) => (
+                          <th key={h.key}
+                            onClick={() => toggleSort(h.key, storySortCol, storySortDir, setStorySortCol, setStorySortDir)}
+                            className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none ${h.align === 'left' ? 'text-left' : 'text-center'}`}>
+                            <span className="inline-flex items-center gap-1">
+                              {h.label} <SortIcon col={h.key} activeCol={storySortCol} dir={storySortDir} />
+                            </span>
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {storyPosts.length > 0 ? storyPosts.map((post: any) => (
+                      {sortedStoryPosts.length > 0 ? sortedStoryPosts.map((post: any) => (
                         <tr key={post.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
@@ -1083,15 +1209,35 @@ export const CampaignDetailPage: React.FC = () => {
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Influencer Name *</label>
-                <input type="text" value={newInfluencer.influencerName} onChange={(e) => setNewInfluencer({ ...newInfluencer, influencerName: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="Search by name or keyword..." />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Profile URL or Username *</label>
+                <input type="text" value={newInfluencer.profileInput}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setNewInfluencer((prev) => {
+                      let platform = prev.platform;
+                      if (/instagram\.com|instagr\.am/i.test(val)) platform = 'INSTAGRAM';
+                      else if (/youtube\.com|youtu\.be/i.test(val)) platform = 'YOUTUBE';
+                      else if (/tiktok\.com/i.test(val)) platform = 'TIKTOK';
+                      return { ...prev, profileInput: val, platform };
+                    });
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  placeholder="https://instagram.com/username or @username" />
+                <p className="text-xs text-gray-400 mt-1">Paste profile URL or type username. Platform auto-detects from URL.</p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                <input type="text" value={newInfluencer.influencerUsername} onChange={(e) => setNewInfluencer({ ...newInfluencer, influencerUsername: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="@username" />
-              </div>
+              {(() => {
+                const parsed = parseProfileInput(newInfluencer.profileInput);
+                if (parsed) return (
+                  <div className="flex items-center gap-2 p-2 bg-purple-50 border border-purple-200 rounded-lg text-sm">
+                    {parsed.platform === 'INSTAGRAM' && <Instagram size={16} className="text-pink-500" />}
+                    {parsed.platform === 'YOUTUBE' && <Youtube size={16} className="text-red-500" />}
+                    {parsed.platform !== 'INSTAGRAM' && parsed.platform !== 'YOUTUBE' && <span className="text-xs font-medium text-gray-600">TT</span>}
+                    <span className="font-medium text-purple-800">@{parsed.username}</span>
+                    <span className="ml-auto text-xs text-gray-500">{parsed.platform}</span>
+                  </div>
+                );
+                return null;
+              })()}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Platform</label>
                 <select value={newInfluencer.platform} onChange={(e) => setNewInfluencer({ ...newInfluencer, platform: e.target.value })}
@@ -1100,8 +1246,10 @@ export const CampaignDetailPage: React.FC = () => {
                   <option value="YOUTUBE">YouTube</option>
                   <option value="TIKTOK">TikTok</option>
                 </select>
+                <p className="text-xs text-gray-400 mt-1">Auto-detected from URL. Change manually if needed.</p>
               </div>
-              <button onClick={handleAddInfluencer} className="w-full py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium">
+              <button onClick={handleAddInfluencer} disabled={!parseProfileInput(newInfluencer.profileInput)}
+                className="w-full py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
                 Add Influencer
               </button>
             </div>

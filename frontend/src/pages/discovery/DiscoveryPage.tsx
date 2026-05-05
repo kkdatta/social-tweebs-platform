@@ -517,6 +517,14 @@ const DiscoveryPage: React.FC = () => {
         if (inf.hasYouTube) parts.push('YouTube');
         return parts.length > 0 ? parts.join(', ') : null;
       }
+      case 'bio': {
+        if (inf.bio) {
+          const modeLabel = inf.bioMatchType === 'not' ? 'Not: ' : inf.bioMatchType === 'should' ? '~' : '';
+          const preview = inf.bio.length > 20 ? inf.bio.slice(0, 17) + '...' : inf.bio;
+          return `${modeLabel}${preview}`;
+        }
+        return null;
+      }
       case 'contact': {
         const parts: string[] = [];
         if (inf.hasContactDetails?.length) parts.push(`${inf.hasContactDetails.length} type${inf.hasContactDetails.length > 1 ? 's' : ''}`);
@@ -845,25 +853,6 @@ const DiscoveryPage: React.FC = () => {
           <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
 
-        {/* Bio Search with match type */}
-        <div className="flex-1 min-w-[200px] flex gap-1">
-          <select
-            value={filters.influencer?.bioMatchType || 'must'}
-            onChange={(e) => updateInfluencerFilter('bioMatchType', e.target.value)}
-            className="input py-2 text-sm w-[130px] shrink-0"
-          >
-            <option value="must">Must contain</option>
-            <option value="should">Should contain</option>
-            <option value="not">Does not contain</option>
-          </select>
-          <input
-            type="text"
-            placeholder="Search by bio or name..."
-            value={filters.influencer?.bio || ''}
-            onChange={(e) => updateInfluencerFilter('bio', e.target.value)}
-            className="input py-2 text-sm flex-1 min-w-0"
-          />
-        </div>
 
         {/* Sort */}
         <div className="flex gap-2">
@@ -1033,9 +1022,15 @@ const DiscoveryPage: React.FC = () => {
           </button>
           {openFilter === 'lastPosted' && <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div>
-              <label className="text-xs text-gray-600 mb-1 block">Posted Within (Days)</label>
-              <input type="number" min="30" placeholder="e.g., 30, 60, 90" value={filters.influencer?.lastposted || ''} onChange={(e) => updateInfluencerFilter('lastposted', e.target.value ? parseInt(e.target.value) : undefined)} className="input py-1.5 text-sm w-full" />
-              <p className="text-xs text-gray-400 mt-1">Find active influencers (min 30 days)</p>
+              <label className="text-xs text-gray-600 mb-2 block">Posted Within (Days)</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {[30, 60, 90, 180, 365].map((d) => (
+                  <button key={d} type="button" onClick={() => updateInfluencerFilter('lastposted', filters.influencer?.lastposted === d ? undefined : d)} className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${filters.influencer?.lastposted === d ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                    {d}d
+                  </button>
+                ))}
+              </div>
+              <input type="number" min="1" placeholder="Custom days..." value={filters.influencer?.lastposted || ''} onChange={(e) => updateInfluencerFilter('lastposted', e.target.value ? parseInt(e.target.value) : undefined)} className="input py-1.5 text-sm w-full" />
             </div>
           </div>}
         </div>
@@ -1207,6 +1202,44 @@ const DiscoveryPage: React.FC = () => {
                 <span className="text-sm text-gray-700">Has YouTube</span>
                 <Youtube className="w-4 h-4 text-red-500" />
               </label>
+            </div>
+          </div>}
+        </div>
+
+        {/* Bio Filter */}
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('bio')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'bio' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : getFilterSummary('bio') ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+            <FileText className="w-3.5 h-3.5" />
+            <span>Bio</span>
+            {getFilterSummary('bio') && (
+              <span className="text-xs text-primary-600 max-w-[120px] truncate">({getFilterSummary('bio')})</span>
+            )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'bio' ? 'rotate-180' : ''}`} />
+          </button>
+          {openFilter === 'bio' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Match Type</label>
+                <select
+                  value={filters.influencer?.bioMatchType || 'must'}
+                  onChange={(e) => updateInfluencerFilter('bioMatchType', e.target.value)}
+                  className="w-full input py-1.5 text-sm"
+                >
+                  <option value="must">Must contain</option>
+                  <option value="should">Should contain</option>
+                  <option value="not">Does not contain</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Keywords</label>
+                <input
+                  type="text"
+                  placeholder="Enter bio keywords..."
+                  value={filters.influencer?.bio || ''}
+                  onChange={(e) => updateInfluencerFilter('bio', e.target.value)}
+                  className="w-full input py-1.5 text-sm"
+                />
+              </div>
             </div>
           </div>}
         </div>
@@ -1437,6 +1470,11 @@ const DiscoveryPage: React.FC = () => {
                     );
                   })}
                 </div>
+                <div className="flex gap-2 mt-2">
+                  <input type="number" placeholder="Min age" value={filters.audience?.ageRange?.min || ''} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, min: e.target.value || undefined, weight: 0.2 })} className="input py-1.5 text-sm flex-1" />
+                  <input type="number" placeholder="Max age" value={filters.audience?.ageRange?.max || ''} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, max: e.target.value || undefined, weight: 0.2 })} className="input py-1.5 text-sm flex-1" />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Or enter custom range above</p>
               </div>
             </div>
           </div>}
@@ -1615,29 +1653,31 @@ const DiscoveryPage: React.FC = () => {
         </select>
       </div>
 
-      {/* Search & Sort */}
+      {/* Bio Filter */}
       <div className="card p-3 space-y-3">
         <div>
-          <label className="text-xs font-medium text-gray-600 mb-1 block">Bio / Name Search</label>
-          <div className="flex gap-1">
-            <select
-              value={filters.influencer?.bioMatchType || 'must'}
-              onChange={(e) => updateInfluencerFilter('bioMatchType', e.target.value)}
-              className="input py-1.5 text-sm w-[120px] shrink-0"
-            >
-              <option value="must">Must contain</option>
-              <option value="should">Should contain</option>
-              <option value="not">Does not contain</option>
-            </select>
-            <input
-              type="text"
-              placeholder="Search keywords..."
-              value={filters.influencer?.bio || ''}
-              onChange={(e) => updateInfluencerFilter('bio', e.target.value)}
-              className="input py-1.5 text-sm flex-1 min-w-0"
-            />
-          </div>
+          <label className="text-xs font-medium text-gray-600 mb-1 block">Bio Keywords</label>
+          <select
+            value={filters.influencer?.bioMatchType || 'must'}
+            onChange={(e) => updateInfluencerFilter('bioMatchType', e.target.value)}
+            className="input py-1.5 text-sm w-full mb-2"
+          >
+            <option value="must">Must contain</option>
+            <option value="should">Should contain</option>
+            <option value="not">Does not contain</option>
+          </select>
+          <input
+            type="text"
+            placeholder="Enter bio keywords..."
+            value={filters.influencer?.bio || ''}
+            onChange={(e) => updateInfluencerFilter('bio', e.target.value)}
+            className="input py-1.5 text-sm w-full"
+          />
         </div>
+      </div>
+
+      {/* Sort */}
+      <div className="card p-3 space-y-3">
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="text-xs font-medium text-gray-600 mb-1 block">Sort By</label>
@@ -1749,9 +1789,15 @@ const DiscoveryPage: React.FC = () => {
       {/* Last Posted */}
       <FilterSection title="Last Posted" icon={<Calendar className="w-4 h-4 text-gray-500" />}>
         <div>
-          <label className="text-xs text-gray-600 mb-1 block">Posted Within (Days)</label>
-          <input type="number" min="30" placeholder="e.g., 30, 60, 90" value={filters.influencer?.lastposted || ''} onChange={(e) => updateInfluencerFilter('lastposted', e.target.value ? parseInt(e.target.value) : undefined)} className="input py-1.5 text-sm" />
-          <p className="text-xs text-gray-400 mt-1">Find active influencers (min 30 days)</p>
+          <label className="text-xs text-gray-600 mb-2 block">Posted Within (Days)</label>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {[30, 60, 90, 180, 365].map((d) => (
+              <button key={d} type="button" onClick={() => updateInfluencerFilter('lastposted', filters.influencer?.lastposted === d ? undefined : d)} className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${filters.influencer?.lastposted === d ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                {d}d
+              </button>
+            ))}
+          </div>
+          <input type="number" min="1" placeholder="Custom days..." value={filters.influencer?.lastposted || ''} onChange={(e) => updateInfluencerFilter('lastposted', e.target.value ? parseInt(e.target.value) : undefined)} className="input py-1.5 text-sm w-full" />
         </div>
       </FilterSection>
 
@@ -2042,6 +2088,11 @@ const DiscoveryPage: React.FC = () => {
               );
             })}
           </div>
+          <div className="flex gap-2 mt-2">
+            <input type="number" placeholder="Min age" value={filters.audience?.ageRange?.min || ''} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, min: e.target.value || undefined, weight: 0.2 })} className="input py-1.5 text-sm flex-1" />
+            <input type="number" placeholder="Max age" value={filters.audience?.ageRange?.max || ''} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, max: e.target.value || undefined, weight: 0.2 })} className="input py-1.5 text-sm flex-1" />
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Or enter custom range above</p>
         </div>
       </FilterSection>
 
@@ -2211,7 +2262,7 @@ const DiscoveryPage: React.FC = () => {
               </button>
             </div>
             <div className="p-4">
-              <FilterContent />
+              {FilterContent()}
             </div>
           </div>
         </div>
@@ -2221,7 +2272,7 @@ const DiscoveryPage: React.FC = () => {
       <div className="space-y-4">
         {/* Horizontal Filter Bar */}
         <div className="hidden lg:block">
-          <FilterBar />
+          {FilterBar()}
         </div>
 
         {/* Results Area */}

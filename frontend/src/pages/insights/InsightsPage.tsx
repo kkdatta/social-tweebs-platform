@@ -991,7 +991,6 @@ const InsightsPage: React.FC = () => {
                         <Globe className="w-4 h-4 text-gray-400 shrink-0" />
                         <span className="text-sm text-gray-700 flex-1 truncate">{locationRowLabel(loc, locationTab) || loc[nameKey]}</span>
                         <span className="text-sm font-medium w-14 text-right shrink-0">{pctDisplay(itemWeightOrPct(loc))}</span>
-                        <span className="text-xs text-gray-400 w-16 text-right">{formatNum(loc.followers)}</span>
                       </div>
                     ))}
                   </div>

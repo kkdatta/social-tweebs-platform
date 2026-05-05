@@ -440,9 +440,13 @@ export class CampaignsService {
 
     await this.checkCampaignAccess(userId, campaign, 'edit');
 
-    const cleanUsername = (dto.influencerUsername || '').replace(/^@/, '');
+    let cleanUsername = (dto.influencerUsername || dto.influencerName || '').replace(/^@/, '').trim();
+    const urlMatch = cleanUsername.match(/(?:instagram\.com|tiktok\.com\/@?|youtube\.com\/@?)([^/?#\s]+)/i);
+    if (urlMatch) cleanUsername = urlMatch[1];
+
     const influencer = this.influencerRepo.create({
       ...dto,
+      influencerName: cleanUsername,
       influencerUsername: cleanUsername,
       campaignId,
       status: InfluencerStatus.INVITED,
@@ -508,6 +512,15 @@ export class CampaignsService {
     }
 
     await this.influencerRepo.save(influencer);
+
+    // Link any orphan posts in this campaign that match the influencer username
+    await this.postRepo.createQueryBuilder().update(CampaignPost)
+      .set({ campaignInfluencerId: influencer.id })
+      .where('campaignId = :cid AND LOWER(influencerUsername) = LOWER(:uname) AND campaignInfluencerId IS NULL',
+        { cid: influencer.campaignId, uname: username })
+      .execute();
+
+    await this.recalculateInfluencerMetrics(influencer.id);
     this.logger.log(`Influencer "${username}" enriched: followers=${influencer.followerCount}`);
   }
 
@@ -585,6 +598,13 @@ export class CampaignsService {
     await this.checkCampaignAccess(userId, campaign, 'edit');
 
     const parsed = this.parsePostUrl(dto.postUrl);
+    const normalizedUrl = this.normalizePostUrl(dto.postUrl, parsed);
+
+    const existingPost = await this.postRepo.findOne({ where: { campaignId, postUrl: normalizedUrl } });
+    if (existingPost) {
+      return { post: existingPost, warning: 'This post has already been added to the campaign.' };
+    }
+
     let linkedInfluencerId = dto.campaignInfluencerId || null;
 
     if (!linkedInfluencerId && parsed.username) {
@@ -596,6 +616,7 @@ export class CampaignsService {
 
     const post = this.postRepo.create({
       ...dto,
+      postUrl: normalizedUrl,
       campaignId,
       campaignInfluencerId: linkedInfluencerId,
       influencerUsername: dto.influencerUsername || parsed.username || null,
@@ -708,7 +729,7 @@ export class CampaignsService {
 
           const fc = post.followerCount || 0;
           if (fc > 0 && (post.likesCount || post.commentsCount)) {
-            post.engagementRate = Math.min(((post.likesCount + post.commentsCount) / fc) * 100, 999.99);
+            post.engagementRate = Math.min(((post.likesCount + post.commentsCount) / fc) * 100, 100);
           }
 
           // Link to campaign influencer if matching username exists
@@ -774,7 +795,7 @@ export class CampaignsService {
 
       const fc = post.followerCount || 0;
       if (fc > 0 && (post.likesCount || post.commentsCount)) {
-        post.engagementRate = Math.min(((post.likesCount + post.commentsCount) / fc) * 100, 999.99);
+        post.engagementRate = Math.min(((post.likesCount + post.commentsCount) / fc) * 100, 100);
       }
 
       await this.postRepo.save(post);
@@ -867,6 +888,11 @@ export class CampaignsService {
     influencer.viewsCount = posts.reduce((sum, p) => sum + (p.viewsCount || 0), 0);
     influencer.commentsCount = posts.reduce((sum, p) => sum + (p.commentsCount || 0), 0);
     influencer.sharesCount = posts.reduce((sum, p) => sum + (p.sharesCount || 0), 0);
+
+    if ((!influencer.followerCount || influencer.followerCount === 0) && posts.length > 0) {
+      const maxFc = Math.max(...posts.map(p => p.followerCount || 0));
+      if (maxFc > 0) influencer.followerCount = maxFc;
+    }
 
     await this.influencerRepo.save(influencer);
   }
@@ -1167,6 +1193,9 @@ export class CampaignsService {
           const shares = post.shares || post.stat?.shares || 0;
 
           try {
+            const alreadyExists = await this.postRepo.findOne({ where: { campaignId, postUrl } });
+            if (alreadyExists) { existingPostUrls.add(postUrl); continue; }
+
             const dbPost = this.postRepo.create({
               campaignId,
               campaignInfluencerId: inf.id,
@@ -1270,33 +1299,44 @@ export class CampaignsService {
           let inf = infMap.get(key);
 
           if (!inf) {
-            let followerCount = 0;
-            let profilePicUrl = '';
-            let displayName = dp.username;
-            try {
-              const userInfo: any = await this.modashRawService.getIgUserInfo(dp.username);
-              if (userInfo?.follower_count) followerCount = userInfo.follower_count;
-              if (userInfo?.profile_pic_url) profilePicUrl = userInfo.profile_pic_url;
-              if (userInfo?.profile_pic_url_hd) profilePicUrl = userInfo.profile_pic_url_hd;
-              if (userInfo?.full_name) displayName = userInfo.full_name;
-            } catch { /* best effort */ }
+            const existingDbInf = await this.influencerRepo.findOne({
+              where: { campaignId, influencerUsername: dp.username },
+            });
+            if (existingDbInf) {
+              inf = existingDbInf;
+              infMap.set(key, inf);
+            } else {
+              let followerCount = 0;
+              let profilePicUrl = '';
+              let displayName = dp.username;
+              try {
+                const userInfo: any = await this.modashRawService.getIgUserInfo(dp.username);
+                if (userInfo?.follower_count) followerCount = userInfo.follower_count;
+                if (userInfo?.profile_pic_url) profilePicUrl = userInfo.profile_pic_url;
+                if (userInfo?.profile_pic_url_hd) profilePicUrl = userInfo.profile_pic_url_hd;
+                if (userInfo?.full_name) displayName = userInfo.full_name;
+              } catch { /* best effort */ }
 
-            const newInf = this.influencerRepo.create({
-              campaignId,
-              influencerName: displayName,
-              influencerUsername: dp.username,
-              platform: 'INSTAGRAM',
-              status: InfluencerStatus.ACTIVE,
-              followerCount,
-              profilePictureUrl: profilePicUrl,
-              likesCount: 0, viewsCount: 0, commentsCount: 0, sharesCount: 0, postsCount: 0,
-            } as any);
-            inf = await this.influencerRepo.save(newInf) as unknown as CampaignInfluencer;
-            infMap.set(key, inf);
+              const newInf = this.influencerRepo.create({
+                campaignId,
+                influencerName: displayName,
+                influencerUsername: dp.username,
+                platform: 'INSTAGRAM',
+                status: InfluencerStatus.ACTIVE,
+                followerCount,
+                profilePictureUrl: profilePicUrl,
+                likesCount: 0, viewsCount: 0, commentsCount: 0, sharesCount: 0, postsCount: 0,
+              } as any);
+              inf = await this.influencerRepo.save(newInf) as unknown as CampaignInfluencer;
+              infMap.set(key, inf);
+            }
           }
 
           const postUrl = `https://www.instagram.com/p/${dp.postId}/`;
           try {
+            const alreadyExists = await this.postRepo.findOne({ where: { campaignId, postUrl } });
+            if (alreadyExists) continue;
+
             const dbPost = this.postRepo.create({
               campaignId,
               campaignInfluencerId: inf.id,
@@ -1332,7 +1372,7 @@ export class CampaignsService {
         for (const [, inf] of infMap) {
           const fc = Number(inf.followerCount) || 0;
           if (fc > 0 && inf.postsCount > 0) {
-            const infER = Math.min(((inf.likesCount + inf.commentsCount) / (inf.postsCount * fc)) * 100, 999.99);
+            const infER = Math.min(((inf.likesCount + inf.commentsCount) / (inf.postsCount * fc)) * 100, 100);
             await this.postRepo.createQueryBuilder().update(CampaignPost)
               .set({ followerCount: fc, engagementRate: infER })
               .where('campaignInfluencerId = :infId AND engagementRate IS NULL', { infId: inf.id })
@@ -1359,6 +1399,14 @@ export class CampaignsService {
       campaign.status = CampaignStatus.ACTIVE;
       await this.campaignRepo.save(campaign);
     }
+  }
+
+  private normalizePostUrl(rawUrl: string, parsed?: { postId: string | null; username: string | null; platform: string | null }): string {
+    const p = parsed || this.parsePostUrl(rawUrl);
+    if (p.postId && p.platform) {
+      return this.constructPostUrl(p.postId, p.username || '', p.platform);
+    }
+    return rawUrl.replace(/\/+$/, '') + '/';
   }
 
   private constructPostUrl(postId: string, username: string, platform: string): string {

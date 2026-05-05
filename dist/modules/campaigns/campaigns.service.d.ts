@@ -58,6 +58,7 @@ export declare class CampaignsService {
     getCampaignMetrics(campaignId: string): Promise<CampaignMetricsSummary>;
     getTimeline(campaignId: string): Promise<TimelineDataPoint[]>;
     processCampaign(campaignId: string): Promise<void>;
+    private normalizePostUrl;
     private constructPostUrl;
     private computeCampaignStatus;
     getAnalytics(userId: string, campaignId: string): Promise<any>;
