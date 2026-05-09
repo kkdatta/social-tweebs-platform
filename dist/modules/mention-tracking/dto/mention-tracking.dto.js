@@ -62,6 +62,18 @@ __decorate([
     __metadata("design:type", Array)
 ], CreateMentionTrackingReportDto.prototype, "keywords", void 0);
 __decorate([
+    (0, swagger_1.ApiPropertyOptional)({ enum: ['any', 'all'], default: 'any', description: 'Match mode for multiple hashtags' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateMentionTrackingReportDto.prototype, "hashtagMatchMode", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ enum: ['any', 'all'], default: 'any', description: 'Match mode for multiple keywords' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateMentionTrackingReportDto.prototype, "keywordMatchMode", void 0);
+__decorate([
     (0, swagger_1.ApiPropertyOptional)({ default: false }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsBoolean)(),

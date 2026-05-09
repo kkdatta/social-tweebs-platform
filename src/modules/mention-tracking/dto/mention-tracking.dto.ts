@@ -52,6 +52,16 @@ export class CreateMentionTrackingReportDto {
   @IsString({ each: true })
   keywords?: string[];
 
+  @ApiPropertyOptional({ enum: ['any', 'all'], default: 'any', description: 'Match mode for multiple hashtags' })
+  @IsOptional()
+  @IsString()
+  hashtagMatchMode?: 'any' | 'all';
+
+  @ApiPropertyOptional({ enum: ['any', 'all'], default: 'any', description: 'Match mode for multiple keywords' })
+  @IsOptional()
+  @IsString()
+  keywordMatchMode?: 'any' | 'all';
+
   @ApiPropertyOptional({ default: false })
   @IsOptional()
   @IsBoolean()

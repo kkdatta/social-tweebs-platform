@@ -78,7 +78,10 @@ let SentimentsService = SentimentsService_1 = class SentimentsService {
             const m = url.match(/tiktok\.com\/@?([^\/\?]+)/i);
             return m ? m[1] : 'unknown';
         }
-        const ig = url.match(/instagram\.com\/(?:p\/|reel\/|stories\/)?([^\/\?]+)/i);
+        if (/instagram\.com\/(?:p|reel|stories)\//i.test(url)) {
+            return 'unknown';
+        }
+        const ig = url.match(/instagram\.com\/([^\/\?]+)/i);
         return ig ? ig[1] : 'unknown';
     }
     async processReport(reportId) {
@@ -141,23 +144,44 @@ let SentimentsService = SentimentsService_1 = class SentimentsService {
     }
     async processReportWithRawApi(report) {
         this.logger.log(`Processing sentiments via Modash Raw API for report ${report.id}`);
-        const mediaId = this.extractMediaIdFromUrl(report.targetUrl, report.platform);
-        if (!mediaId || mediaId === 'unknown') {
+        const shortcode = this.extractMediaIdFromUrl(report.targetUrl, report.platform);
+        if (!shortcode || shortcode === 'unknown') {
             report.status = entities_1.SentimentReportStatus.FAILED;
             report.errorMessage = 'Could not extract valid media ID from URL. Ensure the URL points to a specific post/reel/video.';
             await this.reportRepo.save(report);
             return;
         }
-        let resolvedMediaId = mediaId;
+        let postMeta = {};
         const plat = (report.platform || '').toUpperCase();
         if (plat === 'INSTAGRAM' || plat === 'INSTA') {
-            const mediaInfo = await this.modashRawService.getIgMediaInfo(mediaId);
-            resolvedMediaId = mediaInfo?.pk || mediaInfo?.id || mediaId;
+            try {
+                const mediaInfoResp = await this.modashRawService.getIgMediaInfo(shortcode);
+                const item = mediaInfoResp?.items?.[0] || (mediaInfoResp?.data || [])[0] || mediaInfoResp;
+                if (item) {
+                    postMeta.likes = item.like_count || 0;
+                    postMeta.comments = item.comment_count || 0;
+                    postMeta.views = item.play_count || item.view_count || 0;
+                    postMeta.description = item.caption?.text || '';
+                    postMeta.thumbnailUrl = item.display_url || item.image_versions2?.candidates?.[0]?.url || '';
+                    const user = item.user;
+                    if (user) {
+                        postMeta.username = user.username;
+                        postMeta.fullName = user.full_name;
+                        postMeta.avatarUrl = user.profile_pic_url;
+                        report.influencerUsername = user.username;
+                        report.influencerName = user.full_name || `@${user.username}`;
+                        report.influencerAvatarUrl = user.profile_pic_url || null;
+                    }
+                }
+            }
+            catch (err) {
+                this.logger.warn(`Could not fetch media-info for ${shortcode}: ${err.message}`);
+            }
         }
-        const comments = await this.fetchCommentsForMedia(report, resolvedMediaId);
+        const comments = await this.fetchCommentsForMedia(report, shortcode);
         if (report.status === entities_1.SentimentReportStatus.FAILED)
             return;
-        await this.analyzeAndSaveComments(report, report.targetUrl, resolvedMediaId, comments);
+        await this.analyzeAndSaveComments(report, report.targetUrl, shortcode, comments, postMeta);
     }
     async processProfileReportWithRawApi(report) {
         this.logger.log(`Processing profile sentiments via Modash Raw API for report ${report.id}`);
@@ -169,14 +193,29 @@ let SentimentsService = SentimentsService_1 = class SentimentsService {
             return;
         }
         const plat = (report.platform || '').toUpperCase();
+        if (plat === 'INSTAGRAM' || plat === 'INSTA') {
+            try {
+                const userInfo = await this.modashRawService.getIgUserInfo(username);
+                if (userInfo) {
+                    report.influencerName = userInfo.full_name || `@${username}`;
+                    report.influencerAvatarUrl = userInfo.profile_pic_url || undefined;
+                }
+            }
+            catch { }
+        }
         const recentPosts = [];
         try {
             if (plat === 'INSTAGRAM' || plat === 'INSTA') {
                 const feed = await this.modashRawService.getIgUserFeed(username);
                 for (const post of (feed.data || []).slice(0, 6)) {
                     recentPosts.push({
-                        id: post.id || post.code,
+                        code: post.code || post.id,
                         url: `https://www.instagram.com/p/${post.code}/`,
+                        likes: post.like_count || 0,
+                        comments: post.comment_count || 0,
+                        views: post.play_count || post.view_count || 0,
+                        description: post.caption?.text || '',
+                        thumbnailUrl: post.display_url || post.image_versions2?.candidates?.[0]?.url || '',
                     });
                 }
             }
@@ -184,7 +223,7 @@ let SentimentsService = SentimentsService_1 = class SentimentsService {
                 const feed = await this.modashRawService.getTiktokUserFeed(username);
                 for (const post of (feed.data || []).slice(0, 6)) {
                     recentPosts.push({
-                        id: post.id,
+                        code: post.id,
                         url: `https://www.tiktok.com/@${username}/video/${post.id}`,
                     });
                 }
@@ -193,7 +232,7 @@ let SentimentsService = SentimentsService_1 = class SentimentsService {
                 const feed = await this.modashRawService.getYoutubeUploadedVideos(username);
                 for (const vid of (feed.data || []).slice(0, 6)) {
                     recentPosts.push({
-                        id: vid.videoId,
+                        code: vid.videoId,
                         url: `https://www.youtube.com/watch?v=${vid.videoId}`,
                     });
                 }
@@ -217,21 +256,14 @@ let SentimentsService = SentimentsService_1 = class SentimentsService {
         let weightedNeg = 0;
         let totalComments = 0;
         for (const rp of recentPosts) {
-            let resolvedId = rp.id;
-            const plat = (report.platform || '').toUpperCase();
-            if ((plat === 'INSTAGRAM' || plat === 'INSTA') && rp.id && !/^\d+$/.test(rp.id)) {
-                try {
-                    const info = await this.modashRawService.getIgMediaInfo(rp.id);
-                    resolvedId = info?.pk || info?.id || rp.id;
-                }
-                catch { }
-            }
-            const comments = await this.fetchCommentsForMedia(report, resolvedId);
+            const commentCode = (plat === 'INSTAGRAM' || plat === 'INSTA') ? rp.code : rp.code;
+            const comments = await this.fetchCommentsForMedia(report, commentCode);
             if (report.status === entities_1.SentimentReportStatus.FAILED)
                 return;
             if (comments.length === 0)
                 continue;
-            const result = await this.analyzeAndSaveComments(report, rp.url, rp.id, comments);
+            const postMeta = { likes: rp.likes, comments: rp.comments, views: rp.views, description: rp.description, thumbnailUrl: rp.thumbnailUrl };
+            const result = await this.analyzeAndSaveComments(report, rp.url, rp.code, comments, postMeta);
             const count = result.total;
             weightedPos += result.positivePct * count;
             weightedNeu += result.neutralPct * count;
@@ -254,38 +286,45 @@ let SentimentsService = SentimentsService_1 = class SentimentsService {
         await this.saveAggregatedEmotions(report.id, totalComments);
         await this.saveAggregatedWordCloud(report.id);
     }
-    async fetchCommentsForMedia(report, mediaId) {
+    async fetchCommentsForMedia(report, code) {
         const comments = [];
         try {
             const plat = (report.platform || '').toUpperCase();
             if (plat === 'INSTAGRAM' || plat === 'INSTA') {
-                const result = await this.modashRawService.getIgMediaComments(mediaId);
-                for (const c of result.data || []) {
-                    comments.push({ text: c.text, author: c.user?.username || '', likes: c.comment_like_count || 0 });
+                const result = await this.modashRawService.getIgMediaComments(code);
+                const commentsList = result.comments || result.data || [];
+                for (const c of commentsList) {
+                    if (c.text) {
+                        comments.push({ text: c.text, author: c.user?.username || '', likes: c.comment_like_count || 0 });
+                    }
                 }
             }
             else if (plat === 'TIKTOK') {
-                const result = await this.modashRawService.getTiktokComments(mediaId);
+                const result = await this.modashRawService.getTiktokComments(code);
                 for (const c of result.data || []) {
-                    comments.push({ text: c.text, author: c.user?.unique_id || '', likes: c.digg_count || 0 });
+                    if (c.text) {
+                        comments.push({ text: c.text, author: c.user?.unique_id || '', likes: c.digg_count || 0 });
+                    }
                 }
             }
             else if (plat === 'YOUTUBE') {
-                const result = await this.modashRawService.getYoutubeVideoComments(mediaId);
+                const result = await this.modashRawService.getYoutubeVideoComments(code);
                 for (const c of result.data || []) {
-                    comments.push({ text: c.text, author: c.authorDisplayName || '', likes: c.likeCount || 0 });
+                    if (c.text) {
+                        comments.push({ text: c.text, author: c.authorDisplayName || '', likes: c.likeCount || 0 });
+                    }
                 }
             }
         }
         catch (err) {
-            this.logger.error(`Raw API error for sentiment report ${report.id}, media ${mediaId}: ${err.message}`);
+            this.logger.error(`Raw API error for sentiment report ${report.id}, media ${code}: ${err.message}`);
             report.status = entities_1.SentimentReportStatus.FAILED;
             report.errorMessage = `Failed to fetch comments from platform: ${err.message}`;
             await this.reportRepo.save(report);
         }
         return comments;
     }
-    async analyzeAndSaveComments(report, postUrl, mediaId, comments) {
+    async analyzeAndSaveComments(report, postUrl, mediaId, comments, postMeta) {
         if (comments.length === 0) {
             return { positivePct: 0, neutralPct: 0, negativePct: 0, total: 0 };
         }
@@ -319,8 +358,14 @@ let SentimentsService = SentimentsService_1 = class SentimentsService {
         post.reportId = report.id;
         post.postId = mediaId;
         post.postUrl = postUrl;
-        post.description = `Analyzed ${total} real comments`;
-        post.commentsCount = total;
+        post.description = postMeta?.description || `Analyzed ${total} comments`;
+        post.thumbnailUrl = postMeta?.thumbnailUrl || undefined;
+        post.likesCount = postMeta?.likes || 0;
+        post.commentsCount = postMeta?.comments || total;
+        post.viewsCount = postMeta?.views || 0;
+        post.engagementRate = post.viewsCount > 0
+            ? ((post.likesCount + post.commentsCount) / post.viewsCount) * 100
+            : 0;
         post.commentsAnalyzed = total;
         post.sentimentScore = score;
         post.positivePercentage = Number(positivePct.toFixed(2));
@@ -499,15 +544,25 @@ let SentimentsService = SentimentsService_1 = class SentimentsService {
         }
     }
     async saveAggregatedWordCloud(reportId) {
-        const words = ['amazing', 'love', 'beautiful', 'great', 'awesome', 'good', 'nice', 'perfect', 'bad', 'poor'];
-        const sentiments = ['POSITIVE', 'POSITIVE', 'POSITIVE', 'POSITIVE', 'POSITIVE', 'NEUTRAL', 'NEUTRAL', 'POSITIVE', 'NEGATIVE', 'NEGATIVE'];
-        for (let i = 0; i < words.length; i++) {
-            const wordCloud = new entities_1.SentimentWordCloud();
-            wordCloud.reportId = reportId;
-            wordCloud.word = `${words[i]}_all`;
-            wordCloud.frequency = Math.floor(Math.random() * 120) + 40;
-            wordCloud.sentiment = sentiments[i];
-            await this.wordCloudRepo.save(wordCloud);
+        const perPostWords = await this.wordCloudRepo.find({ where: { reportId, postId: (0, typeorm_2.Not)((0, typeorm_2.IsNull)()) } });
+        const agg = new Map();
+        for (const pw of perPostWords) {
+            const existing = agg.get(pw.word);
+            if (existing) {
+                existing.frequency += pw.frequency;
+            }
+            else {
+                agg.set(pw.word, { frequency: pw.frequency, sentiment: pw.sentiment || 'NEUTRAL' });
+            }
+        }
+        const sorted = [...agg.entries()].sort((a, b) => b[1].frequency - a[1].frequency).slice(0, 40);
+        for (const [word, { frequency, sentiment }] of sorted) {
+            const wc = new entities_1.SentimentWordCloud();
+            wc.reportId = reportId;
+            wc.word = word;
+            wc.frequency = frequency;
+            wc.sentiment = sentiment;
+            await this.wordCloudRepo.save(wc);
         }
     }
     async getReports(userId, filters) {

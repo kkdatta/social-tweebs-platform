@@ -193,20 +193,20 @@ export class ModashRawService {
   }
 
   async getIgMediaComments(
-    mediaId: string,
+    code: string,
     cursor?: string,
   ): Promise<PaginatedResponse<RawIgComment>> {
-    const params = [`media_id=${mediaId}`];
+    const params = [`code=${encodeURIComponent(code)}`];
     if (cursor) params.push(`after=${encodeURIComponent(cursor)}`);
     return this.rawGet(`/raw/ig/media-comments?${params.join('&')}`);
   }
 
   async getIgMediaCommentReplies(
     commentId: string,
-    mediaId: string,
+    code: string,
     cursor?: string,
   ): Promise<PaginatedResponse<RawIgComment>> {
-    const params = [`comment_id=${commentId}`, `media_id=${mediaId}`];
+    const params = [`code=${encodeURIComponent(code)}`, `comment_id=${commentId}`];
     if (cursor) params.push(`after=${encodeURIComponent(cursor)}`);
     return this.rawGet(`/raw/ig/media-comment-replies?${params.join('&')}`);
   }

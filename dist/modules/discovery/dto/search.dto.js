@@ -378,6 +378,12 @@ __decorate([
     __metadata("design:type", Array)
 ], InfluencerFiltersDto.prototype, "brands", void 0);
 __decorate([
+    (0, swagger_1.ApiPropertyOptional)({ enum: ['any', 'all', 'anyBrand'], description: 'Brand match mode: any (OR), all (AND), anyBrand (any sponsored post)' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], InfluencerFiltersDto.prototype, "brandMatchMode", void 0);
+__decorate([
     (0, swagger_1.ApiPropertyOptional)({ type: [Number], description: 'Array of interest IDs' }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsArray)(),

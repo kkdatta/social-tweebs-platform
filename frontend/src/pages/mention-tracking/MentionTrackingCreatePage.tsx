@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Hash, AtSign, MessageCircle, Calendar, AlertCircle, 
-  Instagram, Loader, Info
+  Instagram, Loader, Info, X
 } from 'lucide-react';
 import { mentionTrackingApi } from '../../services/api';
 
@@ -13,7 +13,6 @@ export const MentionTrackingCreatePage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Form state
   const [title, setTitle] = useState('');
   const [platforms, setPlatforms] = useState<PlatformType[]>(['INSTAGRAM']);
   const [dateRangeStart, setDateRangeStart] = useState('');
@@ -39,21 +38,22 @@ export const MentionTrackingCreatePage = () => {
     if (!datesInitialized || !dateRangeStart) return;
     setDateRangeEnd(addCalendarMonths(dateRangeStart, trackingPeriodMonths));
   }, [trackingPeriodMonths, dateRangeStart, datesInitialized]);
+
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [hashtagInput, setHashtagInput] = useState('');
   const [usernames, setUsernames] = useState<string[]>([]);
   const [usernameInput, setUsernameInput] = useState('');
   const [keywords, setKeywords] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState('');
+  const [hashtagMatchMode, setHashtagMatchMode] = useState<'any' | 'all'>('any');
+  const [keywordMatchMode, setKeywordMatchMode] = useState<'any' | 'all'>('any');
   const [sponsoredOnly, setSponsoredOnly] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
 
-  // Platform rules validation
   const isYouTubeSelected = platforms.includes('YOUTUBE');
   const isTikTokSelected = platforms.includes('TIKTOK');
   const isInstagramSelected = platforms.includes('INSTAGRAM');
 
-  // YouTube cannot be combined with other platforms
   const canSelectYouTube = platforms.length === 0 || (platforms.length === 1 && platforms[0] === 'YOUTUBE');
   const canSelectOther = !isYouTubeSelected;
 
@@ -62,13 +62,10 @@ export const MentionTrackingCreatePage = () => {
       setPlatforms(platforms.filter(p => p !== platform));
     } else {
       if (platform === 'YOUTUBE') {
-        // YouTube can only be selected alone
         setPlatforms(['YOUTUBE']);
-        // Clear hashtags and usernames for YouTube
         setHashtags([]);
         setUsernames([]);
       } else {
-        // Other platforms can be combined (except with YouTube)
         if (!isYouTubeSelected) {
           setPlatforms([...platforms, platform]);
         }
@@ -78,12 +75,14 @@ export const MentionTrackingCreatePage = () => {
 
   const addHashtag = () => {
     if (!hashtagInput.trim()) return;
-    const tag = hashtagInput.startsWith('#') ? hashtagInput : `#${hashtagInput}`;
-    if (!hashtags.includes(tag)) {
-      setHashtags([...hashtags, tag]);
-      // Clear keywords if hashtag is added (mutual exclusion)
-      setKeywords([]);
+    const raw = hashtagInput.trim();
+    const tags = raw.split(/[,\s]+/).filter(Boolean);
+    const newHashtags = [...hashtags];
+    for (const t of tags) {
+      const tag = t.startsWith('#') ? t : `#${t}`;
+      if (!newHashtags.includes(tag)) newHashtags.push(tag);
     }
+    setHashtags(newHashtags);
     setHashtagInput('');
   };
 
@@ -98,10 +97,9 @@ export const MentionTrackingCreatePage = () => {
 
   const addKeyword = () => {
     if (!keywordInput.trim()) return;
-    if (!keywords.includes(keywordInput.trim())) {
-      setKeywords([...keywords, keywordInput.trim()]);
-      // Clear hashtags if keyword is added (mutual exclusion)
-      setHashtags([]);
+    const kw = keywordInput.trim();
+    if (!keywords.includes(kw)) {
+      setKeywords([...keywords, kw]);
     }
     setKeywordInput('');
   };
@@ -114,7 +112,6 @@ export const MentionTrackingCreatePage = () => {
     e.preventDefault();
     setError(null);
 
-    // Validation
     if (platforms.length === 0) {
       setError('Please select at least one platform');
       return;
@@ -130,7 +127,6 @@ export const MentionTrackingCreatePage = () => {
       return;
     }
 
-    // Platform-specific validation
     if (isYouTubeSelected && (hashtags.length > 0 || usernames.length > 0)) {
       setError('YouTube only supports keyword search');
       return;
@@ -151,6 +147,8 @@ export const MentionTrackingCreatePage = () => {
         hashtags: hashtags.length > 0 ? hashtags : undefined,
         usernames: usernames.length > 0 ? usernames : undefined,
         keywords: keywords.length > 0 ? keywords : undefined,
+        hashtagMatchMode: hashtags.length > 1 ? hashtagMatchMode : undefined,
+        keywordMatchMode: keywords.length > 1 ? keywordMatchMode : undefined,
         sponsoredOnly,
         autoRefreshEnabled,
       });
@@ -176,7 +174,7 @@ export const MentionTrackingCreatePage = () => {
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Create Mention Tracking Report</h1>
+          <h1 className="text-2xl font-bold text-gray-900">New Mention Tracking</h1>
           <p className="text-sm text-gray-600">Track posts by hashtags, mentions, or keywords (1 credit)</p>
         </div>
       </div>
@@ -190,24 +188,244 @@ export const MentionTrackingCreatePage = () => {
           </div>
         )}
 
-        {/* Report Name */}
+        {/* Row 1: Report Name + Date Range */}
         <div className="bg-white rounded-xl shadow-sm p-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Report Name (Optional)
-          </label>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g., Brand Campaign Q1 2026"
-            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Report Name</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g., Brand Campaign Q1 2026"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tracking Period</label>
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-gray-400" />
+                <input
+                  type="date"
+                  value={dateRangeStart}
+                  onChange={(e) => setDateRangeStart(e.target.value)}
+                  className="flex-1 px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                />
+                <span className="text-gray-400">-</span>
+                <input
+                  type="date"
+                  value={dateRangeEnd}
+                  readOnly
+                  className="flex-1 px-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed text-sm"
+                />
+              </div>
+              <div className="flex gap-1.5 mt-2">
+                {([1, 2, 3] as const).map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setTrackingPeriodMonths(m)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                      trackingPeriodMonths === m
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {m} Month{m > 1 ? 's' : ''}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Row 2: Hashtags + Usernames */}
+        <div className="bg-white rounded-xl shadow-sm p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {/* Hashtags */}
+            {!isYouTubeSelected && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <Hash className="w-4 h-4 text-blue-500" />
+                  Hashtags
+                </label>
+                <div className="flex gap-2 mb-2">
+                  <div className="flex-1 flex flex-wrap items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg focus-within:ring-2 focus-within:ring-purple-500 min-h-[42px] bg-white">
+                    {hashtags.map(tag => (
+                      <span key={tag} className="inline-flex items-center gap-0.5 pl-2.5 pr-1 py-0.5 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                        {tag}
+                        <button type="button" onClick={() => removeHashtag(tag)} className="p-0.5 hover:bg-blue-200 rounded-full">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      value={hashtagInput}
+                      onChange={(e) => setHashtagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); addHashtag(); }
+                        if (e.key === 'Backspace' && !hashtagInput && hashtags.length > 0) {
+                          removeHashtag(hashtags[hashtags.length - 1]);
+                        }
+                      }}
+                      placeholder={hashtags.length === 0 ? '#brandname' : ''}
+                      className="flex-1 min-w-[80px] outline-none text-sm py-1 bg-transparent"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400">Press enter to add</p>
+              </div>
+            )}
+
+            {/* Usernames */}
+            {!isYouTubeSelected && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <AtSign className="w-4 h-4 text-purple-500" />
+                  Usernames
+                </label>
+                <div className="flex gap-2 mb-2">
+                  <div className="flex-1 flex flex-wrap items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg focus-within:ring-2 focus-within:ring-purple-500 min-h-[42px] bg-white">
+                    {usernames.map(user => (
+                      <span key={user} className="inline-flex items-center gap-0.5 pl-2.5 pr-1 py-0.5 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
+                        {user}
+                        <button type="button" onClick={() => removeUsername(user)} className="p-0.5 hover:bg-purple-200 rounded-full">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      value={usernameInput}
+                      onChange={(e) => setUsernameInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); addUsername(); }
+                        if (e.key === 'Backspace' && !usernameInput && usernames.length > 0) {
+                          removeUsername(usernames[usernames.length - 1]);
+                        }
+                      }}
+                      placeholder={usernames.length === 0 ? '@brandname' : ''}
+                      className="flex-1 min-w-[80px] outline-none text-sm py-1 bg-transparent"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Row 3: Keywords */}
+        {!isTikTokSelected && (
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+              <MessageCircle className="w-4 h-4 text-orange-500" />
+              Keywords
+            </label>
+            <div className="flex-1 flex flex-wrap items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg focus-within:ring-2 focus-within:ring-purple-500 min-h-[42px] bg-white mb-2">
+              {keywords.map(kw => (
+                <span key={kw} className="inline-flex items-center gap-0.5 pl-2.5 pr-1 py-0.5 bg-orange-100 text-orange-700 rounded-full text-sm font-medium">
+                  {kw}
+                  <button type="button" onClick={() => removeKeyword(kw)} className="p-0.5 hover:bg-orange-200 rounded-full">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+              <input
+                type="text"
+                value={keywordInput}
+                onChange={(e) => setKeywordInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); addKeyword(); }
+                  if (e.key === 'Backspace' && !keywordInput && keywords.length > 0) {
+                    removeKeyword(keywords[keywords.length - 1]);
+                  }
+                }}
+                placeholder={keywords.length === 0 ? 'Mention keywords related to your campaign, press enter to add more' : ''}
+                className="flex-1 min-w-[120px] outline-none text-sm py-1 bg-transparent"
+              />
+            </div>
+
+            {(hashtags.length > 0 || keywords.length > 0) && (
+              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2">
+                <Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-blue-700">
+                  You can search for posts by hashtags or mentioned usernames. If keywords are entered, we filter the crawled posts by them.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Row 4: Match Mode Options (shown when multiple hashtags or keywords) */}
+        {(hashtags.length > 1 || keywords.length > 1) && (
+          <div className="bg-white rounded-xl shadow-sm p-6 space-y-5">
+            {hashtags.length > 1 && (
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-3">
+                  You've entered multiple hashtags, should the crawler fetch posts that contain all of them or any of them?
+                </p>
+                <div className="flex gap-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="hashtagMatchMode"
+                      checked={hashtagMatchMode === 'any'}
+                      onChange={() => setHashtagMatchMode('any')}
+                      className="w-4 h-4 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-sm text-gray-700">Any of them</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="hashtagMatchMode"
+                      checked={hashtagMatchMode === 'all'}
+                      onChange={() => setHashtagMatchMode('all')}
+                      className="w-4 h-4 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-sm text-gray-700">All of them</span>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {keywords.length > 1 && (
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-3">
+                  You've entered multiple keywords, should the crawler fetch posts that contain all of them or any of them?
+                </p>
+                <div className="flex gap-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="keywordMatchMode"
+                      checked={keywordMatchMode === 'any'}
+                      onChange={() => setKeywordMatchMode('any')}
+                      className="w-4 h-4 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-sm text-gray-700">Any of them</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="keywordMatchMode"
+                      checked={keywordMatchMode === 'all'}
+                      onChange={() => setKeywordMatchMode('all')}
+                      className="w-4 h-4 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-sm text-gray-700">All of them</span>
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Platform Selection */}
         <div className="bg-white rounded-xl shadow-sm p-6">
-          <label className="block text-sm font-medium text-gray-700 mb-4">
-            Select Platforms *
+          <label className="block text-sm font-medium text-gray-700 mb-3">
+            Social Networks *
           </label>
           <div className="flex gap-4">
             <button
@@ -222,7 +440,6 @@ export const MentionTrackingCreatePage = () => {
             >
               <Instagram className="w-8 h-8" />
               <span className="text-sm font-medium">Instagram</span>
-              <span className="text-xs text-gray-500">All search types</span>
             </button>
 
             <button
@@ -237,7 +454,6 @@ export const MentionTrackingCreatePage = () => {
             >
               <span className="text-2xl font-bold">TT</span>
               <span className="text-sm font-medium">TikTok</span>
-              <span className="text-xs text-gray-500">No keywords</span>
             </button>
 
             <button
@@ -252,7 +468,6 @@ export const MentionTrackingCreatePage = () => {
             >
               <span className="text-2xl font-bold">YT</span>
               <span className="text-sm font-medium">YouTube</span>
-              <span className="text-xs text-gray-500">Keywords only</span>
             </button>
           </div>
           <p className="mt-2 text-xs text-gray-500 flex items-center gap-1">
@@ -261,204 +476,14 @@ export const MentionTrackingCreatePage = () => {
           </p>
         </div>
 
-        {/* Date Range & Tracking Period */}
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-            <label className="block text-sm font-medium text-gray-700">
-              Tracking window *
-            </label>
-            <button
-              type="button"
-              onClick={() => {
-                const today = new Date().toISOString().split('T')[0];
-                setDateRangeStart(today);
-                setTrackingPeriodMonths(1);
-                setDateRangeEnd(addCalendarMonths(today, 1));
-              }}
-              className="text-sm text-purple-600 hover:text-purple-700 self-start"
-            >
-              Reset to today → +1 month
-            </button>
-          </div>
-
-          <div className="mb-4">
-            <label className="block text-xs text-gray-500 mb-1">Tracking period</label>
-            <p className="text-xs text-gray-500 mb-2">
-              Default is one month forward from the start date. You can extend up to three months; the end date updates automatically.
-            </p>
-            <select
-              value={trackingPeriodMonths}
-              onChange={(e) => setTrackingPeriodMonths(Number(e.target.value) as 1 | 2 | 3)}
-              className="w-full sm:max-w-xs px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
-            >
-              <option value={1}>1 Month</option>
-              <option value={2}>2 Months</option>
-              <option value={3}>3 Months</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Start date</label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="date"
-                  value={dateRangeStart}
-                  onChange={(e) => setDateRangeStart(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">End date (from period)</label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="date"
-                  value={dateRangeEnd}
-                  readOnly
-                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Search Criteria */}
-        <div className="bg-white rounded-xl shadow-sm p-6 space-y-6">
-          <h3 className="text-lg font-medium text-gray-900">Search Criteria</h3>
-          
-          {/* Hashtags (not for YouTube) */}
-          {!isYouTubeSelected && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                <Hash className="w-4 h-4 text-blue-500" />
-                Hashtags
-              </label>
-              <div className="flex gap-2 mb-2">
-                <input
-                  type="text"
-                  value={hashtagInput}
-                  onChange={(e) => setHashtagInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addHashtag())}
-                  placeholder="#brandname"
-                  disabled={keywords.length > 0}
-                  className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:bg-gray-50 disabled:text-gray-400"
-                />
-                <button
-                  type="button"
-                  onClick={addHashtag}
-                  disabled={keywords.length > 0}
-                  className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50"
-                >
-                  Add
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {hashtags.map(tag => (
-                  <span key={tag} className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm">
-                    {tag}
-                    <button type="button" onClick={() => removeHashtag(tag)} className="hover:text-blue-900">&times;</button>
-                  </span>
-                ))}
-              </div>
-              {keywords.length > 0 && (
-                <p className="mt-1 text-xs text-gray-500">Cannot use hashtags when keywords are set</p>
-              )}
-            </div>
-          )}
-
-          {/* Usernames/Mentions (not for YouTube) */}
-          {!isYouTubeSelected && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                <AtSign className="w-4 h-4 text-purple-500" />
-                Usernames (Mentions)
-              </label>
-              <div className="flex gap-2 mb-2">
-                <input
-                  type="text"
-                  value={usernameInput}
-                  onChange={(e) => setUsernameInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addUsername())}
-                  placeholder="@brandname"
-                  className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-                <button
-                  type="button"
-                  onClick={addUsername}
-                  className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200"
-                >
-                  Add
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {usernames.map(user => (
-                  <span key={user} className="inline-flex items-center gap-1 px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm">
-                    {user}
-                    <button type="button" onClick={() => removeUsername(user)} className="hover:text-purple-900">&times;</button>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Keywords (not for TikTok) */}
-          {!isTikTokSelected && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                <MessageCircle className="w-4 h-4 text-gray-500" />
-                Keywords
-              </label>
-              <div className="flex gap-2 mb-2">
-                <input
-                  type="text"
-                  value={keywordInput}
-                  onChange={(e) => setKeywordInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addKeyword())}
-                  placeholder="brand name, product"
-                  disabled={hashtags.length > 0 && !isYouTubeSelected}
-                  className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:bg-gray-50 disabled:text-gray-400"
-                />
-                <button
-                  type="button"
-                  onClick={addKeyword}
-                  disabled={hashtags.length > 0 && !isYouTubeSelected}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
-                >
-                  Add
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {keywords.map(kw => (
-                  <span key={kw} className="inline-flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">
-                    {kw}
-                    <button type="button" onClick={() => removeKeyword(kw)} className="hover:text-gray-900">&times;</button>
-                  </span>
-                ))}
-              </div>
-              {hashtags.length > 0 && !isYouTubeSelected && (
-                <p className="mt-1 text-xs text-gray-500">Cannot use keywords when hashtags are set</p>
-              )}
-            </div>
-          )}
-        </div>
-
         {/* Options */}
         <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
-          <h3 className="text-lg font-medium text-gray-900">Options</h3>
-          
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={sponsoredOnly}
-              onChange={(e) => setSponsoredOnly(e.target.checked)}
-              className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
-            />
-            <div>
-              <span className="text-sm font-medium text-gray-700">Only Sponsored Posts</span>
-              <p className="text-xs text-gray-500">Only track posts that are marked as sponsored</p>
+          <label className="flex items-center justify-between cursor-pointer">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-gray-700">Only Sponsored Posts?</span>
+            </div>
+            <div className={`relative w-11 h-6 rounded-full transition-colors ${sponsoredOnly ? 'bg-purple-600' : 'bg-gray-300'}`} onClick={() => setSponsoredOnly(!sponsoredOnly)}>
+              <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${sponsoredOnly ? 'translate-x-5' : ''}`} />
             </div>
           </label>
 
@@ -496,7 +521,7 @@ export const MentionTrackingCreatePage = () => {
                 Creating...
               </>
             ) : (
-              'Create Report (1 Credit)'
+              'Continue →'
             )}
           </button>
         </div>

@@ -57,7 +57,7 @@ const STATUS_STYLES: Record<string, string> = {
 
 const TeamMemberListPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, login, logout, updateUser } = useAuth();
+  const { user, updateUser } = useAuth();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +134,7 @@ const TeamMemberListPage: React.FC = () => {
   };
 
   const formatDate = (dateString: string | null) => {
+    void formatDate;
     if (!dateString) return '-';
     return new Date(dateString).toLocaleDateString('en-IN', {
       day: '2-digit',

@@ -340,6 +340,11 @@ export class InfluencerFiltersDto {
   @IsNumber({}, { each: true })
   brands?: number[];
 
+  @ApiPropertyOptional({ enum: ['any', 'all', 'anyBrand'], description: 'Brand match mode: any (OR), all (AND), anyBrand (any sponsored post)' })
+  @IsOptional()
+  @IsString()
+  brandMatchMode?: 'any' | 'all' | 'anyBrand';
+
   @ApiPropertyOptional({ type: [Number], description: 'Array of interest IDs' })
   @IsOptional()
   @IsArray()

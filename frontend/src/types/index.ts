@@ -159,6 +159,7 @@ export interface SearchFilters {
 
     // Brands & Interests
     brands?: number[];
+    brandMatchMode?: 'any' | 'all' | 'anyBrand';
     interests?: number[];
 
     // Growth Metrics

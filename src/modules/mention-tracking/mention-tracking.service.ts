@@ -96,6 +96,8 @@ export class MentionTrackingService {
     report.hashtags = dto.hashtags || [];
     report.usernames = dto.usernames || [];
     report.keywords = dto.keywords || [];
+    report.hashtagMatchMode = dto.hashtagMatchMode || 'any';
+    report.keywordMatchMode = dto.keywordMatchMode || 'any';
     report.sponsoredOnly = dto.sponsoredOnly || false;
     report.autoRefreshEnabled = dto.autoRefreshEnabled || false;
     report.status = MentionReportStatus.PENDING;
@@ -393,9 +395,39 @@ export class MentionTrackingService {
       return;
     }
 
+    const normalizedHashtags = report.hashtags.map(h => (h.startsWith('#') ? h : `#${h}`).toLowerCase());
+    const normalizedKeywords = report.keywords.map(k => k.toLowerCase());
+    const hashtagAllMode = report.hashtagMatchMode === 'all';
+    const keywordAllMode = report.keywordMatchMode === 'all';
+
+    // Deduplicate raw posts by postId
+    const seenPostIds = new Set<string>();
+    const dedupedPosts = rawPosts.filter(rp => {
+      if (seenPostIds.has(rp.postId)) return false;
+      seenPostIds.add(rp.postId);
+      return true;
+    });
+
+    // Apply "all" match mode filters
+    const filteredPosts = dedupedPosts.filter(rp => {
+      const desc = rp.description.toLowerCase();
+
+      if (hashtagAllMode && normalizedHashtags.length > 1) {
+        const allHashtagsPresent = normalizedHashtags.every(h => desc.includes(h.replace('#', '')));
+        if (!allHashtagsPresent) return false;
+      }
+
+      if (keywordAllMode && normalizedKeywords.length > 1) {
+        const allKeywordsPresent = normalizedKeywords.every(k => desc.includes(k));
+        if (!allKeywordsPresent) return false;
+      }
+
+      return true;
+    });
+
     const influencerMap = new Map<string, { inf: MentionTrackingInfluencer; likes: number; views: number; comments: number; shares: number; posts: number }>();
 
-    for (const rp of rawPosts) {
+    for (const rp of filteredPosts) {
       const key = `${rp.platform}_${rp.username}`;
       if (!influencerMap.has(key)) {
         const influencer = new MentionTrackingInfluencer();

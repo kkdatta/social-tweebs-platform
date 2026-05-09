@@ -91,8 +91,8 @@ const TeamMemberFormPage: React.FC = () => {
   const [fetchLoading, setFetchLoading] = useState(isEdit);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-  const [memberFeatures, setMemberFeatures] = useState<{ featureName: string; isEnabled: boolean }[]>([]);
-  const [memberActions, setMemberActions] = useState<{ actionName: string; isEnabled: boolean }[]>([]);
+  const [_memberFeatures, _setMemberFeatures] = useState<{ featureName: string; isEnabled: boolean }[]>([]);
+  const [_memberActions, _setMemberActions] = useState<{ actionName: string; isEnabled: boolean }[]>([]);
 
   // Admin users can't assign CLIENT role
   const filteredRoles = user?.role === 'ADMIN'
@@ -129,8 +129,8 @@ const TeamMemberFormPage: React.FC = () => {
         initialCredits: 0,
         creditComment: '',
       });
-      setMemberFeatures(features);
-      setMemberActions(actions);
+      _setMemberFeatures(features);
+      _setMemberActions(actions);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load member details');
     } finally {

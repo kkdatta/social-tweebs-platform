@@ -4,7 +4,7 @@ import {
   Search, Plus, Filter, Trash2, Eye, MoreVertical,
   CheckCircle, Clock, AlertCircle, Loader, Download,
   Instagram, FileText, Users, ThumbsUp, ThumbsDown, Minus,
-  Edit3, Share2, X
+  Edit3
 } from 'lucide-react';
 import { sentimentsApi } from '../../services/api';
 

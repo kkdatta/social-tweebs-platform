@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   Search, Plus, Filter, Trash2, Eye, MoreVertical,
   CheckCircle, Clock, AlertCircle, Loader,
-  Instagram, FileText, RefreshCw, Copy, Edit3,
-  Hash, AtSign, MessageCircle, Users, Download, Pencil
+  FileText, RefreshCw, Copy, Edit3,
+  Hash, AtSign, Download, Pencil
 } from 'lucide-react';
 import { mentionTrackingApi } from '../../services/api';
 
@@ -186,7 +186,7 @@ export const MentionTrackingListPage = () => {
     }
   };
 
-  const handleDownload = (id: string, format: 'pdf' | 'xlsx') => {
+  const handleDownload = (_id: string, format: 'pdf' | 'xlsx') => {
     setOpenMenuId(null);
     alert(`Export as ${format.toUpperCase()} will be available soon.`);
   };

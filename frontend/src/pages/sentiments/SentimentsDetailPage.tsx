@@ -366,7 +366,7 @@ export const SentimentsDetailPage = () => {
                   </>
                 )}
               </div>
-              <div className="flex items-center gap-3 mt-1">
+              <div className="flex items-center gap-3 mt-1 flex-wrap">
                 <span className="flex items-center gap-1 text-gray-500">
                   {getPlatformIcon(report.platform)}
                   {report.influencerUsername || report.influencerName || 'Unknown'}
@@ -375,6 +375,8 @@ export const SentimentsDetailPage = () => {
                 <span className="text-gray-500 capitalize">{report.reportType.toLowerCase()} Report</span>
                 <span className="text-gray-300">|</span>
                 {getStatusBadge(report.status)}
+                <span className="text-gray-300">|</span>
+                <span className="text-gray-400 text-sm">{new Date(report.createdAt).toLocaleString()}</span>
               </div>
             </div>
           </div>
@@ -596,14 +598,14 @@ export const SentimentsDetailPage = () => {
                         innerRadius={55}
                         outerRadius={90}
                         paddingAngle={2}
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        label={({ name, percent }: { name?: string; percent?: number }) => `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`}
                       >
                         {pieData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.fill} stroke="#fff" strokeWidth={1} />
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(value: number) => [`${value.toFixed(1)}%`, 'Share']}
+                        formatter={(value: number | undefined) => [`${(value ?? 0).toFixed(1)}%`, 'Share']}
                       />
                       <Legend />
                     </PieChart>

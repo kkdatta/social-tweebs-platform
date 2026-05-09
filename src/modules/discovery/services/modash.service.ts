@@ -708,6 +708,10 @@ export class ModashService {
       };
     }
 
+    if (dto.calculationMethod) {
+      body.calculationMethod = dto.calculationMethod;
+    }
+
     return body;
   }
 
@@ -776,13 +780,16 @@ export class ModashService {
       filter.accountTypes = filters.accountTypes;
     }
 
-    // brands filter (replaces partnerships)
-    if (filters.brands && filters.brands.length > 0) {
+    // brands filter with match mode support
+    const brandMode = filters.brandMatchMode || 'any';
+    if (brandMode === 'anyBrand') {
+      filter.hasSponsoredPosts = true;
+    } else if (filters.brands && filters.brands.length > 0) {
       filter.brands = filters.brands;
     }
 
-    // hasSponsoredPosts filter (new)
-    if (filters.hasSponsoredPosts !== undefined) {
+    // hasSponsoredPosts filter (explicit override)
+    if (filters.hasSponsoredPosts !== undefined && brandMode !== 'anyBrand') {
       filter.hasSponsoredPosts = filters.hasSponsoredPosts;
     }
 

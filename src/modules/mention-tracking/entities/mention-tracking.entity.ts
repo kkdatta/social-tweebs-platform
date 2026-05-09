@@ -61,6 +61,12 @@ export class MentionTrackingReport {
   @Column({ type: 'text', array: true, nullable: true })
   keywords: string[];
 
+  @Column({ name: 'hashtag_match_mode', type: 'varchar', length: 10, default: 'any' })
+  hashtagMatchMode: 'any' | 'all';
+
+  @Column({ name: 'keyword_match_mode', type: 'varchar', length: 10, default: 'any' })
+  keywordMatchMode: 'any' | 'all';
+
   // Filter options
   @Column({ name: 'sponsored_only', default: false })
   sponsoredOnly: boolean;

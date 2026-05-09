@@ -40,6 +40,7 @@ import {
   Coins,
   Tag,
   MessageSquare,
+  BarChart3,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { 
@@ -63,6 +64,7 @@ import { useAuth } from '../../context/AuthContext';
 
 const PAGE_SIZE = 10;
 const CREDIT_PER_UNBLUR = 0.04;
+const WEIGHT_PCTS = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95];
 const CREDIT_PER_EXPORT = 0.04; // 1 credit / 25 influencers
 const CREDIT_PER_INSIGHT = 1;
 
@@ -423,8 +425,14 @@ const DiscoveryPage: React.FC = () => {
       }
       case 'gender': {
         const parts: string[] = [];
-        if (aud.engagersGender) parts.push(`Eng: ${aud.engagersGender.id === 'MALE' ? 'M' : 'F'}`);
-        if (aud.gender) parts.push(`Fol: ${aud.gender.id === 'MALE' ? 'M' : 'F'}`);
+        if (aud.engagersGender) {
+          const pct = Math.round((aud.engagersGender.weight || 0.5) * 100);
+          parts.push(`Eng: ${pct}% ${aud.engagersGender.id === 'MALE' ? 'M' : 'F'}`);
+        }
+        if (aud.gender) {
+          const pct = Math.round((aud.gender.weight || 0.5) * 100);
+          parts.push(`Fol: ${pct}% ${aud.gender.id === 'MALE' ? 'M' : 'F'}`);
+        }
         if (inf.gender) {
           const gMap: Record<string, string> = { MALE: 'M', FEMALE: 'F', KNOWN: 'M/F', UNKNOWN: 'Neutral' };
           parts.push(`Inf: ${gMap[inf.gender] || inf.gender}`);
@@ -438,8 +446,9 @@ const DiscoveryPage: React.FC = () => {
           else parts.push(`Inf: ${inf.age.min}+`);
         }
         if (aud.ageRange?.min || aud.ageRange?.max) {
-          if (aud.ageRange?.max) parts.push(`Aud: ${aud.ageRange.min || '?'}-${aud.ageRange.max}`);
-          else parts.push(`Aud: ${aud.ageRange.min}+`);
+          const pct = Math.round((aud.ageRange?.weight || 0.2) * 100);
+          if (aud.ageRange?.max) parts.push(`Aud: ${aud.ageRange.min || '?'}-${aud.ageRange.max} ≥${pct}%`);
+          else parts.push(`Aud: ${aud.ageRange.min}+ ≥${pct}%`);
         }
         return parts.length > 0 ? parts.join(', ') : null;
       }
@@ -532,7 +541,11 @@ const DiscoveryPage: React.FC = () => {
         return parts.length > 0 ? parts.join(', ') : null;
       }
       case 'brands': {
-        if (inf.brands?.length) return `${inf.brands.length} brand${inf.brands.length > 1 ? 's' : ''}`;
+        if (inf.brandMatchMode === 'anyBrand') return 'Any Brand';
+        if (inf.brands?.length) {
+          const mode = inf.brandMatchMode === 'all' ? ', all' : '';
+          return `${inf.brands.length} brand${inf.brands.length > 1 ? 's' : ''}${mode}`;
+        }
         return null;
       }
       case 'interests': {
@@ -853,6 +866,30 @@ const DiscoveryPage: React.FC = () => {
           <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
 
+        {/* Universal Search Bar */}
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" />
+          <input
+            type="text"
+            placeholder="Search @username, #topic, or keyword..."
+            value={filters.influencer?.relevance?.join(' ') || ''}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (!raw.trim()) {
+                updateInfluencerFilter('relevance', undefined);
+                return;
+              }
+              const tokens = raw.split(/\s+/).filter(Boolean).map(t => {
+                if (t.startsWith('@') || t.startsWith('#')) return t;
+                return t;
+              });
+              updateInfluencerFilter('relevance', tokens);
+            }}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(0); }}
+            className="input py-2 text-sm w-full"
+            style={{ paddingLeft: '2.5rem' }}
+          />
+        </div>
 
         {/* Sort */}
         <div className="flex gap-2">
@@ -1378,9 +1415,9 @@ const DiscoveryPage: React.FC = () => {
             )}
             <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'gender' ? 'rotate-180' : ''}`} />
           </button>
-          {openFilter === 'gender' && <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-4 z-20">
+          {openFilter === 'gender' && <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-4 z-20 min-w-[420px]">
             <div className="flex gap-6">
-              <div>
+              <div className="flex-1">
                 <div className="flex items-center gap-1 mb-2">
                   <Heart className="w-3.5 h-3.5 text-gray-500" />
                   <span className="text-xs font-semibold text-gray-700">Engagers</span>
@@ -1388,14 +1425,22 @@ const DiscoveryPage: React.FC = () => {
                 <div className="space-y-1.5">
                   {[{ value: '', label: 'Any' }, { value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }].map((opt) => (
                     <label key={opt.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
-                      <input type="radio" name="engagers-gender" checked={(filters.audience?.engagersGender?.id || '') === opt.value} onChange={() => updateAudienceFilter('engagersGender', opt.value ? { id: opt.value as any, weight: 0.5 } : undefined)} className="w-3.5 h-3.5 text-primary-600" />
+                      <input type="radio" name="engagers-gender" checked={(filters.audience?.engagersGender?.id || '') === opt.value} onChange={() => updateAudienceFilter('engagersGender', opt.value ? { id: opt.value as any, weight: filters.audience?.engagersGender?.weight || 0.5 } : undefined)} className="w-3.5 h-3.5 text-primary-600" />
                       {opt.label}
                     </label>
                   ))}
                 </div>
+                {filters.audience?.engagersGender && (
+                  <div className="mt-2">
+                    <label className="text-xs text-gray-500 mb-0.5 block">At least</label>
+                    <select value={Math.round((filters.audience.engagersGender.weight || 0.5) * 100)} onChange={(e) => updateAudienceFilter('engagersGender', { ...filters.audience!.engagersGender!, weight: parseInt(e.target.value) / 100 })} className="input py-1 text-xs w-full">
+                      {WEIGHT_PCTS.map(p => <option key={p} value={p}>{p}% {filters.audience!.engagersGender!.id === 'MALE' ? 'Male' : 'Female'}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
               <div className="border-l border-gray-200" />
-              <div>
+              <div className="flex-1">
                 <div className="flex items-center gap-1 mb-2">
                   <Users className="w-3.5 h-3.5 text-gray-500" />
                   <span className="text-xs font-semibold text-gray-700">Followers</span>
@@ -1403,14 +1448,22 @@ const DiscoveryPage: React.FC = () => {
                 <div className="space-y-1.5">
                   {[{ value: '', label: 'Any' }, { value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }].map((opt) => (
                     <label key={opt.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
-                      <input type="radio" name="audience-gender" checked={(filters.audience?.gender?.id || '') === opt.value} onChange={() => updateAudienceFilter('gender', opt.value ? { id: opt.value as any, weight: 0.5 } : undefined)} className="w-3.5 h-3.5 text-primary-600" />
+                      <input type="radio" name="audience-gender" checked={(filters.audience?.gender?.id || '') === opt.value} onChange={() => updateAudienceFilter('gender', opt.value ? { id: opt.value as any, weight: filters.audience?.gender?.weight || 0.5 } : undefined)} className="w-3.5 h-3.5 text-primary-600" />
                       {opt.label}
                     </label>
                   ))}
                 </div>
+                {filters.audience?.gender && (
+                  <div className="mt-2">
+                    <label className="text-xs text-gray-500 mb-0.5 block">At least</label>
+                    <select value={Math.round((filters.audience.gender.weight || 0.5) * 100)} onChange={(e) => updateAudienceFilter('gender', { ...filters.audience!.gender!, weight: parseInt(e.target.value) / 100 })} className="input py-1 text-xs w-full">
+                      {WEIGHT_PCTS.map(p => <option key={p} value={p}>{p}% {filters.audience!.gender!.id === 'MALE' ? 'Male' : 'Female'}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
               <div className="border-l border-gray-200" />
-              <div>
+              <div className="flex-1">
                 <div className="flex items-center gap-1 mb-2">
                   <Target className="w-3.5 h-3.5 text-gray-500" />
                   <span className="text-xs font-semibold text-gray-700">Influencer</span>
@@ -1464,17 +1517,24 @@ const DiscoveryPage: React.FC = () => {
                   {[{ min: '13', max: '18', label: '13-18' }, { min: '18', max: '25', label: '18-25' }, { min: '25', max: '35', label: '25-35' }, { min: '35', max: '45', label: '35-45' }, { min: '45', max: '65', label: '45-65' }, { min: '65', max: undefined, label: '65+' }].map((range) => {
                     const isSelected = filters.audience?.ageRange?.min === range.min && filters.audience?.ageRange?.max === range.max;
                     return (
-                      <button key={range.label} type="button" onClick={() => updateAudienceFilter('ageRange', isSelected ? undefined : { min: range.min, max: range.max, weight: 0.2 })} className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${isSelected ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                      <button key={range.label} type="button" onClick={() => updateAudienceFilter('ageRange', isSelected ? undefined : { min: range.min, max: range.max, weight: filters.audience?.ageRange?.weight || 0.2 })} className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${isSelected ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
                         {range.label}
                       </button>
                     );
                   })}
                 </div>
                 <div className="flex gap-2 mt-2">
-                  <input type="number" placeholder="Min age" value={filters.audience?.ageRange?.min || ''} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, min: e.target.value || undefined, weight: 0.2 })} className="input py-1.5 text-sm flex-1" />
-                  <input type="number" placeholder="Max age" value={filters.audience?.ageRange?.max || ''} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, max: e.target.value || undefined, weight: 0.2 })} className="input py-1.5 text-sm flex-1" />
+                  <input type="number" placeholder="Min age" value={filters.audience?.ageRange?.min || ''} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, min: e.target.value || undefined, weight: filters.audience?.ageRange?.weight || 0.2 })} className="input py-1.5 text-sm flex-1" />
+                  <input type="number" placeholder="Max age" value={filters.audience?.ageRange?.max || ''} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, max: e.target.value || undefined, weight: filters.audience?.ageRange?.weight || 0.2 })} className="input py-1.5 text-sm flex-1" />
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Or enter custom range above</p>
+                {filters.audience?.ageRange && (
+                  <div className="mt-2">
+                    <label className="text-xs text-gray-600 mb-1 block">At least X% of audience in this range</label>
+                    <select value={Math.round((filters.audience?.ageRange?.weight || 0.2) * 100)} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, weight: parseInt(e.target.value) / 100 })} className="input py-1 text-sm w-full">
+                      {WEIGHT_PCTS.map(p => <option key={p} value={p}>{p}%</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
           </div>}
@@ -1546,15 +1606,29 @@ const DiscoveryPage: React.FC = () => {
           </button>
           {openFilter === 'brands' && <div className="absolute top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
             <div className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-600 mb-1 block">Brands Partnered With</label>
-                <AsyncSelect
-                  value={filters.influencer?.brands || []}
-                  onChange={(ids) => updateInfluencerFilter('brands', ids.length > 0 ? ids : undefined)}
-                  fetchOptions={async (q) => (await discoveryApi.getBrands(q)).map((b) => ({ id: b.id, name: b.name }))}
-                  placeholder="Search brands..."
-                />
+              <div className="flex gap-1.5 flex-wrap">
+                {(['any', 'all', 'anyBrand'] as const).map(mode => (
+                  <button key={mode} type="button"
+                    onClick={() => updateInfluencerFilter('brandMatchMode', mode)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${(filters.influencer?.brandMatchMode || 'any') === mode ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  >
+                    {mode === 'any' ? 'Any of them' : mode === 'all' ? 'All of them' : 'Any Brand'}
+                  </button>
+                ))}
               </div>
+              {(filters.influencer?.brandMatchMode || 'any') !== 'anyBrand' ? (
+                <div>
+                  <label className="text-xs text-gray-600 mb-1 block">Brands Partnered With</label>
+                  <AsyncSelect
+                    value={filters.influencer?.brands || []}
+                    onChange={(ids) => updateInfluencerFilter('brands', ids.length > 0 ? ids : undefined)}
+                    fetchOptions={async (q) => (await discoveryApi.getBrands(q)).map((b) => ({ id: b.id, name: b.name }))}
+                    placeholder="Search brands..."
+                  />
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">Shows influencers who have partnered with any brand (sponsored posts)</p>
+              )}
             </div>
           </div>}
         </div>
@@ -1624,6 +1698,33 @@ const DiscoveryPage: React.FC = () => {
             </div>
           </div>}
         </div>
+
+        {/* Calculation Method */}
+        <div className="relative">
+          <button type="button" onClick={() => toggleFilter('calculation')} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${openFilter === 'calculation' ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300' : filters.calculationMethod ? 'bg-primary-50 text-primary-700 ring-1 ring-primary-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Calculation</span>
+            {filters.calculationMethod && (
+              <span className="text-xs text-primary-600">({filters.calculationMethod === 'median' ? 'Median' : 'Average'})</span>
+            )}
+            <ChevronDown className={`w-3 h-3 ml-0.5 transition-transform ${openFilter === 'calculation' ? 'rotate-180' : ''}`} />
+          </button>
+          {openFilter === 'calculation' && <div className="absolute top-full right-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-20">
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Metric Calculation Method</label>
+              <p className="text-xs text-gray-500 mb-2">Controls how ER, Avg Likes, Reel Views etc. are computed from last 90 days / latest 200 posts.</p>
+              {([undefined, 'average', 'median'] as const).map(m => (
+                <label key={m || 'default'} className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="calcMethod" checked={filters.calculationMethod === m} onChange={() => setFilters(prev => ({ ...prev, calculationMethod: m }))} className="w-3.5 h-3.5 text-primary-600" />
+                  <div>
+                    <span className="text-sm text-gray-700 font-medium">{!m ? 'Default' : m === 'average' ? 'Average' : 'Median'}</span>
+                    <p className="text-xs text-gray-400">{!m ? 'Platform default calculation' : m === 'average' ? 'Overall average — includes viral peaks' : 'Middle value — balanced, ignores outliers'}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>}
+        </div>
       </div>
 
       {/* Click-away: close filter when clicking outside */}
@@ -1650,6 +1751,32 @@ const DiscoveryPage: React.FC = () => {
               {p.name}{p.disabled ? ' (Coming soon)' : ''}
             </option>
           ))}
+        </select>
+
+        {/* Universal Search */}
+        <label className="text-xs font-medium text-gray-600 mb-1 mt-3 block">Search</label>
+        <div className="relative">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="@username, #topic, or keyword..."
+            value={filters.influencer?.relevance?.join(' ') || ''}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (!raw.trim()) { updateInfluencerFilter('relevance', undefined); return; }
+              const tokens = raw.split(/\s+/).filter(Boolean);
+              updateInfluencerFilter('relevance', tokens);
+            }}
+            className="input py-2 text-sm pl-9 w-full"
+          />
+        </div>
+
+        {/* Calculation Method */}
+        <label className="text-xs font-medium text-gray-600 mb-1 mt-3 block">Calculation Method</label>
+        <select value={filters.calculationMethod || ''} onChange={(e) => setFilters(prev => ({ ...prev, calculationMethod: e.target.value ? e.target.value as any : undefined }))} className="input py-2 text-sm w-full">
+          <option value="">Default</option>
+          <option value="average">Average (includes peaks)</option>
+          <option value="median">Median (ignores outliers)</option>
         </select>
       </div>
 
@@ -2009,7 +2136,7 @@ const DiscoveryPage: React.FC = () => {
       {/* Gender */}
       <FilterSection title="Gender" icon={<Users className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
         <div className="flex gap-6">
-          <div>
+          <div className="flex-1">
             <div className="flex items-center gap-1 mb-2">
               <Heart className="w-3.5 h-3.5 text-gray-500" />
               <span className="text-xs font-semibold text-gray-700">Engagers</span>
@@ -2017,14 +2144,22 @@ const DiscoveryPage: React.FC = () => {
             <div className="space-y-1.5">
               {[{ value: '', label: 'Any' }, { value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }].map((opt) => (
                 <label key={opt.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
-                  <input type="radio" name="drawer-engagers-gender" checked={(filters.audience?.engagersGender?.id || '') === opt.value} onChange={() => updateAudienceFilter('engagersGender', opt.value ? { id: opt.value as any, weight: 0.5 } : undefined)} className="w-3.5 h-3.5 text-primary-600" />
+                  <input type="radio" name="drawer-engagers-gender" checked={(filters.audience?.engagersGender?.id || '') === opt.value} onChange={() => updateAudienceFilter('engagersGender', opt.value ? { id: opt.value as any, weight: filters.audience?.engagersGender?.weight || 0.5 } : undefined)} className="w-3.5 h-3.5 text-primary-600" />
                   {opt.label}
                 </label>
               ))}
             </div>
+            {filters.audience?.engagersGender && (
+              <div className="mt-2">
+                <label className="text-xs text-gray-500 mb-0.5 block">At least</label>
+                <select value={Math.round((filters.audience.engagersGender.weight || 0.5) * 100)} onChange={(e) => updateAudienceFilter('engagersGender', { ...filters.audience!.engagersGender!, weight: parseInt(e.target.value) / 100 })} className="input py-1 text-xs w-full">
+                  {WEIGHT_PCTS.map(p => <option key={p} value={p}>{p}% {filters.audience!.engagersGender!.id === 'MALE' ? 'Male' : 'Female'}</option>)}
+                </select>
+              </div>
+            )}
           </div>
           <div className="border-l border-gray-200" />
-          <div>
+          <div className="flex-1">
             <div className="flex items-center gap-1 mb-2">
               <Users className="w-3.5 h-3.5 text-gray-500" />
               <span className="text-xs font-semibold text-gray-700">Followers</span>
@@ -2032,14 +2167,22 @@ const DiscoveryPage: React.FC = () => {
             <div className="space-y-1.5">
               {[{ value: '', label: 'Any' }, { value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }].map((opt) => (
                 <label key={opt.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
-                  <input type="radio" name="drawer-audience-gender" checked={(filters.audience?.gender?.id || '') === opt.value} onChange={() => updateAudienceFilter('gender', opt.value ? { id: opt.value as any, weight: 0.5 } : undefined)} className="w-3.5 h-3.5 text-primary-600" />
+                  <input type="radio" name="drawer-audience-gender" checked={(filters.audience?.gender?.id || '') === opt.value} onChange={() => updateAudienceFilter('gender', opt.value ? { id: opt.value as any, weight: filters.audience?.gender?.weight || 0.5 } : undefined)} className="w-3.5 h-3.5 text-primary-600" />
                   {opt.label}
                 </label>
               ))}
             </div>
+            {filters.audience?.gender && (
+              <div className="mt-2">
+                <label className="text-xs text-gray-500 mb-0.5 block">At least</label>
+                <select value={Math.round((filters.audience.gender.weight || 0.5) * 100)} onChange={(e) => updateAudienceFilter('gender', { ...filters.audience!.gender!, weight: parseInt(e.target.value) / 100 })} className="input py-1 text-xs w-full">
+                  {WEIGHT_PCTS.map(p => <option key={p} value={p}>{p}% {filters.audience!.gender!.id === 'MALE' ? 'Male' : 'Female'}</option>)}
+                </select>
+              </div>
+            )}
           </div>
           <div className="border-l border-gray-200" />
-          <div>
+          <div className="flex-1">
             <div className="flex items-center gap-1 mb-2">
               <Target className="w-3.5 h-3.5 text-gray-500" />
               <span className="text-xs font-semibold text-gray-700">Influencer</span>
@@ -2082,17 +2225,24 @@ const DiscoveryPage: React.FC = () => {
             {[{ min: '13', max: '18', label: '13-18' }, { min: '18', max: '25', label: '18-25' }, { min: '25', max: '35', label: '25-35' }, { min: '35', max: '45', label: '35-45' }, { min: '45', max: '65', label: '45-65' }, { min: '65', max: undefined, label: '65+' }].map((range) => {
               const isSelected = filters.audience?.ageRange?.min === range.min && filters.audience?.ageRange?.max === range.max;
               return (
-                <button key={range.label} type="button" onClick={() => updateAudienceFilter('ageRange', isSelected ? undefined : { min: range.min, max: range.max, weight: 0.2 })} className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${isSelected ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                <button key={range.label} type="button" onClick={() => updateAudienceFilter('ageRange', isSelected ? undefined : { min: range.min, max: range.max, weight: filters.audience?.ageRange?.weight || 0.2 })} className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${isSelected ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
                   {range.label}
                 </button>
               );
             })}
           </div>
           <div className="flex gap-2 mt-2">
-            <input type="number" placeholder="Min age" value={filters.audience?.ageRange?.min || ''} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, min: e.target.value || undefined, weight: 0.2 })} className="input py-1.5 text-sm flex-1" />
-            <input type="number" placeholder="Max age" value={filters.audience?.ageRange?.max || ''} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, max: e.target.value || undefined, weight: 0.2 })} className="input py-1.5 text-sm flex-1" />
+            <input type="number" placeholder="Min age" value={filters.audience?.ageRange?.min || ''} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, min: e.target.value || undefined, weight: filters.audience?.ageRange?.weight || 0.2 })} className="input py-1.5 text-sm flex-1" />
+            <input type="number" placeholder="Max age" value={filters.audience?.ageRange?.max || ''} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, max: e.target.value || undefined, weight: filters.audience?.ageRange?.weight || 0.2 })} className="input py-1.5 text-sm flex-1" />
           </div>
-          <p className="text-xs text-gray-400 mt-1">Or enter custom range above</p>
+          {filters.audience?.ageRange && (
+            <div className="mt-2">
+              <label className="text-xs text-gray-600 mb-1 block">At least X% of audience in this range</label>
+              <select value={Math.round((filters.audience?.ageRange?.weight || 0.2) * 100)} onChange={(e) => updateAudienceFilter('ageRange', { ...filters.audience?.ageRange, weight: parseInt(e.target.value) / 100 })} className="input py-1 text-sm w-full">
+                {WEIGHT_PCTS.map(p => <option key={p} value={p}>{p}%</option>)}
+              </select>
+            </div>
+          )}
         </div>
       </FilterSection>
 
@@ -2142,15 +2292,29 @@ const DiscoveryPage: React.FC = () => {
 
       {/* Brands */}
       <FilterSection title="Brands" icon={<ShoppingBag className="w-4 h-4 text-gray-500" />} defaultOpen={false}>
-        <div>
-          <label className="text-xs text-gray-600 mb-1 block">Brands Partnered With</label>
-          <AsyncSelect
-            value={filters.influencer?.brands || []}
-            onChange={(ids) => updateInfluencerFilter('brands', ids.length > 0 ? ids : undefined)}
-            fetchOptions={async (q) => (await discoveryApi.getBrands(q)).map((b) => ({ id: b.id, name: b.name }))}
-            placeholder="Search brands..."
-          />
+        <div className="flex gap-1.5 flex-wrap mb-2">
+          {(['any', 'all', 'anyBrand'] as const).map(mode => (
+            <button key={mode} type="button"
+              onClick={() => updateInfluencerFilter('brandMatchMode', mode)}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${(filters.influencer?.brandMatchMode || 'any') === mode ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              {mode === 'any' ? 'Any of them' : mode === 'all' ? 'All of them' : 'Any Brand'}
+            </button>
+          ))}
         </div>
+        {(filters.influencer?.brandMatchMode || 'any') !== 'anyBrand' ? (
+          <div>
+            <label className="text-xs text-gray-600 mb-1 block">Brands Partnered With</label>
+            <AsyncSelect
+              value={filters.influencer?.brands || []}
+              onChange={(ids) => updateInfluencerFilter('brands', ids.length > 0 ? ids : undefined)}
+              fetchOptions={async (q) => (await discoveryApi.getBrands(q)).map((b) => ({ id: b.id, name: b.name }))}
+              placeholder="Search brands..."
+            />
+          </div>
+        ) : (
+          <p className="text-xs text-gray-500">Shows influencers who have partnered with any brand</p>
+        )}
       </FilterSection>
 
       {/* Interests */}

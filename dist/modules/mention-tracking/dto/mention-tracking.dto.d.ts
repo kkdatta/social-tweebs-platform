@@ -7,6 +7,8 @@ export declare class CreateMentionTrackingReportDto {
     hashtags?: string[];
     usernames?: string[];
     keywords?: string[];
+    hashtagMatchMode?: 'any' | 'all';
+    keywordMatchMode?: 'any' | 'all';
     sponsoredOnly?: boolean;
     autoRefreshEnabled?: boolean;
 }

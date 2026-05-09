@@ -304,6 +304,9 @@ let ModashService = ModashService_1 = class ModashService {
                 direction: dto.sort.direction || 'desc',
             };
         }
+        if (dto.calculationMethod) {
+            body.calculationMethod = dto.calculationMethod;
+        }
         return body;
     }
     buildInfluencerFilter(filters) {
@@ -361,10 +364,14 @@ let ModashService = ModashService_1 = class ModashService {
         if (filters.accountTypes && filters.accountTypes.length > 0) {
             filter.accountTypes = filters.accountTypes;
         }
-        if (filters.brands && filters.brands.length > 0) {
+        const brandMode = filters.brandMatchMode || 'any';
+        if (brandMode === 'anyBrand') {
+            filter.hasSponsoredPosts = true;
+        }
+        else if (filters.brands && filters.brands.length > 0) {
             filter.brands = filters.brands;
         }
-        if (filters.hasSponsoredPosts !== undefined) {
+        if (filters.hasSponsoredPosts !== undefined && brandMode !== 'anyBrand') {
             filter.hasSponsoredPosts = filters.hasSponsoredPosts;
         }
         if (filters.followersGrowthRate) {

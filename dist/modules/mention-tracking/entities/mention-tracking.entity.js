@@ -71,6 +71,14 @@ __decorate([
     __metadata("design:type", Array)
 ], MentionTrackingReport.prototype, "keywords", void 0);
 __decorate([
+    (0, typeorm_1.Column)({ name: 'hashtag_match_mode', type: 'varchar', length: 10, default: 'any' }),
+    __metadata("design:type", String)
+], MentionTrackingReport.prototype, "hashtagMatchMode", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'keyword_match_mode', type: 'varchar', length: 10, default: 'any' }),
+    __metadata("design:type", String)
+], MentionTrackingReport.prototype, "keywordMatchMode", void 0);
+__decorate([
     (0, typeorm_1.Column)({ name: 'sponsored_only', default: false }),
     __metadata("design:type", Boolean)
 ], MentionTrackingReport.prototype, "sponsoredOnly", void 0);

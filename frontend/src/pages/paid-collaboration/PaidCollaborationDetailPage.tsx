@@ -9,8 +9,8 @@ import {
   Image, Video, Layers, Play, X, Mail, FileSpreadsheet
 } from 'lucide-react';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, BarChart, Bar, ComposedChart, Area
+  Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, Bar, ComposedChart, Area
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { paidCollaborationApi } from '../../services/api';
@@ -805,8 +805,8 @@ export const PaidCollaborationDetailPage = () => {
                             labelFormatter={(value) => new Date(value).toLocaleDateString('en-US', { 
                               weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' 
                             })}
-                            formatter={(value: number, name: string) => [
-                              value >= 1000 ? `${(value/1000).toFixed(1)}K` : value,
+                            formatter={(value: number | undefined, name: string | undefined) => [
+                              value != null ? (value >= 1000 ? `${(value/1000).toFixed(1)}K` : value) : 0,
                               name === 'postsCount' ? 'Posts' : 
                               name === 'influencersCount' ? 'Influencers' : 
                               name === 'likesCount' ? 'Likes' : 'Views'

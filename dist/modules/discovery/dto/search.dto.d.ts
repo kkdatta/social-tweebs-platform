@@ -70,6 +70,7 @@ export declare class InfluencerFiltersDto {
     hasYouTube?: boolean;
     hasContactDetails?: ContactDetailsFilter[];
     brands?: number[];
+    brandMatchMode?: 'any' | 'all' | 'anyBrand';
     interests?: number[];
     followersGrowthRate?: FollowersGrowthRateFilter;
     filterOperations?: FilterOperationDto[];
